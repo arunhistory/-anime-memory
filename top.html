@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>日本アニメ一覧検索</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #171a21;
+      --panel2: #1d2330;
+      --line: #2b3240;
+      --text: #f5f7fb;
+      --sub: #b8c0cc;
+      --accent: #7aa2ff;
+      --accent2: #5ed0a5;
+      --danger: #ff9a9a;
+      --overlay: rgba(0, 0, 0, 0.6);
+      --tag: #24314d;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .wrap {
+      width: min(1100px, 92%);
+      margin: 0 auto;
+      padding: 24px 0 40px;
+    }
+
+    .header {
+      margin-bottom: 20px;
+    }
+
+    .title {
+      margin: 0 0 8px;
+      font-size: 1.8rem;
+      line-height: 1.3;
+    }
+
+    .desc {
+      margin: 0;
+      color: var(--sub);
+      line-height: 1.6;
+      font-size: 0.95rem;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin: 18px 0 0;
+    }
+
+    .nav-links a {
+      display: inline-block;
+      text-decoration: none;
+      color: var(--text);
+      background: var(--panel2);
+      border: 1px solid var(--line);
+      padding: 10px 14px;
+      border-radius: 10px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 18px;
+      margin-top: 20px;
+    }
+
+    .panel-title {
+      margin: 0 0 14px;
+      font-size: 1.1rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .field.full {
+      grid-column: 1 / -1;
+    }
+
+    label {
+      font-size: 0.92rem;
+      color: var(--sub);
+    }
+
+    input,
+    select {
+      width: 100%;
+      min-height: 42px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: #11151c;
+      color: var(--text);
+      padding: 10px 12px;
+      font-size: 0.95rem;
+    }
+
+    .genre-box {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 42px;
+    }
+
+    .genre-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .genre-selected {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      min-height: 22px;
+    }
+
+    .genre-tag {
+      display: inline-flex;
+      align-items: center;
+      background: var(--tag);
+      border: 1px solid var(--line);
+      color: var(--text);
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 0.86rem;
+      line-height: 1;
+    }
+
+    .muted {
+      color: var(--sub);
+      font-size: 0.9rem;
+    }
+
+    .actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 18px;
+    }
+
+    button {
+      border: none;
+      border-radius: 10px;
+      padding: 11px 16px;
+      font-size: 0.95rem;
+      cursor: pointer;
+      color: white;
+      background: var(--accent);
+    }
+
+    button.secondary {
+      background: var(--accent2);
+      color: #0b1020;
+      font-weight: 700;
+    }
+
+    button.ghost {
+      background: transparent;
+      border: 1px solid var(--line);
+      color: var(--text);
+    }
+
+    .message {
+      margin-top: 14px;
+      min-height: 24px;
+      font-size: 0.92rem;
+      color: var(--danger);
+    }
+
+    .rule-box {
+      margin-top: 18px;
+      padding: 14px;
+      border-radius: 12px;
+      background: #121720;
+      border: 1px solid var(--line);
+    }
+
+    .rule-box h3 {
+      margin: 0 0 10px;
+      font-size: 1rem;
+    }
+
+    .rule-box ul {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--sub);
+      line-height: 1.8;
+      font-size: 0.92rem;
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: var(--overlay);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      z-index: 1000;
+    }
+
+    .modal.is-open {
+      display: flex;
+    }
+
+    .modal-panel {
+      width: min(720px, 100%);
+      max-height: 80vh;
+      overflow: auto;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 18px;
+    }
+
+    .modal-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+
+    .modal-title {
+      margin: 0;
+      font-size: 1.05rem;
+    }
+
+    .genre-list {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 16px;
+    }
+
+    .genre-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #11151c;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+
+    .genre-item input {
+      width: auto;
+      min-height: auto;
+      margin: 0;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 16px;
+    }
+
+    @media (max-width: 720px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .title {
+        font-size: 1.45rem;
+      }
+
+      .genre-list {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="header">
+      <h1 class="title">日本アニメ一覧検索</h1>
+      <p class="desc">
+        年、春夏秋冬、タイトル、制作会社、ジャンル、シリーズから検索できます。
+        検索はAND条件です。タイトル、制作会社、シリーズは部分一致です。
+        ジャンルは複数選択でき、選んだジャンルをすべて含む作品のみ一致します。
+      </p>
+
+      <div class="nav-links">
+        <a href="./add.html">追加ページへ</a>
+        <a href="./export.html">出力ページへ</a>
+      </div>
+    </header>
+
+    <section class="panel">
+      <h2 class="panel-title">検索条件</h2>
+
+      <form id="anime-search-form">
+        <div class="grid">
+          <div class="field">
+            <label for="year">年</label>
+            <select id="year" name="year">
+              <option value="">選択してください</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="season">春夏秋冬</label>
+            <select id="season" name="season">
+              <option value="">選択してください</option>
+              <option value="春">春</option>
+              <option value="夏">夏</option>
+              <option value="秋">秋</option>
+              <option value="冬">冬</option>
+            </select>
+          </div>
+
+          <div class="field full">
+            <label for="title">タイトル（部分一致）</label>
+            <input
+              type="text"
+              id="title"
+              name="title"
+              placeholder="例：ガンダム"
+              maxlength="120"
+            />
+          </div>
+
+          <div class="field full">
+            <label for="studio">制作会社（部分一致）</label>
+            <input
+              type="text"
+              id="studio"
+              name="studio"
+              placeholder="例：東映、A-1、京都アニメーション"
+              maxlength="120"
+            />
+          </div>
+
+          <div class="field full">
+            <label>ジャンル（複数選択可）</label>
+            <div class="genre-box">
+              <div class="genre-actions">
+                <button type="button" id="open-genre-modal" class="ghost">ジャンルを選択</button>
+                <button type="button" id="clear-genres" class="ghost">ジャンルをクリア</button>
+              </div>
+              <div id="selected-genres" class="genre-selected"></div>
+              <input type="hidden" id="genre-values" name="genres" value="" />
+            </div>
+          </div>
+
+          <div class="field full">
+            <label for="series">シリーズ（部分一致）</label>
+            <input
+              type="text"
+              id="series"
+              name="series"
+              placeholder="例：ガンダムシリーズ"
+              maxlength="120"
+            />
+          </div>
+        </div>
+
+        <div class="actions">
+          <button type="submit">検索する</button>
+          <button type="button" id="show-all-button" class="secondary">全表示</button>
+          <button type="reset" id="reset-button" class="ghost">入力をクリア</button>
+        </div>
+
+        <p id="search-message" class="message"></p>
+      </form>
+
+      <div class="rule-box">
+        <h3>検索ルール</h3>
+        <ul>
+          <li>検索はAND条件です。</li>
+          <li>未入力のまま検索はできません。</li>
+          <li>タイトル、制作会社、シリーズは部分一致です。</li>
+          <li>年、春夏秋冬は完全一致です。</li>
+          <li>ジャンルは複数選択でき、選択したジャンルをすべて含む作品だけ一致します。</li>
+          <li>全作品を見たい場合は「全表示」を使います。</li>
+        </ul>
+      </div>
+    </section>
+  </div>
+
+  <div id="genre-modal" class="modal" aria-hidden="true">
+    <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="genre-modal-title">
+      <div class="modal-head">
+        <h2 id="genre-modal-title" class="modal-title">ジャンルを選択</h2>
+        <button type="button" id="close-genre-modal" class="ghost">閉じる</button>
+      </div>
+
+      <div id="genre-list" class="genre-list"></div>
+
+      <div class="modal-actions">
+        <button type="button" id="apply-genres">決定</button>
+        <button type="button" id="clear-genres-in-modal" class="ghost">すべて外す</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const GENRE_OPTIONS = [
+        "バトル",
+        "アクション",
+        "恋愛",
+        "ラブコメ",
+        "学園",
+        "日常",
+        "SF",
+        "ファンタジー",
+        "異世界",
+        "スポーツ",
+        "ミステリー",
+        "ホラー",
+        "コメディ",
+        "ギャグ",
+        "青春",
+        "アイドル",
+        "音楽",
+        "ロボット",
+        "冒険",
+        "歴史",
+        "戦争",
+        "サスペンス",
+        "百合",
+        "BL",
+        "家族",
+        "料理",
+        "医療",
+        "推理",
+        "ダークファンタジー",
+        "仕事",
+        "癒し"
+      ];
+
+      const yearSelect = document.getElementById("year");
+      const form = document.getElementById("anime-search-form");
+      const message = document.getElementById("search-message");
+      const showAllButton = document.getElementById("show-all-button");
+      const resetButton = document.getElementById("reset-button");
+
+      const genreModal = document.getElementById("genre-modal");
+      const genreList = document.getElementById("genre-list");
+      const openGenreModalButton = document.getElementById("open-genre-modal");
+      const closeGenreModalButton = document.getElementById("close-genre-modal");
+      const applyGenresButton = document.getElementById("apply-genres");
+      const clearGenresButton = document.getElementById("clear-genres");
+      const clearGenresInModalButton = document.getElementById("clear-genres-in-modal");
+      const selectedGenresBox = document.getElementById("selected-genres");
+      const genreValuesInput = document.getElementById("genre-values");
+
+      function setupYears() {
+        const currentYear = new Date().getFullYear();
+        for (let year = 2000; year <= currentYear; year += 1) {
+          const option = document.createElement("option");
+          option.value = String(year);
+          option.textContent = `${year}年`;
+          yearSelect.appendChild(option);
+        }
+      }
+
+      function setupGenreModal() {
+        const fragment = document.createDocumentFragment();
+
+        GENRE_OPTIONS.forEach((genre) => {
+          const label = document.createElement("label");
+          label.className = "genre-item";
+
+          const checkbox = document.createElement("input");
+          checkbox.type = "checkbox";
+          checkbox.value = genre;
+          checkbox.name = "genre-checkbox";
+
+          const span = document.createElement("span");
+          span.textContent = genre;
+
+          label.appendChild(checkbox);
+          label.appendChild(span);
+          fragment.appendChild(label);
+        });
+
+        genreList.appendChild(fragment);
+      }
+
+      function getCheckedGenres() {
+        return Array.from(
+          document.querySelectorAll('input[name="genre-checkbox"]:checked')
+        ).map((input) => input.value);
+      }
+
+      function renderSelectedGenres(genres) {
+        selectedGenresBox.innerHTML = "";
+
+        if (genres.length === 0) {
+          const emptyText = document.createElement("span");
+          emptyText.className = "muted";
+          emptyText.textContent = "未選択";
+          selectedGenresBox.appendChild(emptyText);
+          genreValuesInput.value = "";
+          return;
+        }
+
+        genres.forEach((genre) => {
+          const tag = document.createElement("span");
+          tag.className = "genre-tag";
+          tag.textContent = genre;
+          selectedGenresBox.appendChild(tag);
+        });
+
+        genreValuesInput.value = genres.join(",");
+      }
+
+      function clearGenreChecks() {
+        document
+          .querySelectorAll('input[name="genre-checkbox"]')
+          .forEach((input) => {
+            input.checked = false;
+          });
+      }
+
+      function openGenreModal() {
+        genreModal.classList.add("is-open");
+        genreModal.setAttribute("aria-hidden", "false");
+      }
+
+      function closeGenreModal() {
+        genreModal.classList.remove("is-open");
+        genreModal.setAttribute("aria-hidden", "true");
+      }
+
+      function getFormValues() {
+        return {
+          year: document.getElementById("year").value.trim(),
+          season: document.getElementById("season").value.trim(),
+          title: document.getElementById("title").value.trim(),
+          studio: document.getElementById("studio").value.trim(),
+          genres: genreValuesInput.value.trim(),
+          series: document.getElementById("series").value.trim()
+        };
+      }
+
+      function isAllEmpty(values) {
+        return Object.values(values).every((value) => value === "");
+      }
+
+      function buildSearchQuery(values) {
+        const params = new URLSearchParams();
+
+        Object.entries(values).forEach(([key, value]) => {
+          if (value !== "") {
+            params.set(key, value);
+          }
+        });
+
+        return params.toString();
+      }
+
+      function handoffToTopTs(payload) {
+        if (!window.topPageController || typeof window.topPageController.receiveSearchConditions !== "function") {
+          message.textContent = "検索処理の受け渡しに失敗しました。";
+          return;
+        }
+
+        window.topPageController.receiveSearchConditions(payload);
+      }
+
+      openGenreModalButton.addEventListener("click", openGenreModal);
+      closeGenreModalButton.addEventListener("click", closeGenreModal);
+
+      genreModal.addEventListener("click", (event) => {
+        if (event.target === genreModal) {
+          closeGenreModal();
+        }
+      });
+
+      applyGenresButton.addEventListener("click", () => {
+        const selected = getCheckedGenres();
+        renderSelectedGenres(selected);
+        closeGenreModal();
+      });
+
+      clearGenresButton.addEventListener("click", () => {
+        clearGenreChecks();
+        renderSelectedGenres([]);
+      });
+
+      clearGenresInModalButton.addEventListener("click", () => {
+        clearGenreChecks();
+      });
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        message.textContent = "";
+
+        const values = getFormValues();
+
+        if (isAllEmpty(values)) {
+          message.textContent = "検索条件を1つ以上入力してください。";
+          return;
+        }
+
+        const queryString = buildSearchQuery(values);
+
+        handoffToTopTs({
+          mode: "search",
+          queryString
+        });
+      });
+
+      showAllButton.addEventListener("click", () => {
+        message.textContent = "";
+        handoffToTopTs({
+          mode: "all",
+          queryString: ""
+        });
+      });
+
+      resetButton.addEventListener("click", () => {
+        message.textContent = "";
+        clearGenreChecks();
+        renderSelectedGenres([]);
+      });
+
+      setupYears();
+      setupGenreModal();
+      renderSelectedGenres([]);
+    })();
+  </script>
+
+  <script type="module" src="./ts/top-page-entry.js"></script>
+</body>
+</html>
