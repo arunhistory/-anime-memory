@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ハッシュ生成</title>
+</head>
+<body>
+  <h1>変更キー多重ハッシュ生成</h1>
+
+  <p>変更キーを入力して生成する。</p>
+
+  <input type="password" id="changeKey" placeholder="変更キー" />
+  <button id="generateButton" type="button">生成</button>
+  <button id="copyButton" type="button">コピー</button>
+
+  <p id="message"></p>
+
+  <textarea id="result" rows="8" cols="60" readonly></textarea>
+
+  <script>
+    async function sha256(text) {
+      const data = new TextEncoder().encode(text);
+      const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+    }
+
+    async function multiHash(inputKey) {
+      const step1 = await sha256("anime-site-change-key::" + inputKey + "::phase1");
+      const step2 = await sha256("anime-site-change-key::" + step1 + "::phase2");
+      const step3 = await sha256("anime-site-change-key::" + step2 + "::phase3");
+      return step3;
+    }
+
+    const changeKeyInput = document.getElementById("changeKey");
+    const generateButton = document.getElementById("generateButton");
+    const copyButton = document.getElementById("copyButton");
+    const result = document.getElementById("result");
+    const message = document.getElementById("message");
+
+    generateButton.addEventListener("click", async () => {
+      const inputKey = changeKeyInput.value.trim();
+
+      message.textContent = "";
+      result.value = "";
+
+      if (!inputKey) {
+        message.textContent = "変更キーを入力してください。";
+        return;
+      }
+
+      const hashed = await multiHash(inputKey);
+      result.value = hashed;
+      message.textContent = "生成しました。";
+    });
+
+    copyButton.addEventListener("click", async () => {
+      if (!result.value) {
+        message.textContent = "コピーする値がありません。";
+        return;
+      }
+
+      await navigator.clipboard.writeText(result.value);
+      message.textContent = "コピーしました。";
+    });
+  </script>
+</body>
+</html>
