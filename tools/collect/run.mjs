@@ -46,6 +46,23 @@ function parseBoolean(value, fallback = false) {
   throw new Error(`真偽値が不正です: ${value}`);
 }
 
+function boundedInteger(value, name, min, max, fallback) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < min || parsed > max) throw new Error(`${name} は ${min}〜${max} の整数が必要です。`);
+  return parsed;
+}
+
+function setGithubOutput(name, value) {
+  const outputPath = process.env.GITHUB_OUTPUT;
+  if (!outputPath) return;
+  fs.appendFileSync(outputPath, `${name}=${String(value)}\n`, 'utf8');
+}
+
+function emitGeminiCalls(value) {
+  setGithubOutput('gemini_calls', Number(value) || 0);
+}
+
 function parseConfig() {
   const raw = process.env.ANIME_SOURCE_CONFIG_JSON;
   if (!raw) throw new Error('api-json入力には ANIME_SOURCE_CONFIG_JSON が必要です。');
@@ -211,10 +228,12 @@ async function loadInputRecords({ inputMode, root, columns, confirmedDate }) {
 }
 
 async function main() {
+  emitGeminiCalls(0);
   const args = parseArgs(process.argv.slice(2));
   const mode = String(args.mode || 'initial').toLowerCase();
   const inputMode = String(args.input || 'discovery').toLowerCase();
   const geminiEnabled = parseBoolean(args.gemini, false);
+  const geminiMaxCalls = boundedInteger(process.env.ANIME_GEMINI_MAX_CALLS, 'ANIME_GEMINI_MAX_CALLS', 1, 450, 450);
   if (!['initial', 'quarterly'].includes(mode)) throw new Error('--mode は initial または quarterly です。');
   if (!['discovery', 'api-json'].includes(inputMode)) throw new Error('--input は discovery または api-json です。');
 
@@ -283,10 +302,11 @@ async function main() {
       model: process.env.ANIME_GEMINI_MODEL || undefined,
       requestDelayMs: process.env.ANIME_GEMINI_REQUEST_DELAY_MS,
       timeoutMs: process.env.ANIME_GEMINI_TIMEOUT_MS,
-      maxCalls: 450
+      maxCalls: geminiMaxCalls
     });
     selected = result.records;
     geminiStats = result.stats;
+    emitGeminiCalls(geminiStats.calls);
     if (geminiStats.stoppedEarly) {
       console.warn(`Gemini概要生成を安全停止しました。成功分のみCSV候補に残します: ${geminiStats.stopReason}`);
     }
