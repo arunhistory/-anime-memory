@@ -85,6 +85,8 @@ jobs:
           node tools/correct/self-test.mjs
           node tools/discovery/self-test.mjs
           node tools/discovery/quality-self-test.mjs
+          node tools/discovery/common-evidence-self-test.mjs
+          node tools/discovery/entity-resolution-self-test.mjs
           node tools/discovery/taxonomy-self-test.mjs
           node tools/gemini/quota-self-test.mjs
           node tools/gemini/self-test.mjs
