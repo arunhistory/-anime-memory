@@ -27,32 +27,51 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Discovery quality tests
+      - name: Discovery preflight tests
         run: |
           node tools/discovery/self-test.mjs
           node tools/discovery/quality-self-test.mjs
+          node tools/discovery/common-evidence-self-test.mjs
+          node tools/discovery/structured-evidence-self-test.mjs
+          node tools/discovery/entity-resolution-self-test.mjs
+          node tools/discovery/taxonomy-self-test.mjs
 
       - name: Controlled live discovery in runner only
         run: node tools/discovery/run.mjs --max-pages 14 --max-depth 3 --per-host-limit 14
 
-      - name: Inspect runner-only candidates
+      - name: Inspect runner-only admission results
         run: |
           node --input-type=module - <<'NODE'
           import fs from 'node:fs';
+          import { loadColumns } from './tools/csv/csv.mjs';
+          import { readyDiscoveryRecords, discoveryCandidateReadiness } from './tools/discovery/to-record.mjs';
           const state = JSON.parse(fs.readFileSync('crawler/state.json', 'utf8'));
+          const columns = loadColumns(process.cwd());
+          const ready = readyDiscoveryRecords(state, columns, '2026-09-10');
           console.log(`documents=${state.documents.length}`);
           console.log(`candidates=${state.candidates.length}`);
+          console.log(`ready_records=${ready.records.length}`);
+          const reasons = {};
+          for (const candidate of state.candidates) {
+            const result = discoveryCandidateReadiness(candidate);
+            if (!result.ready) reasons[result.reason] = (reasons[result.reason] || 0) + 1;
+            if (result.ready && candidate.facts?.origin_country?.value !== 'JP') {
+              throw new Error(`non-Japanese candidate passed admission: ${candidate.title}`);
+            }
+          }
+          console.log(`skip_reasons=${JSON.stringify(reasons)}`);
           for (const candidate of state.candidates.slice(0, 25)) {
             console.log(JSON.stringify({
               title: candidate.title,
-              sources: candidate.sources,
-              facts: candidate.facts
+              origin: candidate.facts?.origin_country,
+              media: candidate.facts?.media_type,
+              readiness: discoveryCandidateReadiness(candidate)
             }));
           }
           NODE
 
-      - name: Confirm repository remains untouched
+      - name: Confirm repository remains read-only
         run: |
           if [[ -n "$(git status --porcelain)" ]]; then
-            echo 'Runner workspace changed as expected for the read-only pilot; nothing is committed or pushed.'
+            echo 'Runner workspace changed only for the live pilot; nothing is committed or pushed.'
           fi
