@@ -23,12 +23,31 @@
     if (results) results.setAttribute('aria-busy', String(Boolean(busy)));
   };
 
+  const setEmpty = (title, note, icon = '▦') => {
+    window.AnimeUI?.setEmptyState(results, { icon, title, message: note });
+  };
+
+  const replaceCards = (cards) => {
+    if (!results || !window.AnimeUI || !Array.isArray(cards)) return;
+    window.AnimeUI.clearNode(results);
+    appendCards(cards);
+  };
+
+  const appendCards = (cards) => {
+    if (!results || !window.AnimeUI || !Array.isArray(cards)) return;
+    const fragment = document.createDocumentFragment();
+    cards.forEach((card) => fragment.appendChild(window.AnimeUI.createAnimeCard(card)));
+    results.appendChild(fragment);
+  };
+
+  const getSortRequest = () => ({
+    key: sortKey?.value || 'season',
+    direction: sortDirection?.dataset.dir || 'asc'
+  });
+
   const emitSortRequest = () => {
     window.dispatchEvent(new CustomEvent('anime-all-sort-request', {
-      detail: {
-        key: sortKey?.value || 'season',
-        direction: sortDirection?.dataset.dir || 'asc'
-      }
+      detail: getSortRequest()
     }));
   };
 
@@ -47,10 +66,10 @@
   window.AnimeAllUI = Object.freeze({
     setStatus,
     setBusy,
-    getSortRequest: () => ({
-      key: sortKey?.value || 'season',
-      direction: sortDirection?.dataset.dir || 'asc'
-    })
+    setEmpty,
+    replaceCards,
+    appendCards,
+    getSortRequest
   });
 
   // このファイルはCSVバイト列の受け渡し、WASMへの要求、DOM描画の状態管理だけを担当する。
