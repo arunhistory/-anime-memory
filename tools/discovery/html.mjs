@@ -117,6 +117,15 @@ function addCandidate(found, value) {
 function subjectCandidateFromPage(document) {
   const rawHeadings = [document.ogTitle, document.title].filter(Boolean);
   for (const raw of rawHeadings) {
+    const embeddedPatterns = [
+      /(?:TV|テレビ|劇場|Web|WEB|配信|短編)?\s*アニメ(?:ーション)?(?:作品)?\s*[「『“"]([^」』”"\n]{1,120})[」』”"]/i,
+      /[「『“"]([^」』”"\n]{1,120})[」』”"]\s*(?:TV|テレビ|劇場|Web|WEB)?\s*アニメ(?:化|ーション化|放送|配信|制作|公開|決定)/i
+    ];
+    for (const pattern of embeddedPatterns) {
+      const embedded = raw.match(pattern);
+      if (embedded) return cleanCandidateTitle(embedded[1]);
+    }
+
     const official = raw.match(/^(?:TV|テレビ|劇場|Web|WEB)?\s*アニメ(?:ーション)?\s+(.{1,100}?)\s+(?:公式(?:サイト)?|official(?: site)?)(?:\s|$)/i);
     if (official) return cleanCandidateTitle(official[1]);
 
