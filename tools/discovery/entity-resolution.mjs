@@ -12,20 +12,6 @@ function splitFactValues(candidate, field) {
   return String(item.value).split('|').map((value) => value.trim()).filter(Boolean);
 }
 
-function titleKeys(candidate) {
-  const keys = new Set();
-  const add = (value) => {
-    const key = normalizeTitleKey(value);
-    if (key) keys.add(key);
-  };
-  add(candidate?.title);
-  for (const field of ['title_ja', 'title_kana', 'title_romaji', 'title_en']) {
-    for (const value of splitFactValues(candidate, field)) add(value);
-  }
-  for (const value of splitFactValues(candidate, 'aliases')) add(value);
-  return keys;
-}
-
 function confirmedAliases(candidate) {
   return new Set(splitFactValues(candidate, 'aliases').map(normalizeTitleKey).filter(Boolean));
 }
@@ -76,10 +62,23 @@ function titlePreference(candidate) {
   return japanese + Math.min(50, candidate.sources?.length || 0);
 }
 
+function alternateTitleEvidence(primary, secondary) {
+  const primaryKey = normalizeTitleKey(primary.title || primary.key);
+  return (secondary.evidence || []).map((item) => {
+    if (item.field !== 'title_ja') return item;
+    if (normalizeTitleKey(item.value) === primaryKey) return item;
+    return {
+      ...item,
+      field: 'aliases',
+      rule: 'entity-resolution-title-alias'
+    };
+  });
+}
+
 function mergePair(left, right) {
   const primary = titlePreference(left) >= titlePreference(right) ? left : right;
   const secondary = primary === left ? right : left;
-  const evidence = mergeEvidence(primary.evidence || [], secondary.evidence || []);
+  const evidence = mergeEvidence(primary.evidence || [], alternateTitleEvidence(primary, secondary));
   const sources = [...new Set([...(primary.sources || []), ...(secondary.sources || [])])].slice(0, 50);
   return {
     key: normalizeTitleKey(primary.title || primary.key),
