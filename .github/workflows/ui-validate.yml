@@ -10,6 +10,7 @@ on:
       - "detail/**"
       - "assets/css/**"
       - "assets/js/**"
+      - "assets/wasm/**"
       - "tools/validate/**"
       - ".github/workflows/ui-validate.yml"
   pull_request:
@@ -20,6 +21,7 @@ on:
       - "detail/**"
       - "assets/css/**"
       - "assets/js/**"
+      - "assets/wasm/**"
       - "tools/validate/**"
       - ".github/workflows/ui-validate.yml"
 
@@ -42,6 +44,7 @@ jobs:
       - name: JavaScript syntax check
         run: |
           node --check assets/js/common.js
+          node --check assets/js/wasm-runtime.js
           node --check assets/js/search-bridge.js
           node --check assets/js/all-bridge.js
           node --check assets/js/detail-bridge.js
