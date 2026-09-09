@@ -17,10 +17,12 @@ const SCALAR_FIELDS = new Set([
   'series_composition',
   'character_design',
   'music',
-  'sound_director'
+  'sound_director',
+  'origin_country'
 ]);
 
 const MULTI_VALUE_FIELDS = new Set(['genres']);
+const NON_JAPAN_COUNTRY = /(?:アメリカ合衆国|アメリカ|中国|中華人民共和国|韓国|大韓民国|フランス|カナダ|イギリス|英国|ドイツ|イタリア|スペイン|ロシア|オーストラリア|インド|ブラジル|メキシコ|台湾|香港|シンガポール|タイ|フィリピン|インドネシア|マレーシア|ベトナム|United States|USA|America|China|South Korea|Korea|France|Canada|United Kingdom|UK|Germany|Italy|Spain|Russia|Australia|India|Brazil|Mexico|Taiwan|Hong Kong)/i;
 
 function cleanValue(value, max = 120) {
   return String(value || '')
@@ -105,6 +107,31 @@ function extractMediaTypes(context) {
   return claims;
 }
 
+function extractOriginCountry(context) {
+  const text = String(context || '').normalize('NFKC');
+  const claims = [];
+  const add = (value, rule) => claims.push({ field: 'origin_country', value, rule });
+
+  for (const match of text.matchAll(/(?:製作国|制作国|原産国|製作地域|制作地域)\s*[:：]?\s*([^\n]{1,80})/gi)) {
+    const value = cleanValue(match[1], 80);
+    if (!value) continue;
+    const hasJapan = /(?:日本|\bJapan\b)/i.test(value);
+    const hasOther = NON_JAPAN_COUNTRY.test(value);
+    if (hasJapan) add('JP', 'origin-country-labeled-japan');
+    if (hasOther || !hasJapan) add('OTHER', 'origin-country-labeled-other');
+  }
+
+  if (/(?:日本の(?:テレビ|TV|劇場|Web|WEB|配信|短編)?\s*アニメ(?:ーション)?(?:作品|映画)?|日本製(?:の)?\s*アニメ(?:ーション)?|日本で(?:制作|製作)された(?:テレビ|劇場|Web|WEB)?\s*アニメ(?:ーション)?|\bJapanese\s+(?:anime|animation|animated\s+(?:series|film))\b)/i.test(text)) {
+    add('JP', 'origin-explicit-japan-anime');
+  }
+
+  if (new RegExp(`${NON_JAPAN_COUNTRY.source}(?:の|\\s+)(?:テレビ|TV|劇場|Web|WEB)?\\s*アニメ(?:ーション)?(?:作品|映画)?`, 'i').test(text)) {
+    add('OTHER', 'origin-explicit-other-anime');
+  }
+
+  return claims;
+}
+
 function extractLabeledValues(context) {
   const claims = [];
   const rules = [
@@ -163,6 +190,7 @@ function extractOriginalType(context) {
 function normalizeEvidenceValue(field, value) {
   let normalized = cleanValue(value, 160).normalize('NFKC');
   if (field === 'media_type') normalized = normalized.toUpperCase();
+  if (field === 'origin_country') normalized = normalized.toUpperCase();
   if (field === 'genres') {
     if (isAnimeGenre(normalized)) return normalized;
     const candidates = normalizeGenresFromText(normalized);
@@ -186,6 +214,7 @@ export function extractCandidateEvidence(document, candidate, observedAt = new D
   const rawClaims = [
     { field: 'title_ja', value: candidate.title, rule: 'anime-title-candidate' },
     ...extractMediaTypes(context),
+    ...extractOriginCountry(context),
     extractOriginalType(context),
     ...extractGenreClaims(document, context),
     ...extractEventDates(context),
