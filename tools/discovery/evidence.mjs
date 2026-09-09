@@ -1,9 +1,17 @@
 import { normalizeUrl } from './url.mjs';
+import {
+  detectOriginalType,
+  isAnimeGenre,
+  isOriginalType,
+  normalizeGenresFromText,
+  sortGenres
+} from './taxonomy.mjs';
 
 const SCALAR_FIELDS = new Set([
   'media_type',
   'release_start',
   'theatrical_release_date',
+  'original_type',
   'animation_studio',
   'director',
   'series_composition',
@@ -11,6 +19,8 @@ const SCALAR_FIELDS = new Set([
   'music',
   'sound_director'
 ]);
+
+const MULTI_VALUE_FIELDS = new Set(['genres']);
 
 function cleanValue(value, max = 120) {
   return String(value || '')
@@ -22,7 +32,7 @@ function cleanValue(value, max = 120) {
 }
 
 function candidateContext(document, title) {
-  const text = `${document.title || ''}\n${document.ogTitle || ''}\n${document.description || ''}\n${document.text || ''}`;
+  const text = `${document.title || ''}\n${document.ogTitle || ''}\n${document.description || ''}\n${document.keywords || ''}\n${document.text || ''}`;
   if (!title) return text.slice(0, 50000);
   const index = text.indexOf(title);
   if (index < 0) return text.slice(0, 50000);
@@ -101,9 +111,48 @@ function extractLabeledValues(context) {
   return claims;
 }
 
+function extractGenreClaims(document, context) {
+  const found = new Set();
+  for (const genre of normalizeGenresFromText(document?.keywords || '')) found.add(genre);
+
+  const lines = String(context || '').split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  for (const line of lines.slice(0, 2000)) {
+    const labeled = line.match(/(?:ジャンル|カテゴリー|カテゴリ|系統)\s*[:：]\s*([^\n]{1,300})/i);
+    if (labeled) {
+      for (const genre of normalizeGenresFromText(labeled[1])) found.add(genre);
+      continue;
+    }
+
+    if (/(?:監督|音楽|制作|声優|キャスト)\s*[:：]/.test(line)) continue;
+    if (!/(?:系|もの|モノ)/.test(line)) continue;
+    for (const genre of normalizeGenresFromText(line)) found.add(genre);
+  }
+
+  return sortGenres([...found]).map((value) => ({ field: 'genres', value, rule: 'genre-taxonomy' }));
+}
+
+function extractOriginalType(context) {
+  const lines = String(context || '').split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const originLines = lines.slice(0, 2000).filter((line) =>
+    /(原作|原案|連載|掲載|発祥|発(?:の|から)|小説家になろう|カクヨム|オリジナルアニメ|アニメオリジナル|メディアミックス)/i.test(line)
+  );
+  if (!originLines.length) return null;
+  const value = detectOriginalType(originLines.join('\n'));
+  return value ? { field: 'original_type', value, rule: 'original-type-taxonomy' } : null;
+}
+
 function normalizeEvidenceValue(field, value) {
   let normalized = cleanValue(value, 160).normalize('NFKC');
   if (field === 'media_type') normalized = normalized.toUpperCase();
+  if (field === 'genres') {
+    if (isAnimeGenre(normalized)) return normalized;
+    const candidates = normalizeGenresFromText(normalized);
+    return candidates.length === 1 ? candidates[0] : '';
+  }
+  if (field === 'original_type') {
+    if (isOriginalType(normalized)) return normalized;
+    return detectOriginalType(normalized);
+  }
   return normalized;
 }
 
@@ -118,6 +167,8 @@ export function extractCandidateEvidence(document, candidate, observedAt = new D
   const rawClaims = [
     { field: 'title_ja', value: candidate.title, rule: 'anime-title-candidate' },
     extractMediaType(context),
+    extractOriginalType(context),
+    ...extractGenreClaims(document, context),
     ...extractEventDates(context),
     ...extractLabeledValues(context)
   ].filter(Boolean);
@@ -126,7 +177,7 @@ export function extractCandidateEvidence(document, candidate, observedAt = new D
   const output = [];
   for (const claim of rawClaims) {
     const field = String(claim.field || '');
-    if (field !== 'title_ja' && !SCALAR_FIELDS.has(field)) continue;
+    if (field !== 'title_ja' && !SCALAR_FIELDS.has(field) && !MULTI_VALUE_FIELDS.has(field)) continue;
     const value = normalizeEvidenceValue(field, claim.value);
     if (!value) continue;
     const item = {
@@ -163,6 +214,42 @@ export function mergeEvidence(existing = [], incoming = []) {
   return [...map.values()].slice(-250);
 }
 
+function alternativesFor(values) {
+  return [...values.values()]
+    .map((entry) => ({
+      value: entry.value,
+      sourceCount: entry.sources.size,
+      hostCount: entry.hosts.size,
+      evidenceCount: entry.evidenceCount
+    }))
+    .sort((a, b) => b.hostCount - a.hostCount || b.sourceCount - a.sourceCount || b.evidenceCount - a.evidenceCount || a.value.localeCompare(b.value));
+}
+
+function resolveMultiValueField(field, values) {
+  const alternatives = alternativesFor(values);
+  const confirmed = alternatives.filter((entry) => entry.hostCount >= 2);
+  const selected = confirmed.length ? confirmed : alternatives;
+  const selectedValues = field === 'genres'
+    ? sortGenres(selected.map((entry) => entry.value))
+    : selected.map((entry) => entry.value);
+
+  const selectedSources = new Set();
+  const selectedHosts = new Set();
+  for (const entry of values.values()) {
+    if (!selectedValues.includes(entry.value)) continue;
+    for (const source of entry.sources) selectedSources.add(source);
+    for (const host of entry.hosts) selectedHosts.add(host);
+  }
+
+  return {
+    status: confirmed.length ? 'confirmed' : 'observed',
+    value: selectedValues.join('|'),
+    sourceCount: selectedSources.size,
+    hostCount: selectedHosts.size,
+    alternatives: alternatives.filter((entry) => !selectedValues.includes(entry.value)).slice(0, 10)
+  };
+}
+
 export function resolveEvidence(evidence = []) {
   const byField = new Map();
   for (const item of evidence) {
@@ -181,15 +268,12 @@ export function resolveEvidence(evidence = []) {
 
   const facts = {};
   for (const [field, values] of byField) {
-    const alternatives = [...values.values()]
-      .map((entry) => ({
-        value: entry.value,
-        sourceCount: entry.sources.size,
-        hostCount: entry.hosts.size,
-        evidenceCount: entry.evidenceCount
-      }))
-      .sort((a, b) => b.hostCount - a.hostCount || b.sourceCount - a.sourceCount || b.evidenceCount - a.evidenceCount || a.value.localeCompare(b.value));
+    if (MULTI_VALUE_FIELDS.has(field)) {
+      facts[field] = resolveMultiValueField(field, values);
+      continue;
+    }
 
+    const alternatives = alternativesFor(values);
     if (alternatives.length === 1) {
       const top = alternatives[0];
       facts[field] = {
