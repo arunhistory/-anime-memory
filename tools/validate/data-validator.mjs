@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadColumns, parseCsv, rowsToRecords, listDataCsvFiles, readUtf8Strict } from '../csv/csv.mjs';
-import { splitEscaped, splitStructured, hasExactExternalId, isCompositeDuplicateCandidate } from '../normalize/record.mjs';
+import { splitEscaped, splitStructured, externalIdSet, titleSet, normalizeText } from '../normalize/record.mjs';
 
 export const MEDIA_TYPES = new Set(['TV', 'MOVIE', 'OVA', 'ONA', 'SPECIAL', 'SHORT', 'OTHER']);
 const RELATION_TYPES = new Set(['PREQUEL', 'SEQUEL', 'SPINOFF', 'MOVIE', 'OVA', 'ONA', 'SPECIAL', 'REMAKE', 'REBOOT', 'COMPILATION', 'ALTERNATIVE', 'OTHER']);
@@ -97,6 +97,52 @@ function validateStructuredField(record, field, expectedParts, label, failures, 
   }
 }
 
+function corroboratesDuplicate(left, right) {
+  return [
+    [left.original_title, right.original_title],
+    [left.original_author, right.original_author],
+    [left.animation_studio, right.animation_studio]
+  ].some(([a, b]) => a && b && normalizeText(a) === normalizeText(b));
+}
+
+function validateDuplicates(entries, failures) {
+  const externalSeen = new Map();
+  const exactPairs = new Set();
+  const titleBuckets = new Map();
+  const candidatePairs = new Set();
+
+  entries.forEach(({ record }, index) => {
+    for (const externalId of externalIdSet(record)) {
+      if (externalSeen.has(externalId)) {
+        const previous = externalSeen.get(externalId);
+        const pair = previous < index ? `${previous}:${index}` : `${index}:${previous}`;
+        if (!exactPairs.has(pair)) {
+          exactPairs.add(pair);
+          failures.push(`外部ID完全一致の重複: ${entries[previous].record.id} / ${record.id}`);
+        }
+      } else {
+        externalSeen.set(externalId, index);
+      }
+    }
+
+    if (!record.media_type || !record.release_start) return;
+    for (const title of titleSet(record)) {
+      const bucketKey = `${title}\u001f${record.media_type}\u001f${record.release_start}`;
+      const previousIndices = titleBuckets.get(bucketKey) || [];
+      for (const previous of previousIndices) {
+        const pair = previous < index ? `${previous}:${index}` : `${index}:${previous}`;
+        if (candidatePairs.has(pair) || exactPairs.has(pair)) continue;
+        candidatePairs.add(pair);
+        if (corroboratesDuplicate(entries[previous].record, record)) {
+          failures.push(`作品重複候補: ${entries[previous].record.id} / ${record.id}`);
+        }
+      }
+      previousIndices.push(index);
+      titleBuckets.set(bucketKey, previousIndices);
+    }
+  });
+}
+
 export function validateRecords(entries, columns) {
   const failures = [];
   const ids = new Map();
@@ -159,18 +205,7 @@ export function validateRecords(entries, columns) {
     if (!checkQuarterFile(record, fileName)) failures.push(`${label}: 四半期ファイルの期間に開始情報がありません`);
   });
 
-  for (let i = 0; i < entries.length; i += 1) {
-    for (let j = i + 1; j < entries.length; j += 1) {
-      const a = entries[i];
-      const b = entries[j];
-      if (hasExactExternalId(a.record, b.record)) {
-        failures.push(`外部ID完全一致の重複: ${a.record.id} / ${b.record.id}`);
-      } else if (isCompositeDuplicateCandidate(a.record, b.record)) {
-        failures.push(`作品重複候補: ${a.record.id} / ${b.record.id}`);
-      }
-    }
-  }
-
+  validateDuplicates(entries, failures);
   return failures;
 }
 
