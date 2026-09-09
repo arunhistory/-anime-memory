@@ -53,6 +53,18 @@ assert.equal(hasExactExternalId(normalized, sameExternal), true);
 const composite = { ...normalized, external_ids: '', aliases: '' };
 assert.equal(isCompositeDuplicateCandidate(normalized, composite), true);
 
+const theatricalA = {
+  ...normalized,
+  external_ids: '',
+  media_type: 'MOVIE',
+  release_start: '',
+  theatrical_release_date: '2027-08-01',
+  title_ja: '劇場テスト',
+  aliases: ''
+};
+const theatricalB = { ...theatricalA, animation_studio: 'Studio Test' };
+assert.equal(isCompositeDuplicateCandidate(theatricalA, theatricalB), true);
+
 await assert.rejects(
   () => collectSource({ name: 'bad', url: 'https://example.com', transport: 'html-scrape', policy: {} }),
   /API JSON以外/
@@ -126,6 +138,22 @@ const badRecord = { ...validRecord, id: 'A00000002', media_type: 'INVALID', exte
 fs.writeFileSync(path.join(dataDir, 'initial-002.csv'), recordsToCsv([badRecord], columns), 'utf8');
 writeManifest(dataDir);
 assert.ok(validateDataDirectory(dataDir).failures.some((value) => value.includes('media_type')));
+fs.rmSync(path.join(dataDir, 'initial-002.csv'));
+writeManifest(dataDir);
+
+const movieA = Object.fromEntries(columns.map((column) => [column, '']));
+Object.assign(movieA, {
+  id: 'A00000002',
+  title_ja: '劇場重複検証',
+  media_type: 'MOVIE',
+  theatrical_release_date: '2027-08-01',
+  animation_studio: 'Studio Movie',
+  updated_at: '2026-09-09'
+});
+const movieB = { ...movieA, id: 'A00000003' };
+fs.writeFileSync(path.join(dataDir, 'initial-002.csv'), recordsToCsv([movieA, movieB], columns), 'utf8');
+writeManifest(dataDir);
+assert.ok(validateDataDirectory(dataDir).failures.some((value) => value.includes('作品重複候補')));
 
 const invalidUtf8 = path.join(tempRoot, 'invalid-utf8.csv');
 fs.writeFileSync(invalidUtf8, Buffer.from([0xff, 0xfe, 0xfd]));
@@ -133,15 +161,23 @@ assert.throws(() => readUtf8Strict(invalidUtf8), /UTF-8/);
 fs.rmSync(tempRoot, { recursive: true, force: true });
 
 const collectorSource = fs.readFileSync(path.join(root, 'tools/collect/run.mjs'), 'utf8');
+const collectWorkflow = fs.readFileSync(path.join(root, '.github/workflows/data-collect.yml'), 'utf8');
+assert.ok(collectorSource.includes("args.input || 'discovery'"), 'collector default input must be discovery');
+assert.ok(collectorSource.includes("path.join(root, 'crawler', 'state.json')"), 'collector must read discovery state');
+assert.ok(collectWorkflow.includes('default: discovery'), 'Actions collection input must default to discovery');
+assert.ok(collectWorkflow.includes('--input'), 'Actions must pass collection input explicitly');
+
 const allCollectorSources = [
   collectorSource,
   fs.readFileSync(path.join(root, 'tools/fetch/http-json.mjs'), 'utf8'),
-  fs.readFileSync(path.join(root, '.github/workflows/data-collect.yml'), 'utf8')
+  collectWorkflow
 ].join('\n');
 for (const forbidden of ['GEMINI_API_KEY', 'generativelanguage.googleapis.com', '@google/generative-ai']) {
   assert.equal(allCollectorSources.includes(forbidden), false, `Gemini connection found: ${forbidden}`);
 }
 
 console.log('Data collection self-test: PASS');
+console.log('discovery input default: PASS');
+console.log('theatrical duplicate detection: PASS');
 console.log('safe-stop partial collection: PASS');
 console.log('Gemini connection: NONE');
