@@ -91,7 +91,8 @@ function cleanCandidateTitle(value) {
   text = text.replace(/^[\s:：―—–\-]+|[\s:：―—–\-]+$/g, '');
   text = text.replace(/\s{2,}/g, ' ');
   if (text.length < 1 || text.length > 120) return null;
-  if (/^(?:アニメ|anime|作品|公式|ニュース|最新情報)$/i.test(text)) return null;
+  if (/^(?:アニメ|anime|作品|公式|ニュース|最新情報|テレビアニメ作品一覧|日本のテレビアニメ作品一覧)$/i.test(text)) return null;
+  if (/^(?:配信|放送|制作|公開|上映|アニメ化|ネット).{0,12}(?:する|した|される|された|を|の)/.test(text)) return null;
   return text;
 }
 
@@ -100,6 +101,38 @@ export function normalizeTitleKey(value) {
     .normalize('NFKC')
     .toLocaleLowerCase('ja')
     .replace(/[\s\u3000\-‐‑‒–—―・･:：!！?？'"“”‘’「」『』【】［］\[\]（）()]/g, '');
+}
+
+function addCandidate(found, value) {
+  const title = cleanCandidateTitle(value);
+  const key = normalizeTitleKey(title);
+  if (!title || !key || key.length < 2 || found.has(key)) return;
+  found.set(key, title);
+}
+
+function subjectCandidateFromPage(document) {
+  const rawHeadings = [document.ogTitle, document.title].filter(Boolean);
+  for (const raw of rawHeadings) {
+    const official = raw.match(/^(?:TV|テレビ|劇場|Web|WEB)?\s*アニメ(?:ーション)?\s+(.{1,100}?)\s+(?:公式(?:サイト)?|official(?: site)?)(?:\s|$)/i);
+    if (official) return cleanCandidateTitle(official[1]);
+
+    const parts = raw.split(/\s*[|｜]\s*/).map((part) => part.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      const animeOfficialIndex = parts.findIndex((part) => /(?:TV|テレビ|劇場|Web|WEB)?\s*アニメ.*(?:公式|official)/i.test(part));
+      if (animeOfficialIndex > 0) return cleanCandidateTitle(parts[animeOfficialIndex - 1]);
+      if (animeOfficialIndex === 0 && parts[1]) return cleanCandidateTitle(parts[1]);
+    }
+  }
+
+  const firstHeading = rawHeadings[0] || '';
+  const subject = cleanCandidateTitle(firstHeading.replace(/\s+(?:[-–—|｜])\s+[^\n]{1,80}$/, ''));
+  if (!subject || subject.length > 80) return null;
+  const body = String(document.text || '').slice(0, 12000);
+  const index = body.indexOf(subject);
+  if (index < 0) return null;
+  const nearby = body.slice(Math.max(0, index - 300), Math.min(body.length, index + subject.length + 900));
+  if (!/(?:TV|テレビ|劇場|Web|WEB)?\s*アニメ(?:ーション)?(?:作品|化|版|として|で)?/i.test(nearby)) return null;
+  return subject;
 }
 
 export function extractAnimeTitleCandidates(document) {
@@ -111,31 +144,16 @@ export function extractAnimeTitleCandidates(document) {
   const patterns = [
     /(?:TV|テレビ|劇場|Web|WEB|配信|短編)?\s*アニメ(?:ーション)?(?:作品)?\s*[「『“"]([^」』”"\n]{1,120})[」』”"]/g,
     /[「『“"]([^」』”"\n]{1,120})[」』”"]\s*(?:TV|テレビ|劇場|Web|WEB)?\s*アニメ(?:化|ーション化|放送|配信|制作|公開|決定)/g,
-    /(?:新作|オリジナル)\s*(?:TV|テレビ|劇場|Web|WEB)?\s*アニメ\s*[「『“"]?([^」』”"\n|｜]{1,100})[」』”"]?/g,
-    /(?:TV|テレビ|劇場|Web|WEB)?\s*アニメ\s*[「『“"]?([^」』”"\n|｜]{1,100})[」』”"]?\s*(?:公式|PV|ティザー|キャスト|スタッフ|放送|配信)/g
+    /(?:新作|オリジナル)\s*(?:TV|テレビ|劇場|Web|WEB)?\s*アニメ\s*[「『“"]([^」』”"\n]{1,100})[」』”"]/g,
+    /(?:TV|テレビ|劇場|Web|WEB)?\s*アニメ\s*[「『“"]([^」』”"\n]{1,100})[」』”"]\s*(?:公式|PV|ティザー|キャスト|スタッフ|放送|配信)/g
   ];
 
   for (const regex of patterns) {
-    for (const match of haystack.matchAll(regex)) {
-      const title = cleanCandidateTitle(match[1]);
-      const key = normalizeTitleKey(title);
-      if (title && key && !found.has(key)) found.set(key, title);
-    }
+    for (const match of haystack.matchAll(regex)) addCandidate(found, match[1]);
   }
 
-  if (/\b(?:anime|アニメ)\b/i.test(`${document.title} ${document.ogTitle}`)) {
-    for (const raw of [document.ogTitle, document.title]) {
-      if (!raw) continue;
-      const cleaned = cleanCandidateTitle(
-        raw
-          .replace(/\s*[|｜]\s*(?:公式(?:サイト)?|official(?: site)?).*$/i, '')
-          .replace(/(?:TV|テレビ|劇場|Web|WEB)?\s*アニメ(?:ーション)?\s*/gi, '')
-          .replace(/\s*[-–—]\s*(?:公式(?:サイト)?|official(?: site)?).*$/i, '')
-      );
-      const key = normalizeTitleKey(cleaned);
-      if (cleaned && key && key.length >= 2 && !found.has(key)) found.set(key, cleaned);
-    }
-  }
+  const subject = subjectCandidateFromPage(document);
+  if (subject) addCandidate(found, subject);
 
   return [...found.entries()].map(([key, title]) => ({ key, title }));
 }
@@ -171,6 +189,7 @@ export function extractDocument(html, pageUrl) {
   const title = stripTags(titleMatch ? titleMatch[1] : '').slice(0, 500);
   const ogTitle = (meta.get('og:title') || '').slice(0, 500);
   const description = (meta.get('description') || meta.get('og:description') || '').slice(0, 1000);
+  const keywords = (meta.get('keywords') || '').slice(0, 1000);
   const text = `${stripTags(source)}\n${jsonHints.text.join('\n')}`.slice(0, MAX_TEXT);
 
   const document = {
@@ -179,6 +198,7 @@ export function extractDocument(html, pageUrl) {
     title,
     ogTitle,
     description,
+    keywords,
     text,
     links,
     noindex: /<meta\b[^>]*(?:name\s*=\s*["']robots["'][^>]*content\s*=\s*["'][^"']*noindex|content\s*=\s*["'][^"']*noindex[^"']*["'][^>]*name\s*=\s*["']robots["'])/i.test(source),
