@@ -82,6 +82,7 @@ export async function runDiscovery(options) {
     attempted: 0,
     fetched: 0,
     relevant: 0,
+    discoveryOnlyPages: 0,
     candidatesFound: 0,
     evidenceClaims: 0,
     newLinks: 0,
@@ -149,31 +150,36 @@ export async function runDiscovery(options) {
 
     const document = extractDocument(result.text, result.url);
     const pageScore = scoreAnimeDocument(document);
-    const candidateTitles = document.noindex ? [] : document.candidates.map((item) => item.title);
+    const detectedTitles = document.noindex ? [] : document.candidates.map((item) => item.title);
+    const persistableCandidateTitles = document.noindex || document.discoveryOnly ? [] : detectedTitles;
     const relevant = !document.noindex && isRelevantDocument(pageScore);
     if (relevant) stats.relevant += 1;
+    if (relevant && document.discoveryOnly) stats.discoveryOnlyPages += 1;
 
     if (relevant) {
       mergeDocument(state.documents, {
         url: document.canonical || document.url,
         title: document.ogTitle || document.title,
         score: pageScore,
-        candidateTitles,
+        candidateTitles: persistableCandidateTitles,
+        discoveryOnly: Boolean(document.discoveryOnly),
         lastChecked: now
       });
 
-      for (const candidate of document.candidates) {
-        const sourceUrl = document.canonical || document.url;
-        const evidence = extractCandidateEvidence(document, candidate, now);
-        stats.evidenceClaims += evidence.length;
-        if (addCandidate(candidateMap, candidate, sourceUrl, now, evidence)) stats.candidatesFound += 1;
+      if (!document.discoveryOnly) {
+        for (const candidate of document.candidates) {
+          const sourceUrl = document.canonical || document.url;
+          const evidence = extractCandidateEvidence(document, candidate, now);
+          stats.evidenceClaims += evidence.length;
+          if (addCandidate(candidateMap, candidate, sourceUrl, now, evidence)) stats.candidatesFound += 1;
+        }
       }
     }
 
     if (document.nofollow) continue;
 
     const existingCandidateTitles = [...candidateMap.values()].slice(-200).map((item) => item.title);
-    const titleBoostSet = [...new Set([...candidateTitles, ...existingCandidateTitles])].slice(0, 250);
+    const titleBoostSet = [...new Set([...detectedTitles, ...existingCandidateTitles])].slice(0, 250);
     const sameOrigin = new URL(document.url).origin;
     const rankedLinks = [];
     for (const link of document.links) {
