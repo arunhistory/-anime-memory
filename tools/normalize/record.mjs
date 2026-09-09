@@ -3,6 +3,16 @@ export const escapeVariable = (value) => String(value ?? '')
   .replaceAll('|', '\\|')
   .replaceAll('::', '\\::');
 
+const VARIABLE_OUTPUT_COLUMNS = new Set([
+  'aliases', 'genres', 'tags', 'setting', 'themes', 'original_author', 'original_artist',
+  'animation_studio', 'co_animation_studio', 'animation_cooperation', 'production_members', 'planning',
+  'executive_producers', 'producers', 'animation_producers', 'line_producers', 'director', 'chief_director',
+  'series_composition', 'character_original_design', 'character_design', 'music', 'sound_director', 'staff',
+  'characters', 'opening_themes', 'ending_themes', 'insert_songs', 'music_production', 'broadcast_networks',
+  'broadcast_slots', 'streaming_services', 'film_distributor', 'relations', 'episodes', 'episode_staff', 'awards',
+  'official_other', 'external_ids'
+]);
+
 export function getPath(input, pathExpression) {
   if (!pathExpression) return input;
   const parts = String(pathExpression).split('.').filter(Boolean);
@@ -29,10 +39,14 @@ function applyTransform(value, transform) {
   throw new Error(`未対応の正規化transformです: ${transform}`);
 }
 
-function mapOne(raw, rule) {
-  if (typeof rule === 'string') return scalar(getPath(raw, rule));
+function scalarOutput(value, escapeScalar) {
+  return escapeScalar && value ? escapeVariable(value) : value;
+}
+
+function mapOne(raw, rule, escapeScalar = false) {
+  if (typeof rule === 'string') return scalarOutput(scalar(getPath(raw, rule)), escapeScalar);
   if (!rule || typeof rule !== 'object' || Array.isArray(rule)) return '';
-  if (Object.hasOwn(rule, 'literal')) return scalar(rule.literal);
+  if (Object.hasOwn(rule, 'literal')) return scalarOutput(scalar(rule.literal), escapeScalar);
 
   let value = getPath(raw, rule.path || '');
   if (rule.mapValues && value != null) {
@@ -51,7 +65,7 @@ function mapOne(raw, rule) {
     return encoded.join('|');
   }
 
-  return applyTransform(scalar(value), rule.transform);
+  return scalarOutput(applyTransform(scalar(value), rule.transform), escapeScalar);
 }
 
 export function normalizeSourceItem(raw, source, columns, confirmedDate) {
@@ -61,7 +75,7 @@ export function normalizeSourceItem(raw, source, columns, confirmedDate) {
 
   for (const [column, rule] of Object.entries(mapping)) {
     if (!columns.includes(column) || column === 'id') continue;
-    record[column] = mapOne(raw, rule);
+    record[column] = mapOne(raw, rule, VARIABLE_OUTPUT_COLUMNS.has(column));
   }
 
   if (source.externalIdPath && source.externalIdNamespace) {
