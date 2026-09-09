@@ -1,0 +1,111 @@
+name: Manual Anime Correction
+
+on:
+  workflow_dispatch:
+    inputs:
+      internal_id:
+        description: '修正対象の内部ID (A00000001)'
+        required: true
+        type: string
+      field:
+        description: '修正する共通70列field名（id/updated_atは不可）'
+        required: true
+        type: string
+      operation:
+        description: '修正操作'
+        required: true
+        type: choice
+        options:
+          - replace
+          - clear
+        default: replace
+      value:
+        description: 'replace時の新しい値。clear時は無視'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: anime-data-write
+  cancel-in-progress: false
+
+jobs:
+  correct:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CORRECTION_ID: ${{ inputs.internal_id }}
+      CORRECTION_FIELD: ${{ inputs.field }}
+      CORRECTION_OPERATION: ${{ inputs.operation }}
+      CORRECTION_VALUE: ${{ inputs.value }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Manual correction self-test
+        run: node tools/correct/self-test.mjs
+
+      - name: Apply one-field correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tools/correct/run.mjs \
+            --id "${CORRECTION_ID}" \
+            --field "${CORRECTION_FIELD}" \
+            --operation "${CORRECTION_OPERATION}" \
+            --value "${CORRECTION_VALUE}"
+
+      - name: Validate complete data set
+        run: node tools/validate/data-validator.mjs data
+
+      - name: Commit corrected data
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add data
+          if git diff --cached --quiet; then
+            echo 'No data change to commit.'
+            exit 0
+          fi
+
+          unexpected="$(git status --porcelain | awk '$2 !~ /^data\// {print}')"
+          if [[ -n "${unexpected}" ]]; then
+            echo 'Manual correction modified files outside data/; refusing commit.' >&2
+            echo "${unexpected}" >&2
+            exit 1
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "Correct anime ${CORRECTION_ID} ${CORRECTION_FIELD}"
+
+          base_sha="${GITHUB_SHA}"
+          for attempt in 1 2 3; do
+            git fetch origin main
+            remote_head="$(git rev-parse origin/main)"
+            if [[ "${remote_head}" != "${base_sha}" ]]; then
+              if ! git diff --quiet "${base_sha}..${remote_head}" -- data; then
+                echo 'data/ advanced after correction started; aborting to prevent overwrite.' >&2
+                exit 1
+              fi
+              git rebase origin/main
+              base_sha="${remote_head}"
+            fi
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            echo "main advanced during correction publish attempt ${attempt}; retrying without force push."
+          done
+
+          echo 'Could not publish corrected data after safe fast-forward retries.' >&2
+          exit 1
