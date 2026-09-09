@@ -1,0 +1,139 @@
+name: Gemini Connection Smoke Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gemini-connection-smoke-once.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: anime-data-write
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    if: ${{ github.event.head_commit.message == 'Add one-time Gemini connection smoke' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Reserve one Gemini call
+        id: reserve
+        shell: bash
+        run: |
+          set -euo pipefail
+          quota_json="$(node tools/gemini/quota.mjs reserve --run-id "smoke-${GITHUB_RUN_ID}" --requested 1)"
+          reservation="$(node -e 'const x=JSON.parse(process.argv[1]); process.stdout.write(String(x.reservation));' "${quota_json}")"
+          quota_day="$(node -e 'const x=JSON.parse(process.argv[1]); process.stdout.write(String(x.day));' "${quota_json}")"
+          if [[ "${reservation}" != "1" ]]; then
+            echo 'Could not reserve exactly one Gemini call.' >&2
+            exit 1
+          fi
+          echo "quota_day=${quota_day}" >> "${GITHUB_OUTPUT}"
+
+          git add crawler/gemini-usage.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "Reserve Gemini smoke budget (${GITHUB_RUN_ID})"
+
+          base_sha="${GITHUB_SHA}"
+          for attempt in 1 2 3; do
+            git fetch origin main
+            remote_head="$(git rev-parse origin/main)"
+            if [[ "${remote_head}" != "${base_sha}" ]]; then
+              if ! git diff --quiet "${base_sha}..${remote_head}" -- crawler/gemini-usage.json; then
+                echo 'Gemini quota ledger advanced; refusing conflicting smoke reservation.' >&2
+                exit 1
+              fi
+              git rebase origin/main
+              base_sha="${remote_head}"
+            fi
+            if git push origin HEAD:main; then
+              break
+            fi
+            if [[ "${attempt}" == 3 ]]; then
+              echo 'Could not persist Gemini smoke reservation.' >&2
+              exit 1
+            fi
+          done
+
+      - name: Live Gemini synopsis smoke
+        shell: bash
+        env:
+          ANIME_GEMINI_API_KEY: ${{ secrets.ANIME_GEMINI_API_KEY }}
+          ANIME_GEMINI_MODEL: ${{ vars.ANIME_GEMINI_MODEL }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${ANIME_GEMINI_API_KEY}" ]]; then
+            echo 'ANIME_GEMINI_API_KEY is not configured.' >&2
+            exit 1
+          fi
+          node --input-type=module - <<'NODE'
+          import { generateSynopsis } from './tools/gemini/synopsis.mjs';
+
+          const result = await generateSynopsis({
+            title_ja: '接続試験用架空作品',
+            media_type: 'TV',
+            release_start: '2099-01-01',
+            animation_studio: '接続試験用スタジオ'
+          }, {
+            apiKey: process.env.ANIME_GEMINI_API_KEY,
+            model: process.env.ANIME_GEMINI_MODEL || undefined,
+            timeoutMs: 30000
+          });
+
+          if (!result.synopsis || result.synopsis.length > 4000) {
+            throw new Error('Gemini smoke returned an invalid synopsis.');
+          }
+          console.log(`Gemini live smoke: PASS model=${result.model} synopsis_chars=${result.synopsis.length}`);
+          NODE
+
+      - name: Finalize one Gemini call
+        shell: bash
+        env:
+          QUOTA_DAY: ${{ steps.reserve.outputs.quota_day }}
+        run: |
+          set -euo pipefail
+          node tools/gemini/quota.mjs finalize \
+            --run-id "smoke-${GITHUB_RUN_ID}" \
+            --day "${QUOTA_DAY}" \
+            --actual 1
+
+          git add crawler/gemini-usage.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "Finalize Gemini smoke budget (${GITHUB_RUN_ID})"
+
+          base_sha="$(git rev-parse HEAD^)"
+          for attempt in 1 2 3; do
+            git fetch origin main
+            remote_head="$(git rev-parse origin/main)"
+            if [[ "${remote_head}" != "${base_sha}" ]]; then
+              if ! git diff --quiet "${base_sha}..${remote_head}" -- crawler/gemini-usage.json; then
+                echo 'Gemini quota ledger advanced before smoke finalization.' >&2
+                exit 1
+              fi
+              git rebase origin/main
+              base_sha="${remote_head}"
+            fi
+            if git push origin HEAD:main; then
+              break
+            fi
+            if [[ "${attempt}" == 3 ]]; then
+              echo 'Could not persist Gemini smoke finalization.' >&2
+              exit 1
+            fi
+          done
