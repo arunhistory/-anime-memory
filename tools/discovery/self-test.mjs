@@ -93,7 +93,7 @@ assert.equal(hostBlocked.reason, 'host-not-allowed');
 
 const pages = new Map([
   ['https://seed.test/', `
-    <html><head><title>アニメ情報を書いているブログ</title></head><body>
+    <html><head><title>個人記事：TVアニメ「星の旅」放送・制作情報</title></head><body>
       <article>新作TVアニメ『星の旅』は2027年4月3日放送開始。アニメーション制作：Studio Star</article>
       <a href="https://news.test/star">星の旅 キャスト続報</a>
       <a href="https://random.test/jobs">採用情報</a>
