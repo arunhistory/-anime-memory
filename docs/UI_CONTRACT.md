@@ -1,15 +1,25 @@
 # UI / WASM 接続境界
 
-この文書は、画面側JavaScriptとWASMの責務境界を固定する。
+この文書は、4つの公開HTMLとWASMの責務境界を固定する。
 
-## 原則
+## 公開ページは4ファイルに物理分離
+
+- `index.html` — TOP。WASM・作品CSVを読み込まない。
+- `search.html` — 検索。`search.wasm` だけを使用する。
+- `all.html` — 全作品。`all.wasm` だけを使用する。
+- `detail.html?id=A00000001` — 詳細。内部ID完全一致取得のため `search.wasm` を使用する。
+
+旧 `search/index.html`、`all/index.html`、`detail/index.html` は公開ページとして使用しない。4画面を1つのHTMLへ統合しない。
+
+## JavaScript原則
 
 JavaScriptは次だけを担当する。
 
-1. UI入力をそのまま収集する
+1. UI入力を収集する
 2. WASMへ渡す
 3. WASMから返った表示用結果をDOMへ描画する
 4. ローディング、0件、エラー等の画面状態を表示する
+5. 内部IDから現行 `detail.html?id=...` への画面遷移を構成する
 
 JavaScriptは次を行わない。
 
@@ -23,40 +33,17 @@ JavaScriptは次を行わない。
 - 検索結果ソート
 - 全件一覧ソート
 
-## 検索ページ
+## 検索ページ `search.html`
 
-### `anime-search-request`
-
-検索実行時に発火するUIイベント。
+検索実行時のUI運搬形式:
 
 ```text
 {
   query: string,
   operator: "AND" | "OR",
-  textTerms: [
-    {
-      group: string,
-      value: string,
-      match: "exact" | "prefix" | "contains",
-      negated: boolean
-    }
-  ],
-  dateRanges: [
-    {
-      column: string,
-      minimum: string,
-      maximum: string,
-      negated: boolean
-    }
-  ],
-  numberRanges: [
-    {
-      column: string,
-      minimum: string,
-      maximum: string,
-      negated: boolean
-    }
-  ],
+  textTerms: [...],
+  dateRanges: [...],
+  numberRanges: [...],
   sort: {
     key: "season" | "date" | "title" | "studio" | "episodes" | "runtime",
     direction: "asc" | "desc"
@@ -64,48 +51,11 @@ JavaScriptは次を行わない。
 }
 ```
 
-`negated: true` が NOT 条件に対応する。AND / OR / NOT の評価はJavaScriptでは行わず、入力値として `search.wasm` へ渡す。
+各条件のNOTは条件単位で保持する。実際の一致判定・範囲判定・ソートは `search.wasm` が行う。
 
-文字条件は共通CSVの保存フィールドを直接指定できる。タイトル・原作・制作・製作・スタッフ・キャスト・音楽・放送・配信・劇場・関連作品・各話・受賞・概要・公式URL・外部ID等を対象にする。自由検索 `query` は全保存項目を対象とする。
+`search.html` は `all.wasm` / `all-bridge.js` を読み込まない。
 
-日付条件では通常の日付列に加え、WASM側の構造化フィールド抽出として次を使用できる。
-
-- `streaming_start` — `streaming_services` の配信開始日
-- `streaming_end` — `streaming_services` の配信終了日
-- `episode_air_date` — `episodes` の放送日
-
-JavaScriptは `streaming_services` や `episodes` の `::` / `|` を解析しない。
-
-### `anime-search-sort-change`
-
-検索結果の並び替えUI変更時に発火する。
-
-```text
-{
-  key: "season" | "date" | "title" | "studio" | "episodes" | "runtime",
-  direction: "asc" | "desc"
-}
-```
-
-実際の並び替えは `search.wasm` が行う。
-
-### `window.AnimeSearchUI`
-
-- `getRequest()` — 現在のUI入力を取得
-- `setMessage(type, text)` — 状態メッセージ表示
-- `setResultMeta(title, note)` — 件数・補足表示領域を更新
-- `setBusy(boolean)` — 結果領域のbusy状態を更新
-- `setEmpty(title, note, icon)` — 0件・初期・エラー等の空状態表示
-- `renderCards(cards)` — 表示用カード配列をDOMへ描画
-- `appendCards(cards)` — 検索結果の段階描画
-- `executeSearch(request?)` — UI入力をWASMへ転送して検索を開始
-- `addTextFilterRow(preset?)` — 文字条件UIを追加
-- `addDateFilterRow(preset?)` — 日付条件UIを追加
-- `addNumberFilterRow(preset?)` — 数値条件UIを追加
-
-## 全件表示ページ
-
-### `anime-all-sort-request`
+## 全件表示ページ `all.html`
 
 ```text
 {
@@ -116,70 +66,23 @@ JavaScriptは `streaming_services` や `episodes` の `::` / `|` を解析しな
 
 実際の並び替えは `all.wasm` が行う。
 
-### `window.AnimeAllUI`
+全件処理は `all.html` を開いた時だけ起動する。TOP・検索・詳細ページへ全件読込処理を持ち込まない。
 
-- `setStatus(state, title, note)` — idle / loading / done / error の状態表示
-- `setBusy(boolean)` — 一覧領域のbusy状態を更新
-- `setEmpty(title, note, icon)` — 空状態表示
-- `replaceCards(cards)` — 一覧を置換
-- `appendCards(cards)` — 段階描画用にカードを追記
-- `getSortRequest()` — 現在のソートUI入力を取得
+段階描画は全件ページ上で一定件数ずつDOMへ追加するためのUI境界である。
 
-`appendCards()` は「1ページ上へ全件表示しつつ、内部では一定件数ずつ段階描画する」ためのUI境界である。
+## 詳細ページ `detail.html?id=A00000001`
 
-## 詳細ページ
+JavaScriptはURLから内部IDを受け取り、`search.wasm` の内部ID完全一致取得へ渡す。CSVから作品を探さない。
 
-URL形式:
+作品カードはWASM結果の `id` を使用し、必ず `detail.html?id=<内部ID>` へ遷移する。IDがないカードを正常な作品リンクとして扱わない。
 
-```text
-/detail/?id=A00000001
-```
+## 共通カード描画
 
-### `anime-detail-request`
+`window.AnimeUI.createAnimeCard()` はWASM処理後の表示用データだけを受け取る。
 
 ```text
 {
   id: string,
-  match: "exact"
-}
-```
-
-JavaScriptはIDをURLから受け取るだけで、CSVから作品を探さない。
-
-`search.wasm` が内部ID完全一致で1作品を取得する。
-
-### `window.AnimeDetailUI`
-
-- `id` — URLから受け取った内部ID
-- `setStatus(type, text)` — 詳細画面の状態表示
-- `setTitle(value)` — タイトル表示更新
-- `setHero(data)` — タイトル、補助タイトル、概要、タグ、画像を表示
-- `setSectionVisibility(sectionId, visible)` — 情報が存在するカテゴリだけ表示
-- `setSectionItems(sectionId, items)` — 判定済みの表示項目をカテゴリへ描画
-
-`setHero()` と `setSectionItems()` は表示済み形式だけを受け取る。作品情報の解釈、推測、正規化は行わない。
-
-`setSectionItems()` の表示用形式:
-
-```text
-[
-  {
-    label: string,
-    value: string,
-    href?: string
-  }
-]
-```
-
-`href` はHTTP / HTTPSだけDOMへリンクとして設定する。
-
-## 共通カード描画
-
-`window.AnimeUI.createAnimeCard()` は、WASM処理後の表示用データだけを受け取る。
-
-```text
-{
-  href: string,
   title: string,
   subtitle: string,
   tags: string[],
@@ -188,11 +91,7 @@ JavaScriptはIDをURLから受け取るだけで、CSVから作品を探さな�
 }
 ```
 
-この表示用データを作るためにJavaScript側でCSVを解析したり、クール・総時間・検索一致度等を計算してはならない。
-
-画像URLはDOMへ設定する前にHTTP / HTTPSのみ許可する。
-
-DOMへの文字列挿入は `textContent` を使用し、取得データをHTML文字列として直接挿入しない。
+DOMへの文字列挿入は `textContent` を使用する。画像URLはHTTP / HTTPSだけ許可する。作品詳細遷移は同一オリジンの `detail.html` に限定する。
 
 ## エラーの責務
 
