@@ -1,139 +1,81 @@
 # 自動収集パイプライン
 
-この段階では Gemini API を接続しない。外部情報源から確認済み事実を取得し、共通70列CSVへ正規化・重複判定・検証する経路だけを実装する。
+この段階では Gemini API を接続しない。公開Web探索で得た作品候補と複数ページのEvidenceから、確定できる事実だけを共通70列CSVへ渡す。
 
-## 実行経路
+## 標準実行経路
 
 ```text
-承認済み JSON API
+公開Web
   ↓
-GitHub Actions (Anime Data Collect)
+GitHub Actions (Web Anime Discovery)
   ↓
-tools/fetch/http-json.mjs
+アニメ言及を検出
   ↓
-tools/normalize/record.mjs
+作品候補 + Evidence + 根拠URL
   ↓
-tools/collect/run.mjs
+別ホスト間で事実照合
   ↓
-tools/validate/data-validator.mjs
+crawler/state.json
   ↓
-data/initial-NNN.csv または data/YYYY-QN.csv
+GitHub Actions (Anime Data Collect / input=discovery)
   ↓
-data/manifest.csv
+confirmed の事実だけ共通70列Recordへ変換
   ↓
-検証成功時のみ Commit
+既存作品との重複候補判定
+  ↓
+initial-NNN.csv / YYYY-QN.csv
+  ↓
+全CSV検証
+  ↓
+検証成功時だけ Commit
 ```
 
-Gemini の呼び出し、APIキー参照、概要生成はこの経路に存在しない。`synopsis` は Gemini 接続前の自動収集では空欄に固定する。
+Gemini の呼び出し、APIキー参照、概要生成はこの経路に存在しない。`synopsis` は Gemini 接続前は空欄に固定する。
 
-## 情報源の扱い
+## Discovery入力
 
-情報源そのものはコードへ固定しない。採用前に API 利用条件、商用利用、再配布、画像利用、取得制限を確認した情報源だけを Repository Variable `ANIME_SOURCE_CONFIG_JSON` へ設定する。
+`Anime Data Collect` の標準入力は `discovery`。`crawler/state.json` の候補からCSV化できるものだけを取得する。
 
-取得器は HTML スクレイピングを実装せず、`transport: "api-json"` の HTTPS JSON API のみ受け付ける。次の確認値がすべて `true` でなければ通信前に停止する。
+Evidence はページ本文の複製ではなく、`field / value / sourceUrl / rule / observedAt` の最小情報として保持する。同じ値が別ホストから確認された場合に `confirmed` とし、単独ホストだけなら `observed`、競合する値が解消できない場合は `conflict` とする。
 
-- `apiTermsChecked`
-- `commercialUse`
-- `redistribution`
-- `imageUse`
-- `rateLimitChecked`
+CSVへ渡すのは `confirmed` だけ。`observed` と `conflict` は自動確定しない。現段階のEvidence抽出対象は、作品名、媒体種別、放送・公開開始日、劇場公開日、アニメーション制作、監督、シリーズ構成、キャラクターデザイン、音楽、音響監督。残りの70列項目は今後同じEvidence方式へ拡張する。
 
-## Repository Variable
+CSV登録候補になるには、少なくとも作品名と媒体種別が複数ホストで確認済みで、さらに開始日・劇場公開日・アニメーション制作のいずれかに確認済みの識別補強情報が必要。根拠が不足している候補は `crawler/state.json` に残し、追加探索を待つ。
 
-`ANIME_SOURCE_CONFIG_JSON` は version 1 の JSON とする。
+## 既存JSON API入力
 
-```json
-{
-  "version": 1,
-  "sources": [
-    {
-      "name": "approved-source",
-      "transport": "api-json",
-      "url": "https://api.example.invalid/anime",
-      "itemsPath": "data.items",
-      "externalIdNamespace": "approved-source",
-      "externalIdPath": "id",
-      "timeoutMs": 20000,
-      "requestDelayMs": 250,
-      "maxRequests": 100,
-      "policy": {
-        "apiTermsChecked": true,
-        "commercialUse": true,
-        "redistribution": true,
-        "imageUse": true,
-        "rateLimitChecked": true
-      },
-      "pagination": {
-        "type": "page",
-        "param": "page",
-        "start": 1,
-        "hasMorePath": "data.has_more"
-      },
-      "mapping": {
-        "title_ja": "title.native",
-        "title_en": "title.english",
-        "media_type": {
-          "path": "format",
-          "mapValues": {
-            "TV": "TV",
-            "MOVIE": "MOVIE"
-          },
-          "unknownValue": "OTHER"
-        },
-        "release_start": "start_date",
-        "animation_studio": {
-          "path": "studios",
-          "valuePath": "name"
-        },
-        "characters": {
-          "path": "cast",
-          "fields": ["character", "role", "actor"]
-        }
-      }
-    }
-  ]
-}
-```
+以前実装したHTTPS JSON API取得器は互換経路として残している。`Anime Data Collect` で `input=api-json` を明示した場合だけ使用する。標準経路ではない。
 
-上記URLは構造例であり採用情報源ではない。
+`api-json` を使う場合だけ Repository Variable `ANIME_SOURCE_CONFIG_JSON` と、必要なら Repository Secret `ANIME_SOURCE_TOKEN` を参照する。APIキー等の秘密値を設定JSON、CSV、ログへ直接保存しない。
 
-配列値は `|`、`fields` を指定した配列要素は `::` で組み立てる。データ内の `|`、`::`、バックスラッシュはエスケープする。
+API取得器は採用前にAPI利用条件、商用利用、再配布、画像利用、取得制限を確認済みの情報源だけを受け入れる。`transport: "api-json"` のHTTPS JSON API以外はこの互換取得器では扱わない。
 
-認証が必要な API は秘密値を JSON へ書かず、header 設定から環境変数を参照する。
+## 重複判定
 
-```json
-{
-  "headers": {
-    "Authorization": {
-      "env": "ANIME_SOURCE_TOKEN",
-      "prefix": "Bearer "
-    }
-  }
-}
-```
+外部IDがある入力では `source::id` の完全一致を最優先する。外部IDがないDiscovery入力を含む複合判定では、正規化したタイトル/別名、`media_type`、開始日または劇場公開日、原作情報またはアニメーション制作の一致を使う。
 
-`ANIME_SOURCE_TOKEN` は Repository Secret として設定する。秘密値そのものは設定JSON、CSV、ログへ保存しない。
+不確実な重複候補は自動統合しない。既存CSVの正常データを上書きして解決しない。
 
 ## 初期導入
 
-`mode=initial` は既存 `initial-NNN.csv` に追記しない。毎回次の連番ファイルを新規生成し、1回の確定件数を最大450作品に固定する。
+`mode=initial` は既存 `initial-NNN.csv` に追記しない。毎回次の連番ファイルを新規生成し、1回の確定件数を最大450作品に制限する。
 
-外部ID完全一致の既存作品は登録しない。外部IDが一致しない場合でも、正規化タイトル/別名、`media_type`、`release_start`、原作情報または制作会社の複合一致を重複候補として検出し、自動統合せず登録を止める。
+設計上の「1日最大450作品」を複数実行を跨いで保証する日次ガードはまだ未実装のため、実運用開始前に追加検証が必要。
 
 ## 四半期更新
 
 `mode=quarterly` は `year` と `Q1`〜`Q4` を指定する。`release_start`、`theatrical_release_date`、または `streaming_services` の開始日が対象四半期に含まれる新規作品だけを `YYYY-QN.csv` へ追加する。
 
-既存の非空値は自動上書きしない。既存作品と外部ID完全一致した取得結果は追加しない。不確実な複合重複候補も自動統合しない。
+既存の非空値は自動上書きしない。不確実な重複候補も自動統合しない。
 
 ## 失敗時
 
-取得、正規化、CSV生成、重複判定、検証のどこかで失敗した場合は Commit しない。生成直後の検証で失敗した場合は対象ファイルを元状態へ戻す。
+取得、変換、重複判定、CSV生成、検証のどこかで失敗した場合は Commit しない。生成後の検証に失敗した場合は対象CSVとmanifestを元状態へ戻す。
 
-GitHubへの確定時は force push を使用しない。処理開始後に `data/` が他の Commit で進んでいた場合は自動確定を中止し、古い状態を基準に上書きしない。
+GitHubへの確定時は force push を使用しない。処理開始後に `data/` が別Commitで進んでいた場合は自動確定を中止し、古い状態を基準に上書きしない。
 
 ## 実行方法
 
-`Anime Data Collect` は定期実行を持たない。GitHub Actions の `workflow_dispatch` から必要時だけ起動する。初期値は `dry_run=true` で、生成と検証だけを行い Commit しない。
+`Web Anime Discovery` と `Anime Data Collect` はどちらも `workflow_dispatch` のみで、Cronは持たない。初期値は `dry_run=true`。
 
-情報源が正式に選定・設定されるまでは収集実行を行わず、パイプラインのコードと回帰試験だけを使用する。
+実Web探索用の起点が未設定の現在は、モックWebを使った回帰試験とパイプライン検証だけを行う。実Webを探索・保存する前に起点と対象サイトの利用条件・負荷条件を確認する。
