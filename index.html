@@ -1,77 +1,69 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ハッシュ生成</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>日本アニメ総合検索</title>
+  <link rel="stylesheet" href="./assets/css/common.css" />
+  <link rel="stylesheet" href="./assets/css/top.css" />
 </head>
-<body>
-  <h1>変更キー多重ハッシュ生成</h1>
-  <p>変更キーを入力して生成する。</p>
+<body data-page="top">
+  <header class="site-header">
+    <a class="brand" href="./" aria-label="日本アニメ総合検索 ホーム">
+      <span class="brand-mark">あ</span><span class="brand-text">日本アニメ総合検索</span>
+    </a>
+    <nav class="desktop-nav" aria-label="メインナビゲーション">
+      <a href="./search/">検索</a>
+      <a href="./all/">全作品</a>
+    </nav>
+  </header>
 
-  <input type="password" id="changeKey" placeholder="変更キー">
-  <button id="generateButton" type="button">生成</button>
-  <button id="copyButton" type="button">コピー</button>
+  <main>
+    <section class="hero section-shell">
+      <div class="hero-decor decor-a"></div>
+      <div class="hero-decor decor-b"></div>
+      <div class="hero-copy">
+        <span class="eyebrow">ANIME SEARCH</span>
+        <h1>日本アニメを、<br><span>もっと探しやすく。</span></h1>
+        <p>作品名だけじゃない。声優、スタッフ、制作会社、配信先など、いろんな条件から探せる総合検索サイト。</p>
+      </div>
 
-  <p id="message"></p>
-  <textarea id="result" rows="8" cols="60" readonly></textarea>
+      <form class="hero-search" action="./search/" method="get">
+        <label class="sr-only" for="q">アニメを検索</label>
+        <div class="search-box large">
+          <span class="search-icon" aria-hidden="true">⌕</span>
+          <input id="q" name="q" type="search" placeholder="作品名・声優・制作会社・スタッフなどから検索" autocomplete="off" />
+          <button type="submit">検索</button>
+        </div>
+      </form>
 
-  <script>
-    async function sha256(text) {
-      const data = new TextEncoder().encode(text);
-      const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      return hashArray.map(function (b) {
-        return b.toString(16).padStart(2, "0");
-      }).join("");
-    }
+      <div class="entry-grid">
+        <a class="entry-card blue" href="./search/">
+          <div class="entry-icon">⌕</div>
+          <div><strong>アニメを検索</strong><span>条件を指定して探す</span></div>
+          <span class="entry-arrow">→</span>
+        </a>
+        <a class="entry-card pink" href="./all/">
+          <div class="entry-icon">▦</div>
+          <div><strong>全作品を見る</strong><span>登録作品をまとめて見る</span></div>
+          <span class="entry-arrow">→</span>
+        </a>
+      </div>
+    </section>
 
-    async function multiHash(inputKey) {
-      const step1 = await sha256("anime-site-change-key::" + inputKey + "::phase1");
-      const step2 = await sha256("anime-site-change-key::" + step1 + "::phase2");
-      const step3 = await sha256("anime-site-change-key::" + step2 + "::phase3");
-      return step3;
-    }
+    <section class="feature-strip section-shell" aria-label="サイトの特徴">
+      <article><span>◎</span><div><strong>いろいろ検索</strong><small>保存されている情報を横断して探せる</small></div></article>
+      <article><span>⇅</span><div><strong>見やすく並べ替え</strong><small>6種類の共通ソートに対応</small></div></article>
+      <article><span>♡</span><div><strong>見やすい詳細</strong><small>大量の情報もカテゴリごとに整理</small></div></article>
+    </section>
+  </main>
 
-    const changeKeyInput = document.getElementById("changeKey");
-    const generateButton = document.getElementById("generateButton");
-    const copyButton = document.getElementById("copyButton");
-    const result = document.getElementById("result");
-    const message = document.getElementById("message");
-
-    generateButton.addEventListener("click", async function () {
-      const inputKey = changeKeyInput.value.trim();
-
-      message.textContent = "";
-      result.value = "";
-
-      if (!inputKey) {
-        message.textContent = "変更キーを入力してください。";
-        return;
-      }
-
-      try {
-        const hashed = await multiHash(inputKey);
-        result.value = hashed;
-        message.textContent = "生成しました。";
-      } catch (error) {
-        message.textContent = "生成に失敗しました。";
-      }
-    });
-
-    copyButton.addEventListener("click", async function () {
-      if (!result.value) {
-        message.textContent = "コピーする値がありません。";
-        return;
-      }
-
-      try {
-        await navigator.clipboard.writeText(result.value);
-        message.textContent = "コピーしました。";
-      } catch (error) {
-        message.textContent = "コピーに失敗しました。";
-      }
-    });
-  </script>
+  <footer class="site-footer"><span>日本アニメ総合検索</span></footer>
+  <nav class="mobile-nav" aria-label="モバイルナビゲーション">
+    <a class="active" href="./"><span>⌂</span>ホーム</a>
+    <a href="./search/"><span>⌕</span>検索</a>
+    <a href="./all/"><span>▦</span>全作品</a>
+  </nav>
+  <script src="./assets/js/common.js"></script>
 </body>
 </html>
