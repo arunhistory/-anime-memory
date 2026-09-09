@@ -75,7 +75,7 @@ std::string make_csv() {
       {"title_ja", "春の作品"},
       {"title_kana", "はるのさくひん"},
       {"media_type", "TV"},
-      {"release_start", "2027-04-05"},
+      {"release_start", "2027-04"},
       {"episode_count", "12"},
       {"runtime_min", "24"},
       {"animation_studio", "Studio A"},
@@ -137,6 +137,12 @@ int main() {
   assert(std::string(anime_search_chunk_json(0, 100)).find("A00000001") != std::string::npos);
 
   assert(anime_search_clear_terms() == 1);
+  assert(anime_search_add_text_term("声優B", "characters", 0, 0) == 1);
+  assert(anime_search_execute() == 1);
+  assert(anime_search_count() == 1);
+  assert(std::string(anime_search_chunk_json(0, 100)).find("A00000002") != std::string::npos);
+
+  assert(anime_search_clear_terms() == 1);
   assert(anime_search_add_text_term("Studio A", "animation_studio", 2, 1) == 1);
   assert(anime_search_execute() == 1);
   assert(anime_search_count() == 1);
@@ -155,6 +161,24 @@ int main() {
   assert(anime_search_execute() == 1);
   assert(anime_search_count() == 1);
   assert(std::string(anime_search_record_json_by_id("A00000002")).find("秋の作品") != std::string::npos);
+
+  assert(anime_search_clear_terms() == 1);
+  assert(anime_search_add_number_range("runtime_min", "120", "100", 0) == 0);
+
+  assert(anime_search_clear_terms() == 1);
+  assert(anime_search_add_date_range("release_start", "2027-04-01", "2027-04-30", 0) == 1);
+  assert(anime_search_execute() == 1);
+  assert(anime_search_count() == 1);
+  assert(std::string(anime_search_chunk_json(0, 100)).find("A00000001") != std::string::npos);
+
+  assert(anime_search_clear_terms() == 1);
+  assert(anime_search_add_date_range("release_start", "2027-04", "2027-04", 0) == 1);
+  assert(anime_search_execute() == 1);
+  assert(anime_search_count() == 1);
+  assert(std::string(anime_search_chunk_json(0, 100)).find("A00000001") != std::string::npos);
+
+  assert(anime_search_clear_terms() == 1);
+  assert(anime_search_add_date_range("release_start", "2027-12", "2027-01", 0) == 0);
 
   assert(anime_search_clear_terms() == 1);
   assert(anime_search_add_date_range("streaming_start", "2027-09-01", "2027-12-31", 0) == 1);
