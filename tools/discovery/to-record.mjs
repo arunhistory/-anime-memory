@@ -11,6 +11,8 @@ const FACT_TO_COLUMN = new Map([
   ['sound_director', 'sound_director']
 ]);
 
+const IDENTITY_CORROBORATORS = ['release_start', 'theatrical_release_date', 'animation_studio'];
+
 function emptyRecord(columns) {
   return Object.fromEntries(columns.map((column) => [column, '']));
 }
@@ -21,6 +23,12 @@ export function discoveryCandidateReadiness(candidate) {
   const media = candidate.facts?.media_type;
   if (title?.status !== 'confirmed' || !title.value) return { ready: false, reason: 'title-not-confirmed' };
   if (media?.status !== 'confirmed' || !media.value) return { ready: false, reason: 'media-type-not-confirmed' };
+
+  const hasCorroborator = IDENTITY_CORROBORATORS.some((field) => {
+    const fact = candidate.facts?.[field];
+    return fact?.status === 'confirmed' && Boolean(fact.value);
+  });
+  if (!hasCorroborator) return { ready: false, reason: 'identity-corroborator-not-confirmed' };
   return { ready: true, reason: '' };
 }
 
