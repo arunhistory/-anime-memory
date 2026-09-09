@@ -31,17 +31,25 @@ jobs:
           node --input-type=module <<'NODE'
           import { generateSynopsis } from './tools/gemini/synopsis.mjs';
 
-          const result = await generateSynopsis({
-            title_ja: '接続確認用テスト作品',
-            media_type: 'TV',
-            animation_studio: '接続確認用スタジオ',
-            synopsis: ''
-          }, {
-            apiKey: process.env.ANIME_GEMINI_API_KEY,
-            timeoutMs: 30000
-          });
+          try {
+            const result = await generateSynopsis({
+              title_ja: '接続確認用テスト作品',
+              media_type: 'TV',
+              animation_studio: '接続確認用スタジオ',
+              synopsis: ''
+            }, {
+              apiKey: process.env.ANIME_GEMINI_API_KEY,
+              timeoutMs: 30000
+            });
 
-          if (!result.synopsis) throw new Error('Gemini returned an empty synopsis.');
-          console.log('Gemini live smoke: PASS');
-          console.log(`model: ${result.model}`);
+            if (!result.synopsis) throw new Error('Gemini returned an empty synopsis.');
+            console.log('Gemini live smoke: PASS');
+            console.log(`model: ${result.model}`);
+          } catch (error) {
+            console.error(`Gemini live smoke: ${error?.message || 'unknown-error'}`);
+            console.error(`apiStatus: ${error?.apiStatus || ''}`);
+            console.error(`retryDelay: ${error?.retryDelay || ''}`);
+            console.error(`quotaViolations: ${JSON.stringify(error?.quotaViolations || [])}`);
+            process.exit(1);
+          }
           NODE
