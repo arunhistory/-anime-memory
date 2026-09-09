@@ -8,6 +8,7 @@ on:
       - 'tools/fetch/**'
       - 'tools/normalize/**'
       - 'tools/collect/**'
+      - 'tools/correct/**'
       - 'tools/discovery/**'
       - 'tools/gemini/**'
       - 'tools/validate/data-validator.mjs'
@@ -15,6 +16,7 @@ on:
       - 'data/**'
       - '.github/workflows/data-pipeline-validate.yml'
       - '.github/workflows/data-collect.yml'
+      - '.github/workflows/manual-anime-correction.yml'
       - '.github/workflows/web-discovery.yml'
   pull_request:
     paths:
@@ -22,6 +24,7 @@ on:
       - 'tools/fetch/**'
       - 'tools/normalize/**'
       - 'tools/collect/**'
+      - 'tools/correct/**'
       - 'tools/discovery/**'
       - 'tools/gemini/**'
       - 'tools/validate/data-validator.mjs'
@@ -29,6 +32,7 @@ on:
       - 'data/**'
       - '.github/workflows/data-pipeline-validate.yml'
       - '.github/workflows/data-collect.yml'
+      - '.github/workflows/manual-anime-correction.yml'
       - '.github/workflows/web-discovery.yml'
 
 permissions:
@@ -55,6 +59,8 @@ jobs:
           node --check tools/validate/data-validator.mjs
           node --check tools/collect/run.mjs
           node --check tools/collect/self-test.mjs
+          node --check tools/correct/run.mjs
+          node --check tools/correct/self-test.mjs
           node --check tools/discovery/url.mjs
           node --check tools/discovery/robots.mjs
           node --check tools/discovery/fetch-page.mjs
@@ -76,6 +82,9 @@ jobs:
 
       - name: Collection pipeline self-test
         run: node tools/collect/self-test.mjs
+
+      - name: Manual correction self-test
+        run: node tools/correct/self-test.mjs
 
       - name: Web discovery self-test
         run: node tools/discovery/self-test.mjs
