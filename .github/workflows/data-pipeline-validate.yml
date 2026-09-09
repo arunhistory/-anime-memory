@@ -70,6 +70,8 @@ jobs:
           node --check tools/discovery/run.mjs
           node --check tools/discovery/self-test.mjs
           node --check tools/gemini/synopsis.mjs
+          node --check tools/gemini/quota.mjs
+          node --check tools/gemini/quota-self-test.mjs
           node --check tools/gemini/self-test.mjs
 
       - name: Collection pipeline self-test
@@ -80,6 +82,9 @@ jobs:
 
       - name: Anime taxonomy self-test
         run: node tools/discovery/taxonomy-self-test.mjs
+
+      - name: Gemini quota self-test
+        run: node tools/gemini/quota-self-test.mjs
 
       - name: Gemini synopsis self-test
         run: node tools/gemini/self-test.mjs
