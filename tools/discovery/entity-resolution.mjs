@@ -22,6 +22,12 @@ function sameConfirmedScalar(left, right, field) {
   return Boolean(a && b && String(a.value) === String(b.value));
 }
 
+function conflictingConfirmedScalar(left, right, field) {
+  const a = fact(left, field);
+  const b = fact(right, field);
+  return Boolean(a && b && String(a.value) !== String(b.value));
+}
+
 function sharesConfirmedValue(left, right, field) {
   const a = new Set(splitFactValues(left, field));
   const b = new Set(splitFactValues(right, field));
@@ -48,6 +54,10 @@ export function areCandidatesMergeable(left, right) {
   if (!aliasLinked) return false;
 
   if (!sameConfirmedScalar(left, right, 'media_type')) return false;
+  for (const field of ['release_start', 'theatrical_release_date', 'original_title']) {
+    if (conflictingConfirmedScalar(left, right, field)) return false;
+  }
+
   const identityMatch = sameConfirmedScalar(left, right, 'release_start')
     || sameConfirmedScalar(left, right, 'theatrical_release_date')
     || sharesConfirmedValue(left, right, 'animation_studio')
