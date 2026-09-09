@@ -78,6 +78,7 @@ export async function runDiscovery(options) {
     { ...candidate, evidence: mergeEvidence(candidate.evidence || []), facts: resolveEvidence(candidate.evidence || []) }
   ]));
   const hostCounts = new Map();
+  const deferredBlocked = [];
   const stats = {
     attempted: 0,
     fetched: 0,
@@ -88,6 +89,7 @@ export async function runDiscovery(options) {
     newLinks: 0,
     robotsSkipped: 0,
     otherSkipped: 0,
+    hostFiltered: 0,
     failed: 0,
     sitemapLinks: 0
   };
@@ -101,6 +103,12 @@ export async function runDiscovery(options) {
     const hash = urlHash(normalized);
     if (visited.has(hash)) continue;
     if (entry.depth > maxDepth) continue;
+
+    if (typeof fetcher.isHostAllowed === 'function' && !fetcher.isHostAllowed(normalized)) {
+      deferredBlocked.push(entry);
+      stats.hostFiltered += 1;
+      continue;
+    }
 
     const host = hostKey(normalized);
     const hostCount = hostCounts.get(host) || 0;
@@ -218,6 +226,8 @@ export async function runDiscovery(options) {
       })) stats.sitemapLinks += 1;
     }
   }
+
+  for (const entry of deferredBlocked) addFrontier(frontier, queued, visited, entry);
 
   state.visited = [...visited];
   state.candidates = [...candidateMap.values()];
