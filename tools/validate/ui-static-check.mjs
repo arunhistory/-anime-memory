@@ -48,6 +48,12 @@ const requiredIds = {
     'detail-filters',
     'active-filters',
     'clear-search-ui',
+    'add-text-filter',
+    'text-filter-rows',
+    'add-date-filter',
+    'date-filter-rows',
+    'add-number-filter',
+    'number-filter-rows',
     'sort-key',
     'sort-direction',
     'search-ui-message',
@@ -73,6 +79,15 @@ const requiredIds = {
 };
 
 const expectedSortValues = ['season', 'date', 'title', 'studio', 'episodes', 'runtime'];
+const requiredSearchSelectors = [
+  'title_ja', 'aliases', 'media_type', 'genres', 'original_author',
+  'animation_studio', 'production_committee', 'production_members',
+  'director', 'characters', 'opening_themes', 'broadcast_networks',
+  'streaming_services', 'film_distributor', 'relations', 'episodes',
+  'episode_staff', 'awards', 'synopsis', 'official_url', 'external_ids',
+  'streaming_start', 'streaming_end', 'episode_air_date',
+  'episode_count', 'runtime_min', 'season_number'
+];
 
 function fail(message) {
   failures.push(message);
@@ -177,6 +192,18 @@ if (exists('assets/js/search-bridge.js')) {
   for (const [needle, label] of forbiddenSearchResponsibilities) {
     if (js.includes(needle)) fail(label);
   }
+
+  for (const selector of requiredSearchSelectors) {
+    if (!js.includes(`'${selector}'`) && !js.includes(`"${selector}"`)) {
+      fail(`詳細検索セレクタがありません: ${selector}`);
+    }
+  }
+
+  if (!js.includes('_anime_search_add_text_term') ||
+      !js.includes('_anime_search_add_date_range') ||
+      !js.includes('_anime_search_add_number_range')) {
+    fail('詳細検索条件がsearch.wasm ABIへ接続されていません');
+  }
 }
 
 if (exists('assets/js/all-bridge.js')) {
@@ -201,3 +228,4 @@ console.log('UI static validation: PASS');
 console.log(`checked files: ${requiredFiles.length}`);
 console.log('checked pages: TOP / SEARCH / ALL / DETAIL');
 console.log('checked common sorts: 6');
+console.log(`checked detailed search selectors: ${requiredSearchSelectors.length}`);
