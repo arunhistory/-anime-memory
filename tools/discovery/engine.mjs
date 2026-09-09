@@ -131,14 +131,12 @@ export async function runDiscovery(options) {
     }
 
     const document = extractDocument(result.text, result.url);
-    if (document.noindex && document.nofollow) continue;
-
     const pageScore = scoreAnimeDocument(document);
-    const candidateTitles = document.candidates.map((item) => item.title);
-    const relevant = isRelevantDocument(pageScore);
+    const candidateTitles = document.noindex ? [] : document.candidates.map((item) => item.title);
+    const relevant = !document.noindex && isRelevantDocument(pageScore);
     if (relevant) stats.relevant += 1;
 
-    if (!document.noindex && relevant) {
+    if (relevant) {
       mergeDocument(state.documents, {
         url: document.canonical || document.url,
         title: document.ogTitle || document.title,
@@ -146,12 +144,12 @@ export async function runDiscovery(options) {
         candidateTitles,
         lastChecked: now
       });
-    }
 
-    for (const candidate of document.candidates) {
-      const before = candidateMap.size;
-      addCandidate(candidateMap, candidate, document.canonical || document.url, now);
-      if (candidateMap.size > before) stats.candidatesFound += 1;
+      for (const candidate of document.candidates) {
+        const before = candidateMap.size;
+        addCandidate(candidateMap, candidate, document.canonical || document.url, now);
+        if (candidateMap.size > before) stats.candidatesFound += 1;
+      }
     }
 
     if (document.nofollow) continue;
