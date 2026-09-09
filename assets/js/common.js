@@ -1,4 +1,7 @@
 (() => {
+  const commonScriptUrl = document.currentScript?.src || '';
+  const siteRootUrl = commonScriptUrl ? new URL('../../', commonScriptUrl) : new URL('./', window.location.href);
+
   document.querySelectorAll('button').forEach((button) => {
     button.addEventListener('pointerdown', () => button.classList.add('is-pressed'));
     ['pointerup', 'pointerleave', 'pointercancel'].forEach((eventName) => {
@@ -60,13 +63,22 @@
     return '#';
   };
 
-  const createAnimeCard = ({ href = '#', title = '作品タイトル', subtitle = '', tags = [], imageUrl = '', imageAlt = '' } = {}) => {
+  const detailUrlForId = (id) => {
+    const value = String(id || '').trim();
+    if (!/^A\d{8}$/.test(value)) return '';
+    const url = new URL('detail.html', siteRootUrl);
+    url.searchParams.set('id', value);
+    return url.href;
+  };
+
+  const createAnimeCard = ({ id = '', href = '#', title = '作品タイトル', subtitle = '', tags = [], imageUrl = '', imageAlt = '' } = {}) => {
     const article = document.createElement('article');
     article.className = 'anime-card card-surface';
 
     const link = document.createElement('a');
     link.className = 'anime-card-link';
-    link.href = safeNavigationUrl(href);
+    const detailUrl = detailUrlForId(id);
+    link.href = safeNavigationUrl(detailUrl || href);
 
     const visual = document.createElement('div');
     visual.className = 'anime-card-visual';
