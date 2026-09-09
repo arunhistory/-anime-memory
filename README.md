@@ -32,7 +32,8 @@ GitHub・CSV・WASM統合型の日本アニメ総合検索サイト。
 - `search.wasm`: 検索・条件判定・検索結果ソート・内部ID完全一致詳細取得
 - `all.wasm`: 全件読込・全件出力・全件ソート
 - JavaScript: UI / HTTP取得 / WASMとの受け渡し / DOM描画
-- 自動収集Tools: 外部JSON API取得 / 正規化 / 重複候補判定 / CSV生成 / 公開前検証
+- Web探索Tools: 公開Web巡回 / アニメ言及判定 / 作品候補発見 / 探索状態管理
+- CSV収集Tools: 正規化 / 重複候補判定 / CSV生成 / 公開前検証
 - Gemini API: 将来のサイト独自概要生成。**現在は未接続**
 
 ## JavaScriptで行わない処理
@@ -82,35 +83,47 @@ JavaScriptはUI入力を受け取り、CSV生バイト列と検索条件をWASM�
 
 昇順 / 降順を切り替えられる。監督・声優・製作委員会等はソートへ増やさず検索条件として扱う。
 
-## 自動収集
+## Web自動探索
 
-Geminiを接続しない段階の自動収集パイプラインを実装済み。
+外部検索APIを前提にせず、公開Webページ上のアニメ言及から作品候補を発見する探索エンジンを実装している。
 
 ```text
-承認済み HTTPS JSON API
+公開Webの起点URL
   ↓
-GitHub Actions
+robots.txt確認
   ↓
-取得
+HTML / XML / RSS / Atom取得
   ↓
-共通70列へ正規化
+title / OGP / JSON-LD / 本文 / リンクを実行時解析
   ↓
-外部ID完全一致 + 複合重複候補判定
+アニメ言及スコアリング
   ↓
-initial-NNN.csv / YYYY-QN.csv 生成
+作品候補抽出
   ↓
-全CSV検証
+関連リンクを優先度付きfrontierへ追加
   ↓
-検証成功時だけ Commit
+別ドメインを含めて探索範囲を自己拡張
+  ↓
+作品候補 + 根拠URLを探索状態へ保存
 ```
 
-情報源はまだ固定していない。採用情報源は API利用条件・商用利用・再配布・画像利用・取得制限を確認したうえで `ANIME_SOURCE_CONFIG_JSON` に設定する。HTMLスクレイピング経路は実装しない。
+作品専用ホームページだけを対象にしない。ニュース、ブログ、ポータル、出版社、放送局、制作会社、配信、動画等の公開ページも同じ探索対象として扱う。
 
-`Anime Data Collect` は `workflow_dispatch` のみで、定期Cronは持たない。初期値は `dry_run=true`。初期導入は既存初期CSVへ追記せず、毎回新しい `initial-NNN.csv` を最大450作品で作る。
+HTML本文や記事全文はGitHubへ保存しない。実行中の判定にのみ使用し、`crawler/state.json` にはURL、ページタイトル、関連度、作品候補、根拠URL、frontier、巡回済みURLハッシュ等の最小限の探索状態だけを保持する。
+
+`Web Anime Discovery` は `workflow_dispatch` のみで、定期Cronは持たない。初期値は `dry_run=true`。外部検索API、Gemini API、外部AI検索は接続していない。
+
+検索APIを使わないため、最初のリンクグラフへ入る起点URLは `crawler/seeds.txt` またはActions入力から与える。これは作品ごとの情報源指定ではなく、その後の自律巡回を開始する初期ノードである。
+
+詳細は `docs/WEB_DISCOVERY.md` を参照。
+
+## CSV自動収集
+
+共通70列への正規化・重複候補判定・CSV生成・全CSV検証の後段は実装済み。既存のJSON API取得器もコード上は残っているが、最終的な自動探索方式として固定しない。Web探索で発見した候補を複数ページで照合し、このCSV後段へ接続する工程は次の統合作業対象とする。
 
 Gemini API、Gemini APIキー、Google生成AI SDKは自動収集経路へ未接続。Gemini接続前は `synopsis` を空欄に固定する。
 
-詳細は `docs/DATA_COLLECTION.md` を参照。
+既存CSV後段の詳細は `docs/DATA_COLLECTION.md` を参照。
 
 ## 現在の実装範囲
 
@@ -133,7 +146,18 @@ Gemini API、Gemini APIキー、Google生成AI SDKは自動収集経路へ未接
 - 詳細ページの内部ID取得経路
 - 作品カードから内部ID別詳細ページへの一意遷移
 - manifestから作品CSVを取得してWASMへ生バイト転送するJavaScript境界
-- HTTPS JSON API専用の取得器
+- 公開WebのHTML / XML / RSS / Atom取得器
+- robots.txt Allow/Disallow/Crawl-delay確認
+- URL正規化・追跡パラメータ除去・localhost/プライベート宛先拒否
+- 1ページ取得量 / 1回取得数 / 1ホスト取得数 / 探索深度の上限
+- title / OGP / JSON-LD / 本文からのアニメ言及判定
+- 作品名候補抽出
+- 同一サイト・外部サイト双方への優先度付きリンク探索
+- Web本文を保存しない最小探索state
+- 探索候補と根拠URLの永続化
+- 探索メタデータ用の自前検索index
+- Web探索の自己試験とActions検証
+- HTTPS JSON API専用の既存取得器
 - 共通70列への宣言的マッピング・正規化
 - 外部ID完全一致と複合条件による重複候補検出
 - 初期導入 `initial-NNN.csv` 新規生成・450件上限
@@ -147,7 +171,10 @@ Gemini API、Gemini APIキー、Google生成AI SDKは自動収集経路へ未接
 
 未接続・次工程:
 
-- 正式な外部情報源の選定と `ANIME_SOURCE_CONFIG_JSON` 設定
+- Web探索候補から70列事実を抽出するEvidence処理
+- 複数Webページ間の事実照合と確定判定
+- Web探索 → 共通70列CSV後段の接続
+- 実Webの初期起点選定とdry-run実測
 - 実作品CSVの初回収集
 - Gemini概要生成
 - 初期導入1日最大450作品の実運用
@@ -158,6 +185,7 @@ Gemini API、Gemini APIキー、Google生成AI SDKは自動収集経路へ未接
 - 初期導入CSVと四半期CSVは同一スキーマにする。
 - 作品情報を検索高速化のため別形式へ複製しない。
 - `master.csv` や作品情報複製インデックスを作らない。
+- `crawler/state.json` はWeb探索状態であり、確定作品情報の正本にしない。
 - `manifest.csv` を使用する場合はCSVファイル名のみを保持する。
 - `search.wasm` と `all.wasm` は別バイナリのまま維持する。
 - 初期導入は既存CSVへ追記せず、新しい `initial-NNN.csv` を毎回生成する。
