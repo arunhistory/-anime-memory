@@ -127,6 +127,16 @@
     });
   };
 
+  const emitDetailRequest = () => {
+    if (!animeId) return;
+    window.dispatchEvent(new CustomEvent('anime-detail-request', {
+      detail: {
+        id: animeId,
+        match: 'exact'
+      }
+    }));
+  };
+
   if (animeId) {
     if (idBadge) {
       const value = idBadge.querySelector('span:last-child');
@@ -135,12 +145,11 @@
     }
     setStatus('info', '作品IDを受け取りました。search.wasm 接続後、このIDを完全一致条件として1作品を取得します。');
 
-    window.dispatchEvent(new CustomEvent('anime-detail-request', {
-      detail: {
-        id: animeId,
-        match: 'exact'
-      }
-    }));
+    if (document.readyState === 'loading') {
+      window.addEventListener('DOMContentLoaded', emitDetailRequest, { once: true });
+    } else {
+      window.setTimeout(emitDetailRequest, 0);
+    }
   } else {
     setTitle('作品が指定されていません');
     setStatus('error', '詳細ページを表示するには作品IDが必要です。検索または全作品一覧から作品を選択してください。');
@@ -171,7 +180,8 @@
     setTitle,
     setHero,
     setSectionVisibility,
-    setSectionItems
+    setSectionItems,
+    emitDetailRequest
   });
 
   // 詳細ページはsearch.wasmへ内部IDの完全一致条件を渡す。
