@@ -1,13 +1,23 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadColumns, parseCsv, rowsToRecords, listDataCsvFiles } from '../csv/csv.mjs';
-import { splitEscaped, hasExactExternalId, isCompositeDuplicateCandidate } from '../normalize/record.mjs';
+import { loadColumns, parseCsv, rowsToRecords, listDataCsvFiles, readUtf8Strict } from '../csv/csv.mjs';
+import { splitEscaped, splitStructured, hasExactExternalId, isCompositeDuplicateCandidate } from '../normalize/record.mjs';
 
 export const MEDIA_TYPES = new Set(['TV', 'MOVIE', 'OVA', 'ONA', 'SPECIAL', 'SHORT', 'OTHER']);
 const RELATION_TYPES = new Set(['PREQUEL', 'SEQUEL', 'SPINOFF', 'MOVIE', 'OVA', 'ONA', 'SPECIAL', 'REMAKE', 'REBOOT', 'COMPILATION', 'ALTERNATIVE', 'OTHER']);
+const STREAMING_MODES = new Set(['通常', '独占', '見放題独占', '配信独占', '最速', '先行', '地上波先行', 'Web最速', '同時配信', '期間限定', 'レンタル', '購入', '無料', 'その他']);
 const URL_FIELDS = ['image_url', 'official_url', 'official_x', 'official_youtube', 'official_other'];
 const DATE_FIELDS = ['release_start', 'release_end', 'theatrical_release_date', 'updated_at'];
 const NUMBER_FIELDS = ['episode_count', 'runtime_min', 'season_number'];
+const VARIABLE_FIELDS = new Set([
+  'aliases', 'genres', 'tags', 'setting', 'themes', 'original_author', 'original_artist',
+  'animation_studio', 'co_animation_studio', 'animation_cooperation', 'production_members', 'planning',
+  'executive_producers', 'producers', 'animation_producers', 'line_producers', 'director', 'chief_director',
+  'series_composition', 'character_original_design', 'character_design', 'music', 'sound_director', 'staff',
+  'characters', 'opening_themes', 'ending_themes', 'insert_songs', 'music_production', 'broadcast_networks',
+  'broadcast_slots', 'streaming_services', 'film_distributor', 'relations', 'episodes', 'episode_staff', 'awards',
+  'official_other', 'external_ids'
+]);
 
 function validDate(value) {
   if (!value) return true;
@@ -35,10 +45,6 @@ function validHttpUrl(value) {
   }
 }
 
-function structuredParts(value) {
-  return splitEscaped(value).filter(Boolean).map((entry) => entry.split('::'));
-}
-
 function quarterOfDate(value) {
   if (!/^\d{4}-\d{2}/.test(value || '')) return null;
   const month = Number(value.slice(5, 7));
@@ -48,7 +54,7 @@ function quarterOfDate(value) {
 
 function recordQuarterDates(record) {
   const dates = [record.release_start, record.theatrical_release_date].filter(Boolean);
-  for (const parts of structuredParts(record.streaming_services)) {
+  for (const parts of splitStructured(record.streaming_services)) {
     if (parts[3]) dates.push(parts[3]);
   }
   return dates;
@@ -64,15 +70,31 @@ function checkQuarterFile(record, fileName) {
 
 function validateVariableEscapes(value) {
   const text = String(value || '');
-  let escaped = false;
   for (let i = 0; i < text.length; i += 1) {
-    if (escaped) {
-      escaped = false;
+    if (text[i] !== '\\') continue;
+    if (i + 1 >= text.length) return false;
+    if (text[i + 1] === '\\' || text[i + 1] === '|') {
+      i += 1;
       continue;
     }
-    if (text[i] === '\\') escaped = true;
+    if (text.startsWith('::', i + 1)) {
+      i += 2;
+      continue;
+    }
+    return false;
   }
-  return !escaped;
+  return true;
+}
+
+function validateStructuredField(record, field, expectedParts, label, failures, itemValidator = null) {
+  if (!record[field]) return;
+  for (const parts of splitStructured(record[field])) {
+    if (parts.length !== expectedParts) {
+      failures.push(`${label}: ${field} の内部フィールド数が不正 (${parts.length}/${expectedParts})`);
+      continue;
+    }
+    if (itemValidator) itemValidator(parts);
+  }
 }
 
 export function validateRecords(entries, columns) {
@@ -102,16 +124,37 @@ export function validateRecords(entries, columns) {
         if (!validHttpUrl(value)) failures.push(`${label}: ${field} URL不正 (${value})`);
       }
     }
-    for (const column of columns) {
-      if (!validateVariableEscapes(record[column])) failures.push(`${label}: ${column} のバックスラッシュescapeが途中で終了`);
+    for (const field of VARIABLE_FIELDS) {
+      if (!validateVariableEscapes(record[field])) failures.push(`${label}: ${field} の区切りescapeが不正`);
     }
 
-    for (const relation of structuredParts(record.relations)) {
-      const [type, targetId] = relation;
+    validateStructuredField(record, 'staff', 2, label, failures);
+    validateStructuredField(record, 'characters', 3, label, failures);
+    validateStructuredField(record, 'opening_themes', 6, label, failures);
+    validateStructuredField(record, 'ending_themes', 6, label, failures);
+    validateStructuredField(record, 'insert_songs', 6, label, failures);
+    validateStructuredField(record, 'broadcast_slots', 2, label, failures);
+    validateStructuredField(record, 'streaming_services', 5, label, failures, (parts) => {
+      const [service, mode, , start, end] = parts;
+      if (!service) failures.push(`${label}: streaming_services のサービス名が空です`);
+      if (!STREAMING_MODES.has(mode)) failures.push(`${label}: streaming_services の配信形態が定義値外 (${mode})`);
+      if (!validDate(start)) failures.push(`${label}: streaming_services 開始日不正 (${start})`);
+      if (!validDate(end)) failures.push(`${label}: streaming_services 終了日不正 (${end})`);
+    });
+    validateStructuredField(record, 'episodes', 3, label, failures, (parts) => {
+      if (!validDate(parts[2])) failures.push(`${label}: episodes 放送日不正 (${parts[2]})`);
+    });
+    validateStructuredField(record, 'episode_staff', 3, label, failures);
+    validateStructuredField(record, 'awards', 3, label, failures);
+    validateStructuredField(record, 'external_ids', 2, label, failures, (parts) => {
+      if (!parts[0] || !parts[1]) failures.push(`${label}: external_ids は source::id が必須です`);
+    });
+    validateStructuredField(record, 'relations', 2, label, failures, (parts) => {
+      const [type, targetId] = parts;
       if (!RELATION_TYPES.has(type)) failures.push(`${label}: relations 種別不正 (${type})`);
       if (!/^A\d{8}$/.test(targetId || '')) failures.push(`${label}: relations target ID形式不正 (${targetId || ''})`);
       else if (!allIds.has(targetId)) failures.push(`${label}: relations targetが存在しない (${targetId})`);
-    }
+    });
 
     if (!checkQuarterFile(record, fileName)) failures.push(`${label}: 四半期ファイルの期間に開始情報がありません`);
   });
@@ -141,7 +184,7 @@ export function validateDataDirectory(dataDir = path.join(process.cwd(), 'data')
 
   for (const fileName of files) {
     try {
-      const rows = parseCsv(fs.readFileSync(path.join(dataDir, fileName), 'utf8'));
+      const rows = parseCsv(readUtf8Strict(path.join(dataDir, fileName)));
       const records = rowsToRecords(rows, columns);
       if (/^initial-\d{3}\.csv$/.test(fileName) && records.length > 450) {
         failures.push(`${fileName}: 初期導入上限450作品を超過 (${records.length})`);
@@ -157,7 +200,7 @@ export function validateDataDirectory(dataDir = path.join(process.cwd(), 'data')
     if (!fs.existsSync(manifestPath)) failures.push('manifest.csv がありません。');
     else {
       try {
-        const manifestRows = parseCsv(fs.readFileSync(manifestPath, 'utf8'));
+        const manifestRows = parseCsv(readUtf8Strict(manifestPath));
         if (manifestRows[0]?.length !== 1 || manifestRows[0][0] !== 'file_name') failures.push('manifest.csv のヘッダーが不正です。');
         const listed = manifestRows.slice(1).map((row) => row[0]).filter(Boolean);
         if (JSON.stringify(listed) !== JSON.stringify(files)) failures.push('manifest.csv が実在CSV一覧と一致しません。');
