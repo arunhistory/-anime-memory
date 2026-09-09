@@ -28,6 +28,12 @@ assert.ok(candidate);
 const evidence = extractCandidateEvidence(document, candidate, '2026-09-10T00:00:00.000Z');
 const facts = resolveEvidence(evidence);
 
+if (!facts.episode_staff) {
+  console.error('structured-debug document.text=', JSON.stringify(document.text));
+  console.error('structured-debug episode evidence=', JSON.stringify(evidence.filter((item) => item.field === 'episodes' || item.field === 'episode_staff')));
+  console.error('structured-debug fields=', JSON.stringify([...new Set(evidence.map((item) => item.field))]));
+}
+
 for (const field of [
   'staff', 'characters', 'opening_themes', 'ending_themes', 'insert_songs',
   'broadcast_slots', 'streaming_services', 'episodes', 'episode_staff', 'awards', 'official_other'
