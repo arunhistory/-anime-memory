@@ -1,6 +1,7 @@
 import { extractDocument, extractSitemapUrls, normalizeTitleKey } from './html.mjs';
 import { scoreAnimeDocument, scoreDiscoveredLink, isRelevantDocument } from './score.mjs';
 import { extractCandidateEvidence, mergeEvidence, resolveEvidence } from './evidence.mjs';
+import { resolveCandidateEntities } from './entity-resolution.mjs';
 import { normalizeUrl, urlHash, hostKey } from './url.mjs';
 
 function popBest(frontier) {
@@ -85,6 +86,7 @@ export async function runDiscovery(options) {
     relevant: 0,
     discoveryOnlyPages: 0,
     candidatesFound: 0,
+    entityMerges: 0,
     evidenceClaims: 0,
     newLinks: 0,
     robotsSkipped: 0,
@@ -236,8 +238,10 @@ export async function runDiscovery(options) {
 
   for (const entry of deferredBlocked) addFrontier(frontier, queued, visited, entry);
 
+  const resolved = resolveCandidateEntities([...candidateMap.values()]);
+  stats.entityMerges = resolved.merges;
   state.visited = [...visited];
-  state.candidates = [...candidateMap.values()];
+  state.candidates = resolved.candidates;
   state.frontier = frontier;
   state.updatedAt = now;
   return { state, stats };
