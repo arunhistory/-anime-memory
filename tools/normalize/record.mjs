@@ -158,12 +158,22 @@ export function titleSet(record) {
   return new Set(values.map(normalizeText).filter(Boolean));
 }
 
+export function releaseIdentitySet(record) {
+  return new Set([record.release_start, record.theatrical_release_date].map((value) => String(value || '').trim()).filter(Boolean));
+}
+
+export function hasMatchingReleaseIdentity(left, right) {
+  const a = releaseIdentitySet(left);
+  const b = releaseIdentitySet(right);
+  return [...a].some((value) => b.has(value));
+}
+
 export function isCompositeDuplicateCandidate(left, right) {
   const leftTitles = titleSet(left);
   const rightTitles = titleSet(right);
   if (![...leftTitles].some((title) => rightTitles.has(title))) return false;
   if (!left.media_type || !right.media_type || left.media_type !== right.media_type) return false;
-  if (!left.release_start || !right.release_start || left.release_start !== right.release_start) return false;
+  if (!hasMatchingReleaseIdentity(left, right)) return false;
 
   const corroborators = [
     [left.original_title, right.original_title],
