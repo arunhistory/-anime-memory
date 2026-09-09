@@ -49,5 +49,8 @@ jobs:
           node --check assets/js/all-bridge.js
           node --check assets/js/detail-bridge.js
 
+      - name: Four-page split validation
+        run: node tools/validate/page-split-check.mjs
+
       - name: UI static validation
         run: node tools/validate/ui-static-check.mjs
