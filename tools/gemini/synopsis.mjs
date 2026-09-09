@@ -75,12 +75,41 @@ function parseSynopsisPayload(payload) {
   return synopsis;
 }
 
+function safeQuotaMetadata(payload) {
+  const output = {
+    apiStatus: typeof payload?.error?.status === 'string' ? payload.error.status.slice(0, 80) : '',
+    quotaViolations: [],
+    retryDelay: ''
+  };
+
+  for (const detail of Array.isArray(payload?.error?.details) ? payload.error.details : []) {
+    const type = String(detail?.['@type'] || '');
+    if (type.endsWith('QuotaFailure')) {
+      for (const violation of Array.isArray(detail?.violations) ? detail.violations : []) {
+        output.quotaViolations.push({
+          quotaMetric: String(violation?.quotaMetric || '').slice(0, 200),
+          quotaId: String(violation?.quotaId || '').slice(0, 200),
+          quotaValue: String(violation?.quotaValue || '').slice(0, 40),
+          model: String(violation?.quotaDimensions?.model || '').slice(0, 100),
+          location: String(violation?.quotaDimensions?.location || '').slice(0, 80)
+        });
+      }
+    }
+    if (type.endsWith('RetryInfo')) output.retryDelay = String(detail?.retryDelay || '').slice(0, 40);
+  }
+  output.quotaViolations = output.quotaViolations.slice(0, 10);
+  return output;
+}
+
 class GeminiHttpError extends Error {
-  constructor(status) {
+  constructor(status, metadata = {}) {
     super(`gemini-http-${status}`);
     this.name = 'GeminiHttpError';
     this.status = status;
     this.retryable = status === 429 || status >= 500;
+    this.apiStatus = metadata.apiStatus || '';
+    this.quotaViolations = Array.isArray(metadata.quotaViolations) ? metadata.quotaViolations : [];
+    this.retryDelay = metadata.retryDelay || '';
   }
 }
 
@@ -133,7 +162,15 @@ export async function generateSynopsis(record, options = {}) {
     clearTimeout(timer);
   }
 
-  if (!response.ok) throw new GeminiHttpError(response.status);
+  if (!response.ok) {
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch {
+      // Do not log or retain arbitrary response bodies.
+    }
+    throw new GeminiHttpError(response.status, safeQuotaMetadata(payload));
+  }
 
   let payload;
   try {
