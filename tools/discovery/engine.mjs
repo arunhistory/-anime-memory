@@ -159,7 +159,10 @@ export async function runDiscovery(options) {
     const document = extractDocument(result.text, result.url);
     const pageScore = scoreAnimeDocument(document);
     const detectedTitles = document.noindex ? [] : document.candidates.map((item) => item.title);
-    const persistableCandidateTitles = document.noindex || document.discoveryOnly ? [] : detectedTitles;
+    const subjectKey = document.subjectCandidate?.key || '';
+    const persistableCandidateTitles = document.noindex || document.discoveryOnly || !document.subjectCandidate
+      ? []
+      : [document.subjectCandidate.title];
     const relevant = !document.noindex && isRelevantDocument(pageScore);
     if (relevant) stats.relevant += 1;
     if (relevant && document.discoveryOnly) stats.discoveryOnlyPages += 1;
@@ -177,7 +180,11 @@ export async function runDiscovery(options) {
       if (!document.discoveryOnly) {
         for (const candidate of document.candidates) {
           const sourceUrl = document.canonical || document.url;
-          const evidence = extractCandidateEvidence(document, candidate, now);
+          const candidateKey = normalizeTitleKey(candidate.title || candidate.key);
+          const extracted = extractCandidateEvidence(document, candidate, now);
+          const evidence = subjectKey && candidateKey === subjectKey
+            ? extracted
+            : extracted.filter((item) => item.field === 'title_ja');
           stats.evidenceClaims += evidence.length;
           if (addCandidate(candidateMap, candidate, sourceUrl, now, evidence)) stats.candidatesFound += 1;
         }
