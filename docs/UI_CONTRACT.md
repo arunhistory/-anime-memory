@@ -115,7 +115,25 @@ JavaScriptはIDをURLから受け取るだけで、CSVから作品を探さな�
 - `id` — URLから受け取った内部ID
 - `setStatus(type, text)` — 詳細画面の状態表示
 - `setTitle(value)` — タイトル表示更新
-- `setSectionVisibility(sectionId, visible)` — 情報が存在するカテゴリだけ表示するためのUI操作
+- `setHero(data)` — タイトル、補助タイトル、概要、タグ、画像を表示
+- `setSectionVisibility(sectionId, visible)` — 情報が存在するカテゴリだけ表示
+- `setSectionItems(sectionId, items)` — 判定済みの表示項目をカテゴリへ描画
+
+`setHero()` と `setSectionItems()` は表示済み形式だけを受け取る。作品情報の解釈、推測、正規化は行わない。
+
+`setSectionItems()` の表示用形式:
+
+```text
+[
+  {
+    label: string,
+    value: string,
+    href?: string
+  }
+]
+```
+
+`href` はHTTP / HTTPSだけDOMへリンクとして設定する。
 
 ## 共通カード描画
 
@@ -135,6 +153,8 @@ JavaScriptはIDをURLから受け取るだけで、CSVから作品を探さな�
 この表示用データを作るためにJavaScript側でCSVを解析したり、クール・総時間・検索一致度等を計算してはならない。
 
 画像URLはDOMへ設定する前にHTTP / HTTPSのみ許可する。
+
+DOMへの文字列挿入は `textContent` を使用し、取得データをHTML文字列として直接挿入しない。
 
 ## エラーの責務
 
