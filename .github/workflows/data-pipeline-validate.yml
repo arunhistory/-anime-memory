@@ -58,6 +58,7 @@ jobs:
           node --check tools/discovery/fetch-page.mjs
           node --check tools/discovery/html.mjs
           node --check tools/discovery/evidence.mjs
+          node --check tools/discovery/to-record.mjs
           node --check tools/discovery/score.mjs
           node --check tools/discovery/index.mjs
           node --check tools/discovery/state.mjs
