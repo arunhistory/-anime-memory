@@ -70,16 +70,17 @@ export function reserveGeminiCalls(state, { runId, requested, now = new Date() }
   const entry = dayEntry(state, day);
 
   if (Object.hasOwn(entry.reservations, id)) {
-    return { day, reserved: entry.reservations[id], idempotent: true, ...quotaStatus(state, now) };
+    const reservation = entry.reservations[id];
+    return { ...quotaStatus(state, now), reservation, idempotent: true };
   }
 
   const available = Math.max(0, GEMINI_DAILY_CALL_LIMIT - entry.used - reservedTotal(entry));
-  const reserved = Math.min(wanted, available);
-  if (reserved <= 0) throw new Error('gemini-daily-budget-exhausted');
-  entry.reservations[id] = reserved;
+  const reservation = Math.min(wanted, available);
+  if (reservation <= 0) throw new Error('gemini-daily-budget-exhausted');
+  entry.reservations[id] = reservation;
   state.updatedAt = new Date(now).toISOString();
   pruneOldDays(state);
-  return { day, reserved, idempotent: false, ...quotaStatus(state, now) };
+  return { ...quotaStatus(state, now), reservation, idempotent: false };
 }
 
 export function finalizeGeminiCalls(state, { runId, actualCalls, day, now = new Date() }) {
@@ -88,14 +89,14 @@ export function finalizeGeminiCalls(state, { runId, actualCalls, day, now = new 
   const targetDay = String(day || geminiQuotaDay(now));
   const entry = dayEntry(state, targetDay);
   if (!Object.hasOwn(entry.reservations, id)) throw new Error('gemini-quota-reservation-missing');
-  const reserved = entry.reservations[id];
-  const actual = integer(actualCalls, 'actualCalls', 0, reserved);
+  const reservation = entry.reservations[id];
+  const actual = integer(actualCalls, 'actualCalls', 0, reservation);
   delete entry.reservations[id];
   entry.used += actual;
   if (entry.used > GEMINI_DAILY_CALL_LIMIT) throw new Error('gemini-daily-budget-overflow');
   state.updatedAt = new Date(now).toISOString();
   pruneOldDays(state);
-  return { day: targetDay, finalized: actual, released: reserved - actual, ...quotaStatus(state, new Date(now)) };
+  return { ...quotaStatus(state, new Date(now)), day: targetDay, finalized: actual, released: reservation - actual };
 }
 
 export function saveGeminiUsage(filePath, state) {
