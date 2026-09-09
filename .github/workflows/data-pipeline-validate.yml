@@ -1,0 +1,60 @@
+name: Data Pipeline Validate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/csv/**'
+      - 'tools/fetch/**'
+      - 'tools/normalize/**'
+      - 'tools/collect/**'
+      - 'tools/validate/data-validator.mjs'
+      - 'data/**'
+      - '.github/workflows/data-pipeline-validate.yml'
+      - '.github/workflows/data-collect.yml'
+  pull_request:
+    paths:
+      - 'tools/csv/**'
+      - 'tools/fetch/**'
+      - 'tools/normalize/**'
+      - 'tools/collect/**'
+      - 'tools/validate/data-validator.mjs'
+      - 'data/**'
+      - '.github/workflows/data-pipeline-validate.yml'
+      - '.github/workflows/data-collect.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: JavaScript syntax check
+        run: |
+          node --check tools/csv/csv.mjs
+          node --check tools/fetch/http-json.mjs
+          node --check tools/normalize/record.mjs
+          node --check tools/validate/data-validator.mjs
+          node --check tools/collect/run.mjs
+          node --check tools/collect/self-test.mjs
+
+      - name: Collection pipeline self-test
+        run: node tools/collect/self-test.mjs
+
+      - name: Validate committed data when present
+        run: |
+          if [[ -d data ]]; then
+            node tools/validate/data-validator.mjs data
+          else
+            echo 'data/ is not created yet; no production records to validate.'
+          fi
