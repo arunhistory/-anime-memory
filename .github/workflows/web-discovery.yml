@@ -1,0 +1,121 @@
+name: Web Anime Discovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      seed_urls:
+        description: '追加の探索起点URL（改行またはカンマ区切り）'
+        required: false
+        type: string
+      max_pages:
+        description: '1回の最大取得ページ数'
+        required: true
+        type: number
+        default: 200
+      max_depth:
+        description: '起点からの最大リンク深度'
+        required: true
+        type: number
+        default: 5
+      per_host_limit:
+        description: '1回・1ホストあたりの最大取得数'
+        required: true
+        type: number
+        default: 40
+      dry_run:
+        description: '探索するがstateをCommitしない'
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: web-anime-discovery
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DISCOVERY_SEED_URLS: ${{ inputs.seed_urls }}
+      DISCOVERY_MAX_PAGES: ${{ inputs.max_pages }}
+      DISCOVERY_MAX_DEPTH: ${{ inputs.max_depth }}
+      DISCOVERY_PER_HOST_LIMIT: ${{ inputs.per_host_limit }}
+      DISCOVERY_DRY_RUN: ${{ inputs.dry_run }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Discovery self-test
+        run: node tools/discovery/self-test.mjs
+
+      - name: Run web discovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(
+            --max-pages "${DISCOVERY_MAX_PAGES}"
+            --max-depth "${DISCOVERY_MAX_DEPTH}"
+            --per-host-limit "${DISCOVERY_PER_HOST_LIMIT}"
+          )
+          if [[ "${DISCOVERY_DRY_RUN}" == "true" ]]; then
+            args+=(--dry-run true)
+          fi
+          node tools/discovery/run.mjs "${args[@]}"
+
+      - name: Show dry-run result
+        if: ${{ inputs.dry_run }}
+        run: git diff -- crawler/state.json || true
+
+      - name: Commit discovery state
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add crawler/state.json
+          if git diff --cached --quiet; then
+            echo 'No discovery state changes to commit.'
+            exit 0
+          fi
+
+          unexpected="$(git status --porcelain | awk '$2 != "crawler/state.json" {print}')"
+          if [[ -n "${unexpected}" ]]; then
+            echo 'Discovery modified files outside crawler/state.json; refusing commit.' >&2
+            echo "${unexpected}" >&2
+            exit 1
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Update web anime discovery state'
+
+          base_sha="${GITHUB_SHA}"
+          for attempt in 1 2 3; do
+            git fetch origin main
+            remote_head="$(git rev-parse origin/main)"
+            if [[ "${remote_head}" != "${base_sha}" ]]; then
+              if ! git diff --quiet "${base_sha}..${remote_head}" -- crawler/state.json; then
+                echo 'crawler/state.json advanced after discovery started; aborting to prevent lost state.' >&2
+                exit 1
+              fi
+              git rebase origin/main
+              base_sha="${remote_head}"
+            fi
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            echo "main advanced during publish attempt ${attempt}; retrying without force push."
+          done
+          echo 'Could not publish discovery state after safe retries.' >&2
+          exit 1
