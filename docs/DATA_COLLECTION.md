@@ -1,6 +1,6 @@
 # 自動収集パイプライン
 
-公開Web探索で得た作品候補とEvidenceから、確定できる事実だけを共通70列CSV候補へ渡す。Geminiはサイト独自 `synopsis` の生成専用で、現在はユーザー指示により実接続を後工程へ保留している。
+公開Web探索で得た作品候補とEvidenceから、確定できる事実だけを共通70列CSV候補へ渡す。Geminiはサイト独自 `synopsis` の生成専用で、Web探索・事実確定には使用しない。GitHub Actions SecretからGemini APIへ到達する接続経路は実測済みだが、現在の実生成はGoogle側の `429 RESOURCE_EXHAUSTED` で停止しているため、本番既定は `gemini=false` のままとする。
 
 ## 標準実行経路
 
@@ -13,7 +13,7 @@ GitHub Actions (Web Anime Discovery)
   ↓
 作品候補 + Evidence + 根拠URL
   ↓
-ページ主題分離 / 日本アニメ確認 / 一次情報または別ホスト照合
+ページ主題分離 / 日本アニメ確認 / 一次情報または独立source family照合
   ↓
 Entity Resolution
   ↓
@@ -27,7 +27,7 @@ confirmed の事実だけ共通70列Recordへ変換
   ↓
 初期導入24時間上限 / 四半期所属判定
   ↓
-[Gemini接続後のみ] synopsis生成
+[Gemini利用可能時のみ] synopsis生成
   ↓
 initial-NNN.csv / YYYY-QN.csv
   ↓
@@ -36,7 +36,7 @@ initial-NNN.csv / YYYY-QN.csv
 検証成功時だけ Commit
 ```
 
-Geminiを使用しない現在の既定実行では `gemini=false` とし、API呼び出しもGemini用quota予約も行わない。
+Geminiを使用しない現在の既定実行では `gemini=false` とし、API呼び出しもGemini用quota予約も行わない。Google側quota/billingが利用可能になるまで、同じ失敗を根拠なく再試行しない。
 
 ## Discovery入力
 
@@ -44,7 +44,7 @@ Geminiを使用しない現在の既定実行では `gemini=false` とし、API�
 
 Evidenceはページ本文の複製ではなく、`field / value / sourceUrl / sourceClass / rule / observedAt` の最小情報として保持する。HTML本文、記事全文、画像、動画はstateへ保存しない。
 
-情報源は `primary` / `secondary` に分ける。作品主題と一致する直接的な公式作品ページ等を一次情報として扱い、一次情報で直接確認できた値、または別ホスト2つ以上から一致確認できた値を `confirmed` とする。単独の二次情報は `observed`。scalar値に異なる候補が存在する場合は、2対1等の多数決をせず `conflict` として値を空欄にする。
+情報源は `primary` / `secondary` に分ける。作品主題と一致する直接的な公式作品ページ等を一次情報として扱い、一次情報で直接確認できた値、または独立したsource family 2つ以上から一致確認できた値を `confirmed` とする。単独の二次情報は `observed`。同一運営・同系列の複数ホストは裏取り件数を水増ししないよう1 familyとして扱い、例としてWikipedia・Wikidata・Wikimedia Commons等のWikimedia系だけでは二次情報を自己確定させない。scalar値に異なる候補が存在する場合は、2対1等の多数決をせず `conflict` として値を空欄にする。
 
 一覧、まとめ、総論ページはリンク発見に使用しても、そのページ自体を作品Evidenceとして無条件保存しない。単一作品ページに別作品が登場した場合、副次作品は原則タイトルEvidenceだけを残し、日付、媒体、スタッフ等を混入させない。
 
@@ -86,7 +86,7 @@ CSV登録候補には次の条件をすべて要求する。
 
 分類定義は `tools/discovery/taxonomy.mjs` を正本とする。
 
-`genres` は複数指定可能で、共通CSVでは `|` 区切りで保存する。学園、ほのぼの、百合、BL、ラブコメ、異世界、魔法少女、ロボット等を含め、Web表記揺れを正式ジャンルへ正規化する。同一ジャンルが一次情報または独立した複数ホストから確認された場合だけ確定する。
+`genres` は複数指定可能で、共通CSVでは `|` 区切りで保存する。学園、ほのぼの、百合、BL、ラブコメ、異世界、魔法少女、ロボット等を含め、Web表記揺れを正式ジャンルへ正規化する。同一ジャンルが一次情報または独立した複数source familyから確認された場合だけ確定する。
 
 原作タグは `original_type` を使用し、1作品につき1つだけ保存する。オリジナル、漫画系、4コマ漫画系、ライトノベル系、Web小説系、なろう系、カクヨム系、一般小説系、児童文学系、ゲーム系、ソーシャルゲーム系、ノベルゲーム系、カードゲーム系、玩具系、特撮系、舞台系、音楽系、キャラクター企画系、メディアミックス、その他を扱う。
 
@@ -99,6 +99,8 @@ CSV登録候補には次の条件をすべて要求する。
 外部IDがある入力では `source::id` の完全一致を最優先する。外部IDがないDiscovery入力では、正規化タイトル/別名、`media_type`、開始日または劇場公開日、原作情報またはアニメーション制作等の組合せを使う。
 
 Web探索state内で異なるタイトル候補を1作品へまとめる場合も、明示的に確認済みのalias関係に加え、媒体と開始日・制作会社等のidentity一致を要求する。表記が似ているだけでは統合しない。日本/非日本のorigin競合がある候補も統合しない。
+
+次回探索の既登録作品判定は専用の重複Indexを新設せず、公開検索で使用する `search.wasm` を流用する。既存CSVをWASMへ読み込み、`title_ja / title_kana / title_romaji / title_en / aliases` の完全一致で既登録作品を判定する。既登録作品はCandidate/Evidenceを再収集しないが、そのページから未知作品へ伸びるリンク探索は継続する。
 
 不確実な候補は自動統合・既存値上書きをしない。
 
@@ -116,11 +118,15 @@ Web探索state内で異なるタイトル候補を1作品へまとめる場合�
 
 既存の非空値は無条件上書きしない。不確実な重複候補も自動統合しない。
 
-## Gemini概要生成 — 現在保留
+## Gemini概要生成 — 接続経路確認済み / 実生成はquota待ち
 
 Gemini用コードは `tools/gemini/` に隔離され、Web探索・Evidence確定とは接続しない。`Anime Data Collect` の入力 `gemini` は既定 `false`。
 
-現段階ではGeminiの実API接続、モデル/API経路の最終決定、実 `synopsis` 生成を行わない。接続工程へ進んだ時点で現行の公式仕様を確認し、APIキーをGitHub Actions Secretからサーバー側だけで使用する。Pages、ブラウザJavaScript、CSV、ログへキーを出さない。
+GitHub Actions Repository Secret `ANIME_GEMINI_API_KEY` が実行時環境へ正常に渡り、Google Gemini APIまで到達することはライブ試験で確認した。現在の既定モデル `gemini-3.5-flash-lite` に対して、Interactions経路とGenerateContent経路をそれぞれ1回ずつ診断したところ、双方とも認証エラーではなくHTTP 429 `RESOURCE_EXHAUSTED` で停止した。このため、現在の障害はリポジトリ内の接続経路ではなくGoogle側quota/billing層として扱う。
+
+同じ429を根拠なく繰り返さない。Google側のquota/billingが利用可能になったことを確認できるまで本番 `gemini=true` は使用しない。失敗したライブ試験用の一時Workflowは削除済み。APIキーはPages、ブラウザJavaScript、CSV、crawler state、ログへ保存しない。
+
+ライブ診断に先立って確保した1呼出し分は、生成成功を確認できていないため安全側の予約として `crawler/gemini-usage.json` に残している。実生成が利用可能になった時点で、まず1件の疎通確認を行い、成功後に通常の1作品1回・日次上限管理へ進む。
 
 ## 既存JSON API入力
 
@@ -138,6 +144,8 @@ GitHubへの確定時はforce pushを使用しない。処理開始後に `data/
 
 `Web Anime Discovery` と `Anime Data Collect` は `workflow_dispatch` のみで、Cronは持たない。`Anime Data Collect` は `dry_run=true`、`gemini=false` が既定値。
 
-`crawler/seeds.txt` には実測済みbootstrap seedが設定されている。GitHub Actionsのread-only live pilotで、robots、公開IP確認、DNS pinning、取得量制御、HTML解析、候補抽出、日本アニメgate、Evidence確定条件を実Webに対して確認している。
+`crawler/seeds.txt` には実測済みbootstrap seedが設定されている。GitHub ActionsのライブbootstrapでWikipediaを許可ホストに限定して40ページを本番stateへ巡回し、40/40ページ取得、通信失敗0、23作品候補、4,154件の継続frontierを生成して `crawler/state.json` へ保存した。robots、公開IP確認、DNS pinning、取得量制御、HTML解析、候補抽出、日本アニメgate、Evidence確定条件を実Webに対して確認している。
 
-実作品CSVの本番CommitとGemini実接続はまだ行っていない。
+このbootstrap後も、同一系列の別ホストだけでEvidenceが自己確定しないようsource family単位の重複抑止を追加し、Wikimedia系クロスホスト自己確定の禁止をCIで検証している。
+
+実作品CSVの本番Commitはまだ行っていない。Geminiは接続経路までは確認済みだが、実生成はGoogle側429解消待ちである。
