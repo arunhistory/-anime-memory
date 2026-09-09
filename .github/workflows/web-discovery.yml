@@ -67,6 +67,7 @@ jobs:
           node tools/discovery/self-test.mjs
           node tools/discovery/quality-self-test.mjs
           node tools/discovery/common-evidence-self-test.mjs
+          node tools/discovery/entity-resolution-self-test.mjs
           node tools/discovery/taxonomy-self-test.mjs
 
       - name: Run web discovery
