@@ -15,9 +15,14 @@ const requiredFiles = [
   'assets/css/all.css',
   'assets/css/detail.css',
   'assets/js/common.js',
+  'assets/js/wasm-runtime.js',
   'assets/js/search-bridge.js',
   'assets/js/all-bridge.js',
-  'assets/js/detail-bridge.js'
+  'assets/js/detail-bridge.js',
+  'assets/wasm/search.js',
+  'assets/wasm/search.wasm',
+  'assets/wasm/all.js',
+  'assets/wasm/all.wasm'
 ];
 
 const htmlFiles = [
@@ -29,6 +34,7 @@ const htmlFiles = [
 
 const jsFiles = [
   'assets/js/common.js',
+  'assets/js/wasm-runtime.js',
   'assets/js/search-bridge.js',
   'assets/js/all-bridge.js',
   'assets/js/detail-bridge.js'
@@ -115,6 +121,14 @@ for (const file of htmlFiles) {
     if (!exists(resolved)) {
       fail(`参照先が存在しません: ${file} -> ${ref}`);
     }
+  }
+}
+
+for (const file of ['search/index.html', 'all/index.html', 'detail/index.html']) {
+  if (!exists(file)) continue;
+  const html = read(file);
+  if (!html.includes('assets/js/wasm-runtime.js')) {
+    fail(`WASMランタイム参照がありません: ${file}`);
   }
 }
 
