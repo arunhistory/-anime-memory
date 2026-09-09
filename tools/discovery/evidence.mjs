@@ -88,7 +88,7 @@ function extractEventDates(context) {
   return claims;
 }
 
-function extractMediaType(context) {
+function extractMediaTypes(context) {
   const text = String(context || '').normalize('NFKC').toLocaleLowerCase('ja');
   const rules = [
     ['OVA', /\bova\b|オリジナルビデオアニメ|オリジナル・ビデオ・アニメ/],
@@ -98,8 +98,11 @@ function extractMediaType(context) {
     ['SPECIAL', /テレビスペシャル|tvスペシャル|特別編アニメ/],
     ['TV', /tvアニメ|テレビアニメ|tv animation/]
   ];
-  for (const [value, regex] of rules) if (regex.test(text)) return { field: 'media_type', value, rule: `media-${value.toLowerCase()}` };
-  return null;
+  const claims = [];
+  for (const [value, regex] of rules) {
+    if (regex.test(text)) claims.push({ field: 'media_type', value, rule: `media-${value.toLowerCase()}` });
+  }
+  return claims;
 }
 
 function extractLabeledValues(context) {
@@ -182,7 +185,7 @@ export function extractCandidateEvidence(document, candidate, observedAt = new D
   const context = candidateContext(document, candidate.title);
   const rawClaims = [
     { field: 'title_ja', value: candidate.title, rule: 'anime-title-candidate' },
-    extractMediaType(context),
+    ...extractMediaTypes(context),
     extractOriginalType(context),
     ...extractGenreClaims(document, context),
     ...extractEventDates(context),
@@ -302,25 +305,14 @@ export function resolveEvidence(evidence = []) {
       continue;
     }
 
-    const first = alternatives[0];
-    const second = alternatives[1];
-    if (first.hostCount >= 2 && first.hostCount > second.hostCount) {
-      facts[field] = {
-        status: 'confirmed',
-        value: first.value,
-        sourceCount: first.sourceCount,
-        hostCount: first.hostCount,
-        alternatives: alternatives.slice(1, 5)
-      };
-    } else {
-      facts[field] = {
-        status: 'conflict',
-        value: '',
-        sourceCount: first.sourceCount,
-        hostCount: first.hostCount,
-        alternatives: alternatives.slice(0, 5)
-      };
-    }
+    const top = alternatives[0];
+    facts[field] = {
+      status: 'conflict',
+      value: '',
+      sourceCount: top?.sourceCount || 0,
+      hostCount: top?.hostCount || 0,
+      alternatives: alternatives.slice(0, 5)
+    };
   }
   return facts;
 }
