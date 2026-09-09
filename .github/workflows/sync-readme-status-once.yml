@@ -1,0 +1,75 @@
+name: Sync README Status Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/sync-readme-status-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: ${{ github.event.head_commit.message == 'Sync README to verified Gemini and crawler status' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update verified status only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('README.md')
+          text = path.read_text(encoding='utf-8')
+          replacements = {
+            "- Gemini API: 確定済み事実だけを入力したサイト独自 `synopsis` 生成。Web探索・事実確定には使用しない。現在は接続を後工程へ保留する":
+            "- Gemini API: 確定済み事実だけを入力したサイト独自 `synopsis` 生成。Web探索・事実確定には使用しない。GitHub ActionsからAPIまでの接続経路は確認済みで、実生成はGoogle側の `429 RESOURCE_EXHAUSTED` 解消待ちのため既定OFFとする",
+            "Gemini処理コードは探索・事実確定から分離してあるが、現在はユーザー指示により実接続を保留している。`Anime Data Collect` の `gemini` 入力は既定 `false` で、明示的に有効化しない限りGemini API呼び出しもGemini用quota予約も行わない。モデル/API疎通の最終確定はGemini接続工程で実施する。":
+            "Gemini処理コードは探索・事実確定から分離してある。GitHub Actions SecretからGemini APIへ到達することはライブ試験で確認済みだが、InteractionsとGenerateContentの双方がGoogle側のHTTP 429 `RESOURCE_EXHAUSTED` で停止したため、`Anime Data Collect` の `gemini` 入力は既定 `false` のままとする。quota/billingが利用可能になるまで同じ失敗を根拠なく再試行しない。",
+            "- 一次情報直接性 / 複数ホスト一致 / conflict判定":
+            "- 一次情報直接性 / 独立source family一致 / conflict判定",
+            "- 外部ID完全一致と複合条件による重複候補検出":
+            "- 外部ID完全一致と複合条件による重複候補検出\n- 既登録作品の次回探索除外に公開検索用 `search.wasm` を流用",
+            "- 実Webread-only crawler pilot":
+            "- 実Webbootstrapを40ページ本番stateへ保存し、23作品候補・継続frontierを生成",
+            "Gemini接続後に行う工程:\n\n- Geminiのモデル/API経路を現行仕様で確定\n- GitHub ActionsからGemini実API疎通\n- 確定済み事実のみを使った `synopsis` 実生成\n- 実作品CSVの初回本番収集\n- 初期導入完了後の四半期更新実運用":
+            "現在残っている実運用工程:\n\n- 利用条件を確認した独立source familyへ探索を段階拡張\n- Geminiなしで確定できる実作品CSVの初回本番収集\n- Google側quota/billing解消後にGeminiを1件だけ再疎通\n- 確定済み事実のみを使った `synopsis` 実生成\n- 初期導入完了後の四半期更新実運用"
+          }
+
+          for old, new in replacements.items():
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'Expected exactly one README match, got {count}: {old[:80]}')
+              text = text.replace(old, new)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Commit README only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add README.md
+          unexpected="$(git status --porcelain | awk '$2 != "README.md" {print}')"
+          if [[ -n "${unexpected}" ]]; then
+            echo 'Unexpected files changed; refusing commit.' >&2
+            echo "${unexpected}" >&2
+            exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Update verified Gemini and crawler status'
+          git fetch origin main
+          remote_head="$(git rev-parse origin/main)"
+          if [[ "${remote_head}" != "${GITHUB_SHA}" ]]; then
+            git rebase origin/main
+          fi
+          git push origin HEAD:main
