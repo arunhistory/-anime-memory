@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>検索 | 日本アニメ総合検索</title>
+  <link rel="stylesheet" href="../assets/css/common.css" />
+  <link rel="stylesheet" href="../assets/css/search.css" />
+</head>
+<body data-page="search">
+  <header class="site-header">
+    <a class="brand" href="../"><span class="brand-mark">あ</span><span class="brand-text">日本アニメ総合検索</span></a>
+    <nav class="desktop-nav"><a class="active" href="./">検索</a><a href="../all/">全作品</a></nav>
+  </header>
+
+  <main class="section-shell page-main">
+    <div class="page-heading">
+      <span class="eyebrow">SEARCH</span>
+      <h1>アニメを検索</h1>
+      <p>作品名だけでなく、保存されている情報から幅広く探せます。</p>
+    </div>
+
+    <section class="search-panel card-surface">
+      <div class="search-box large">
+        <span class="search-icon">⌕</span>
+        <input id="search-query" type="search" placeholder="作品名・声優・制作会社・スタッフなど" autocomplete="off" />
+        <button id="search-button" type="button">検索</button>
+      </div>
+
+      <div id="active-filters" class="active-filters" aria-live="polite"></div>
+
+      <button class="detail-toggle" id="detail-toggle" type="button" aria-expanded="false" aria-controls="detail-filters">
+        <span>＋</span> 詳しい条件を指定
+      </button>
+
+      <div id="detail-filters" class="detail-filters" hidden>
+        <div class="filter-section">
+          <h2>条件の組み合わせ</h2>
+          <div class="segmented" role="group" aria-label="条件の組み合わせ">
+            <button type="button" class="selected" data-op="AND">AND</button>
+            <button type="button" data-op="OR">OR</button>
+            <button type="button" data-op="NOT">NOT</button>
+          </div>
+        </div>
+        <div class="filter-section">
+          <h2>詳細条件</h2>
+          <div class="filter-grid">
+            <button type="button" class="filter-chip">媒体</button>
+            <button type="button" class="filter-chip">年代・期間</button>
+            <button type="button" class="filter-chip">ジャンル</button>
+            <button type="button" class="filter-chip">制作会社</button>
+            <button type="button" class="filter-chip">スタッフ</button>
+            <button type="button" class="filter-chip">声優</button>
+            <button type="button" class="filter-chip">原作</button>
+            <button type="button" class="filter-chip">音楽</button>
+            <button type="button" class="filter-chip">放送</button>
+            <button type="button" class="filter-chip">配信</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="results-section">
+      <div class="results-toolbar">
+        <div><strong id="result-count">検索条件を入力してください</strong><small id="result-note">検索結果はここに表示されます</small></div>
+        <div class="sort-controls">
+          <label>並び替え
+            <select id="sort-key">
+              <option value="season">四季順</option>
+              <option value="date">年代順</option>
+              <option value="title">タイトル順</option>
+              <option value="studio">制作会社名順</option>
+              <option value="episodes">話数順</option>
+              <option value="runtime">総時間順</option>
+            </select>
+          </label>
+          <button id="sort-direction" type="button" aria-label="昇順・降順切り替え">↑ 昇順</button>
+        </div>
+      </div>
+
+      <div id="results" class="anime-grid">
+        <div class="empty-state card-surface">
+          <div class="empty-icon">⌕</div>
+          <h2>探したい条件を入れてみよう</h2>
+          <p>自由検索でも、詳しい条件からでも検索できます。</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <nav class="mobile-nav"><a href="../"><span>⌂</span>ホーム</a><a class="active" href="./"><span>⌕</span>検索</a><a href="../all/"><span>▦</span>全作品</a></nav>
+  <script src="../assets/js/common.js"></script>
+  <script src="../assets/js/search-bridge.js"></script>
+</body>
+</html>
