@@ -21,6 +21,14 @@ function emptyRecord(columns) {
 
 export function discoveryCandidateReadiness(candidate) {
   if (!candidate || typeof candidate !== 'object') return { ready: false, reason: 'candidate-missing' };
+
+  const origin = candidate.facts?.origin_country;
+  if (origin?.status === 'conflict') return { ready: false, reason: 'origin-country-conflict' };
+  if (origin?.value === 'OTHER') return { ready: false, reason: 'non-japanese-origin' };
+  if (origin?.status !== 'confirmed' || origin.value !== 'JP') {
+    return { ready: false, reason: 'japanese-origin-not-confirmed' };
+  }
+
   const title = candidate.facts?.title_ja;
   const media = candidate.facts?.media_type;
   if (title?.status !== 'confirmed' || !title.value) return { ready: false, reason: 'title-not-confirmed' };
