@@ -41,8 +41,17 @@ jobs:
       - name: Build search.wasm and all.wasm
         run: bash wasm-src/build.sh
 
-      - name: WASM ABI smoke test
-        run: node wasm-src/tests/wasm_smoke.mjs
+      - name: Browser WASM ABI smoke test
+        run: |
+          python3 -m http.server 8765 --bind 127.0.0.1 >/tmp/anime-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill ${SERVER_PID} 2>/dev/null || true' EXIT
+          sleep 1
+          google-chrome --headless --disable-gpu --no-sandbox --virtual-time-budget=5000 \
+            --dump-dom http://127.0.0.1:8765/wasm-src/tests/wasm_smoke.html \
+            > /tmp/wasm-smoke-dom.txt
+          cat /tmp/wasm-smoke-dom.txt
+          grep -F 'wasm_smoke: PASS' /tmp/wasm-smoke-dom.txt
 
       - name: Upload WASM build artifact
         if: github.event_name != 'pull_request'
