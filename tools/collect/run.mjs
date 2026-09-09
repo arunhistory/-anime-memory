@@ -22,6 +22,7 @@ import { loadDiscoveryState } from '../discovery/state.mjs';
 import { readyDiscoveryRecords } from '../discovery/to-record.mjs';
 import { generateSynopses, GEMINI_SYNOPSIS_DEFAULT_MODEL } from '../gemini/synopsis.mjs';
 import { validateDataDirectory } from '../validate/data-validator.mjs';
+import { initialImportBudget } from './initial-budget.mjs';
 
 function parseArgs(argv) {
   const args = {};
@@ -256,9 +257,11 @@ async function main() {
   const { accepted: uniqueIncoming, stats } = deduplicateIncoming(normalized, existing, columns);
   let selected = uniqueIncoming;
   let targetName;
+  let initialBudget = null;
 
   if (mode === 'initial') {
-    selected = selected.slice(0, 450);
+    initialBudget = initialImportBudget({ cwd: root, columns });
+    selected = selected.slice(0, initialBudget.remaining);
     targetName = nextInitialFile(dataDir);
   } else {
     const year = Number(args.year);
@@ -273,7 +276,11 @@ async function main() {
   }
 
   if (selected.length === 0) {
-    console.log('新規登録対象は0件です。既存CSVは変更しません。');
+    if (initialBudget?.remaining === 0 && uniqueIncoming.length > 0) {
+      console.warn('初期導入の直近24時間上限450作品に到達しているため、安全停止します。');
+    } else {
+      console.log('新規登録対象は0件です。既存CSVは変更しません。');
+    }
     console.log(JSON.stringify({
       input: inputMode,
       candidates: normalized.length,
@@ -281,6 +288,12 @@ async function main() {
       discoverySkipped: input.discoverySkipped,
       safeStoppedSources: input.safeStoppedSources,
       gemini: geminiEnabled ? 'enabled' : 'disabled',
+      initialBudget: initialBudget ? {
+        window: initialBudget.window,
+        limit: initialBudget.limit,
+        used: initialBudget.used,
+        remaining: initialBudget.remaining
+      } : null,
       ...stats
     }));
     return;
@@ -349,6 +362,11 @@ async function main() {
   console.log(`target: data/${targetName}`);
   console.log(`candidate records: ${normalized.length}`);
   console.log(`new records: ${selected.length}`);
+  if (initialBudget) {
+    console.log(`initial import budget window: ${initialBudget.window}`);
+    console.log(`initial imports in previous 24h: ${initialBudget.used}/${initialBudget.limit}`);
+    console.log(`initial budget before this run: ${initialBudget.remaining}`);
+  }
   console.log(`discovery candidates not ready: ${input.discoverySkipped}`);
   console.log(`safe-stopped API sources: ${input.safeStoppedSources}`);
   console.log(`existing exact duplicates skipped: ${stats.exactExisting}`);
