@@ -39,24 +39,47 @@ export function urlHash(url) {
   return crypto.createHash('sha256').update(String(url)).digest('hex');
 }
 
+function isPrivateIpv4(address) {
+  const parts = String(address).split('.').map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  const [a, b] = parts;
+  return (
+    a === 0 || a === 10 || a === 127 ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 198 && (b === 18 || b === 19)) ||
+    a >= 224
+  );
+}
+
+function mappedIpv4FromIpv6(address) {
+  const lower = String(address || '').toLowerCase();
+  if (!lower.startsWith('::ffff:')) return null;
+  const tail = lower.slice('::ffff:'.length);
+  if (net.isIP(tail) === 4) return tail;
+  const pieces = tail.split(':');
+  if (pieces.length !== 2 || pieces.some((piece) => !/^[0-9a-f]{1,4}$/.test(piece))) return null;
+  const high = Number.parseInt(pieces[0], 16);
+  const low = Number.parseInt(pieces[1], 16);
+  return `${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`;
+}
+
 export function isPrivateIp(address) {
   const family = net.isIP(address);
-  if (family === 4) {
-    const parts = address.split('.').map(Number);
-    const [a, b] = parts;
-    return (
-      a === 0 || a === 10 || a === 127 ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 100 && b >= 64 && b <= 127) ||
-      (a === 198 && (b === 18 || b === 19)) ||
-      a >= 224
-    );
-  }
+  if (family === 4) return isPrivateIpv4(address);
   if (family === 6) {
-    const lower = address.toLowerCase();
-    return lower === '::' || lower === '::1' || lower.startsWith('fc') || lower.startsWith('fd') || lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb');
+    const lower = String(address).toLowerCase();
+    const mapped = mappedIpv4FromIpv6(lower);
+    if (mapped) return isPrivateIpv4(mapped);
+    return (
+      lower === '::' || lower === '::1' ||
+      lower.startsWith('fc') || lower.startsWith('fd') ||
+      lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb') ||
+      lower.startsWith('fec') || lower.startsWith('fed') || lower.startsWith('fee') || lower.startsWith('fef') ||
+      lower.startsWith('ff')
+    );
   }
   return false;
 }
