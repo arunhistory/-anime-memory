@@ -63,6 +63,7 @@ export async function runDiscovery(options) {
   const {
     state,
     fetcher,
+    knownWorkSearch = null,
     maxPages = 200,
     maxDepth = 5,
     perHostLimit = 40,
@@ -71,13 +72,19 @@ export async function runDiscovery(options) {
 
   if (!state || !fetcher) throw new Error('state and fetcher are required');
 
+  const knownTitleCache = new Map();
+  const isKnownTitle = (title) => {
+    const value = String(title || '').trim();
+    if (!value || !knownWorkSearch?.available) return false;
+    if (knownTitleCache.has(value)) return knownTitleCache.get(value);
+    const known = Boolean(knownWorkSearch.hasExactTitle(value));
+    knownTitleCache.set(value, known);
+    return known;
+  };
+
   const frontier = state.frontier;
   const visited = new Set(state.visited || []);
   const queued = new Set(frontier.map((entry) => normalizeUrl(entry.url)).filter(Boolean));
-  const candidateMap = new Map((state.candidates || []).map((candidate) => [
-    normalizeTitleKey(candidate.title || candidate.key),
-    { ...candidate, evidence: mergeEvidence(candidate.evidence || []), facts: resolveEvidence(candidate.evidence || []) }
-  ]));
   const hostCounts = new Map();
   const deferredBlocked = [];
   const stats = {
@@ -93,8 +100,23 @@ export async function runDiscovery(options) {
     otherSkipped: 0,
     hostFiltered: 0,
     failed: 0,
-    sitemapLinks: 0
+    sitemapLinks: 0,
+    knownWorkCandidatesSkipped: 0,
+    knownStateCandidatesPruned: 0
   };
+
+  const candidateMap = new Map();
+  for (const candidate of state.candidates || []) {
+    if (isKnownTitle(candidate.title || candidate.key)) {
+      stats.knownStateCandidatesPruned += 1;
+      continue;
+    }
+    candidateMap.set(normalizeTitleKey(candidate.title || candidate.key), {
+      ...candidate,
+      evidence: mergeEvidence(candidate.evidence || []),
+      facts: resolveEvidence(candidate.evidence || [])
+    });
+  }
 
   while (frontier.length && stats.attempted < maxPages) {
     const entry = popBest(frontier);
@@ -160,9 +182,14 @@ export async function runDiscovery(options) {
 
     const document = extractDocument(result.text, result.url);
     const pageScore = scoreAnimeDocument(document);
-    const detectedTitles = document.noindex ? [] : document.candidates.map((item) => item.title);
+    const candidateKnowledge = new Map(document.candidates.map((candidate) => [candidate.key, isKnownTitle(candidate.title)]));
+    const novelCandidates = document.noindex
+      ? []
+      : document.candidates.filter((candidate) => !candidateKnowledge.get(candidate.key));
+    const detectedTitles = novelCandidates.map((item) => item.title);
     const subjectKey = document.subjectCandidate?.key || '';
-    const persistableCandidateTitles = document.noindex || document.discoveryOnly || !document.subjectCandidate
+    const subjectKnown = Boolean(subjectKey && candidateKnowledge.get(subjectKey));
+    const persistableCandidateTitles = document.noindex || document.discoveryOnly || !document.subjectCandidate || subjectKnown
       ? []
       : [document.subjectCandidate.title];
     const relevant = !document.noindex && isRelevantDocument(pageScore);
@@ -181,6 +208,10 @@ export async function runDiscovery(options) {
 
       if (!document.discoveryOnly) {
         for (const candidate of document.candidates) {
+          if (candidateKnowledge.get(candidate.key)) {
+            stats.knownWorkCandidatesSkipped += 1;
+            continue;
+          }
           const sourceUrl = document.canonical || document.url;
           const candidateKey = normalizeTitleKey(candidate.title || candidate.key);
           const extracted = extractCandidateEvidence(document, candidate, now);
