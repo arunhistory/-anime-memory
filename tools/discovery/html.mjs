@@ -92,6 +92,8 @@ function cleanCandidateTitle(value) {
   text = text.replace(/\s{2,}/g, ' ');
   if (text.length < 1 || text.length > 120) return null;
   if (/^(?:アニメ|anime|作品|公式|ニュース|最新情報|テレビアニメ作品一覧|日本のテレビアニメ作品一覧)$/i.test(text)) return null;
+  if (/^(?:アニメ|anime)\s*[（(].*(?:アニメーション|作品).*[）)]$/i.test(text)) return null;
+  if (/^(?:日本|世界|海外|国内)の.*アニメ(?:ーション)?(?:作品)?(?:一覧|史|事情)?$/i.test(text)) return null;
   if (/^(?:配信|放送|制作|公開|上映|アニメ化|ネット).{0,12}(?:する|した|される|された|を|の)/.test(text)) return null;
   return text;
 }
@@ -127,6 +129,8 @@ function subjectCandidateFromPage(document) {
   const firstHeading = rawHeadings[0] || '';
   const subject = cleanCandidateTitle(firstHeading.replace(/\s+(?:[-–—|｜])\s+[^\n]{1,80}$/, ''));
   if (!subject || subject.length > 80) return null;
+  if (/^(?:アニメ|anime)(?:\s|$|[（(])/i.test(subject)) return null;
+  if (/(?:アニメ|アニメーション).*(?:一覧|歴史|産業|市場|文化|事情|解説)$/i.test(subject)) return null;
   const body = String(document.text || '').slice(0, 12000);
   const index = body.indexOf(subject);
   if (index < 0) return null;
