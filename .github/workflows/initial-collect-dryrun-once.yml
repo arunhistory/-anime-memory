@@ -1,4 +1,4 @@
-name: Initial Collect Dry Run Once
+name: Discovery Admission Diagnostics Once
 
 on:
   push:
@@ -9,55 +9,47 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: anime-data-write
-  cancel-in-progress: false
-
 jobs:
-  collect-dry-run:
-    if: ${{ github.event.head_commit.message == 'Run initial collect dry run once' }}
+  diagnose:
+    if: ${{ github.event.head_commit.message == 'Run discovery admission diagnostics once' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: Preflight self-tests
+      - name: Summarize admission failures
         run: |
-          node tools/collect/self-test.mjs
-          node tools/collect/initial-budget-self-test.mjs
-          node tools/correct/self-test.mjs
-          node tools/discovery/self-test.mjs
-          node tools/discovery/quality-self-test.mjs
-          node tools/discovery/common-evidence-self-test.mjs
-          node tools/discovery/structured-evidence-self-test.mjs
-          node tools/discovery/entity-resolution-self-test.mjs
-          node tools/discovery/taxonomy-self-test.mjs
-          node tools/gemini/quota-self-test.mjs
-          node tools/gemini/self-test.mjs
-
-      - name: Build common CSV without Gemini
-        run: node tools/collect/run.mjs --input discovery --mode initial --gemini false
-
-      - name: Validate generated CSV set
-        run: |
-          if [[ -d data ]]; then
-            node tools/validate/data-validator.mjs data
-          else
-            echo 'No ready records produced from current discovery state.'
-          fi
-
-      - name: Inspect dry-run output
-        run: |
-          git status --short
-          if [[ -d data ]]; then
-            find data -maxdepth 1 -type f -print -exec wc -l {} \;
-          fi
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import { discoveryCandidateReadiness } from './tools/discovery/to-record.mjs';
+          const state = JSON.parse(fs.readFileSync('crawler/state.json', 'utf8'));
+          const counts = new Map();
+          const samples = new Map();
+          for (const candidate of state.candidates || []) {
+            const result = discoveryCandidateReadiness(candidate);
+            const reason = result.ready ? 'ready' : result.reason;
+            counts.set(reason, (counts.get(reason) || 0) + 1);
+            if (!samples.has(reason)) samples.set(reason, []);
+            if (samples.get(reason).length < 5) {
+              const f = candidate.facts || {};
+              samples.get(reason).push({
+                title: candidate.title || candidate.key || '',
+                origin: f.origin_country ? {status:f.origin_country.status,value:f.origin_country.value} : null,
+                media: f.media_type ? {status:f.media_type.status,value:f.media_type.value} : null,
+                release: f.release_start ? {status:f.release_start.status,value:f.release_start.value} : null,
+                theatrical: f.theatrical_release_date ? {status:f.theatrical_release_date.status,value:f.theatrical_release_date.value} : null,
+                studio: f.animation_studio ? {status:f.animation_studio.status,value:f.animation_studio.value} : null
+              });
+            }
+          }
+          console.log('candidate-count=' + (state.candidates || []).length);
+          console.log('reason-counts=' + JSON.stringify(Object.fromEntries([...counts.entries()].sort())));
+          for (const [reason, rows] of samples) console.log(`samples:${reason}=` + JSON.stringify(rows));
+          NODE
