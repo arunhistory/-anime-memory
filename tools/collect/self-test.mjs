@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { loadColumns, parseCsv, recordsToCsv, rowsToRecords, writeManifest, readUtf8Strict } from '../csv/csv.mjs';
-import { normalizeSourceItem, hasExactExternalId, isCompositeDuplicateCandidate, splitStructured } from '../normalize/record.mjs';
+import { normalizeSourceItem, hasExactExternalId, isCompositeDuplicateCandidate, splitEscaped, splitStructured } from '../normalize/record.mjs';
 import { validateDataDirectory } from '../validate/data-validator.mjs';
 import { collectSource } from '../fetch/http-json.mjs';
 
@@ -47,6 +47,12 @@ const normalized = normalizeSourceItem({
 assert.equal(normalized.external_ids, 'fixture::10');
 assert.equal(normalized.aliases, '試験|テスト');
 assert.deepEqual(splitStructured(normalized.characters), [['主人公|A', 'MAIN::ALT', '声優\\A']]);
+
+const scalarVariable = normalizeSourceItem({ aliases: 'A|B::C\\D' }, {
+  name: 'scalar-variable-fixture',
+  mapping: { aliases: 'aliases' }
+}, columns, '2026-09-09');
+assert.deepEqual(splitEscaped(scalarVariable.aliases), ['A|B::C\\D']);
 
 const sameExternal = { ...normalized, title_ja: '別表記' };
 assert.equal(hasExactExternalId(normalized, sameExternal), true);
@@ -166,22 +172,25 @@ assert.ok(collectorSource.includes("args.input || 'discovery'"), 'collector defa
 assert.ok(collectorSource.includes("path.join(root, 'crawler', 'state.json')"), 'collector must read discovery state');
 assert.ok(collectWorkflow.includes('default: discovery'), 'Actions collection input must default to discovery');
 assert.ok(collectWorkflow.includes('--input'), 'Actions must pass collection input explicitly');
+assert.match(collectWorkflow, /gemini:[\s\S]*?default:\s*false/, 'Gemini must remain opt-in until explicitly connected');
+assert.ok(collectWorkflow.includes('COLLECT_GEMINI'), 'Actions must carry explicit Gemini opt-in state');
 
 const integrationSource = [
   collectorSource,
   fs.readFileSync(path.join(root, 'tools/fetch/http-json.mjs'), 'utf8'),
   collectWorkflow
 ].join('\n');
-assert.ok(integrationSource.includes('ANIME_GEMINI_API_KEY'), 'dedicated anime Gemini secret must be wired');
-assert.ok(integrationSource.includes('--gemini true'), 'non-dry collection must enable synopsis generation');
-assert.ok(integrationSource.includes('--gemini false'), 'dry-run must not spend Gemini quota');
+assert.ok(integrationSource.includes('ANIME_GEMINI_API_KEY'), 'dedicated anime Gemini secret wiring must remain isolated for later connection');
+assert.ok(integrationSource.includes('--gemini true'), 'explicit Gemini opt-in path must exist');
+assert.ok(integrationSource.includes('--gemini false'), 'Gemini-disabled and dry-run paths must exist');
 assert.equal(integrationSource.includes('secrets.GEMINI_API_KEY'), false, 'generic Gemini secret must not be used');
 assert.equal(integrationSource.includes('@google/generative-ai'), false, 'legacy Google SDK must not be coupled into collector');
 assert.equal(integrationSource.includes('generativelanguage.googleapis.com'), false, 'Gemini endpoint must stay isolated in tools/gemini');
 
 console.log('Data collection self-test: PASS');
 console.log('discovery input default: PASS');
+console.log('scalar variable escaping: PASS');
 console.log('theatrical duplicate detection: PASS');
 console.log('safe-stop partial collection: PASS');
-console.log('dedicated Gemini secret wiring: PASS');
+console.log('Gemini default: DEFERRED / OPT-IN ONLY');
 console.log('dry-run Gemini calls: NONE');
