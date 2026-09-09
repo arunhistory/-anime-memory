@@ -52,6 +52,7 @@ const oneSourceEvidence = extractCandidateEvidence(parsedDoc, starCandidate, '20
 assert.equal(resolveEvidence(oneSourceEvidence).media_type.status, 'observed');
 assert.equal(resolveEvidence(oneSourceEvidence).release_start.value, '2027-04-03');
 assert.equal(resolveEvidence(oneSourceEvidence).animation_studio.value, 'Studio Star');
+assert.equal(resolveEvidence(oneSourceEvidence).origin_country.status, 'observed');
 assert.equal(resolveEvidence(oneSourceEvidence).origin_country.value, 'JP');
 
 const mockResponses = new Map([
@@ -105,7 +106,7 @@ await assert.rejects(() => mixedDns.assertPublicHost('https://mixed.test/'), /pr
 const pages = new Map([
   ['https://seed.test/', `
     <html><head><title>個人記事：TVアニメ「星の旅」放送・制作情報</title></head><body>
-      <article>日本の新作TVアニメ『星の旅』は2027年4月3日放送開始。アニメーション制作：Studio Star</article>
+      <article>日本のTVアニメ『星の旅』は2027年4月3日放送開始。アニメーション制作：Studio Star</article>
       <a href="https://news.test/star">星の旅 キャスト続報</a>
       <a href="https://random.test/jobs">採用情報</a>
     </body></html>`],
