@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { loadColumns } from '../csv/csv.mjs';
 import { normalizeUrl, isPrivateIp, urlHash } from './url.mjs';
 import { parseRobotsTxt, evaluateRobots } from './robots.mjs';
 import { extractDocument, extractAnimeTitleCandidates } from './html.mjs';
 import { extractCandidateEvidence, resolveEvidence } from './evidence.mjs';
+import { candidateToCommonRecord, readyDiscoveryRecords } from './to-record.mjs';
 import { PoliteFetcher } from './fetch-page.mjs';
 import { runDiscovery } from './engine.mjs';
 import { emptyDiscoveryState, saveDiscoveryState, loadDiscoveryState, seedFrontier } from './state.mjs';
@@ -103,12 +105,33 @@ assert.ok(discovery.state.documents.some((item) => item.url === 'https://news.te
 assert.ok(discovery.stats.newLinks >= 1);
 assert.ok(discovery.stats.evidenceClaims >= 6);
 
+const columns = loadColumns(process.cwd());
+const commonRecord = candidateToCommonRecord(discoveredCandidate, columns, '2026-09-09');
+assert.ok(commonRecord);
+assert.equal(Object.keys(commonRecord).length, 70);
+assert.equal(commonRecord.title_ja, '星の旅');
+assert.equal(commonRecord.media_type, 'TV');
+assert.equal(commonRecord.release_start, '2027-04-03');
+assert.equal(commonRecord.animation_studio, 'Studio Star');
+assert.equal(commonRecord.synopsis, '');
+assert.equal(commonRecord.updated_at, '2026-09-09');
+const readyRecords = readyDiscoveryRecords(discovery.state, columns, '2026-09-09');
+assert.equal(readyRecords.records.length, 1);
+
 const conflictEvidence = [
   ...oneSourceEvidence,
   { field: 'release_start', value: '2027-04-04', sourceUrl: 'https://conflict.test/article', rule: 'fixture', observedAt: '2026-09-09T00:00:00.000Z' }
 ];
 assert.equal(resolveEvidence(conflictEvidence).release_start.status, 'conflict');
 assert.equal(resolveEvidence(conflictEvidence).release_start.value, '');
+const conflictCandidate = {
+  ...discoveredCandidate,
+  evidence: conflictEvidence,
+  facts: { ...discoveredCandidate.facts, release_start: resolveEvidence(conflictEvidence).release_start }
+};
+const conflictRecord = candidateToCommonRecord(conflictCandidate, columns, '2026-09-09');
+assert.ok(conflictRecord);
+assert.equal(conflictRecord.release_start, '');
 
 const index = new DiscoveryIndex({ version: 1, documents: discovery.state.documents });
 assert.ok(index.search('星の旅').some((item) => item.url.includes('seed.test') || item.url.includes('news.test')));
@@ -129,7 +152,7 @@ assert.ok(restoredCandidate?.evidence?.some((item) => item.field === 'animation_
 fs.rmSync(temp, { recursive: true, force: true });
 
 const sourceText = [
-  'run.mjs', 'engine.mjs', 'fetch-page.mjs', 'html.mjs', 'evidence.mjs', 'score.mjs', 'state.mjs', 'url.mjs'
+  'run.mjs', 'engine.mjs', 'fetch-page.mjs', 'html.mjs', 'evidence.mjs', 'to-record.mjs', 'score.mjs', 'state.mjs', 'url.mjs'
 ].map((file) => fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), file), 'utf8')).join('\n');
 for (const forbidden of ['GEMINI_API_KEY', 'BRAVE_SEARCH_API_KEY', 'SERPAPI', 'ANIME_SOURCE_CONFIG_JSON']) {
   assert.equal(sourceText.includes(forbidden), false, `external API coupling found: ${forbidden}`);
@@ -139,6 +162,7 @@ console.log('Web discovery self-test: PASS');
 console.log('non-official anime mention discovery: PASS');
 console.log('multi-source evidence resolution: PASS');
 console.log('conflict preservation: PASS');
+console.log('confirmed facts to common record: PASS');
 console.log('candidate evidence persistence: PASS');
 console.log('robots enforcement: PASS');
 console.log('raw HTML persistence: NONE');
