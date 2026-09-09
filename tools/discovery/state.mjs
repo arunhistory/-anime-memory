@@ -69,6 +69,7 @@ export function saveDiscoveryState(filePath, state) {
       title: String(doc.title || '').slice(0, 500),
       score: Number(doc.score || 0),
       candidateTitles: [...new Set((doc.candidateTitles || []).map(String))].slice(0, 30),
+      discoveryOnly: Boolean(doc.discoveryOnly),
       lastChecked: String(doc.lastChecked || '')
     }))
     .filter((doc) => doc.url)
