@@ -79,12 +79,36 @@ jobs:
       - name: Commit verified WASM assets
         if: github.event_name == 'push'
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add assets/wasm/all.js assets/wasm/all.wasm assets/wasm/search.js assets/wasm/search.wasm
           if git diff --cached --quiet; then
             echo "WASM assets are unchanged."
-          else
-            git commit -m "Build verified C++ WASM assets"
-            git push origin HEAD:main
+            exit 0
           fi
+
+          git commit -m "Build verified C++ WASM assets"
+
+          for attempt in 1 2 3; do
+            git fetch origin main
+            REMOTE_HEAD="$(git rev-parse origin/main)"
+            BASE_SHA="${GITHUB_SHA}"
+
+            if [[ "${REMOTE_HEAD}" != "${BASE_SHA}" ]]; then
+              if ! git diff --quiet "${BASE_SHA}..${REMOTE_HEAD}" -- wasm-src .github/workflows/wasm-build.yml; then
+                echo "WASM source/workflow advanced after this run started; a newer run must publish its own assets."
+                exit 0
+              fi
+              git rebase origin/main
+            fi
+
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+
+            echo "main advanced during publish attempt ${attempt}; retrying without force push."
+          done
+
+          echo "Could not publish verified assets after safe fast-forward retries."
+          exit 1
