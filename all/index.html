@@ -9,15 +9,24 @@
 </head>
 <body data-page="all">
   <header class="site-header">
-    <a class="brand" href="../"><span class="brand-mark">あ</span><span class="brand-text">日本アニメ総合検索</span></a>
-    <nav class="desktop-nav"><a href="../search/">検索</a><a class="active" href="./">全作品</a></nav>
+    <a class="brand" href="../" aria-label="日本アニメ総合検索 ホーム">
+      <span class="brand-mark">あ</span><span class="brand-text">日本アニメ総合検索</span>
+    </a>
+    <nav class="desktop-nav" aria-label="メインナビゲーション">
+      <a href="../search/">検索</a>
+      <a class="active" href="./" aria-current="page">全作品</a>
+    </nav>
   </header>
 
   <main class="section-shell page-main">
     <div class="page-heading heading-row">
-      <div><span class="eyebrow">ALL TITLES</span><h1>全作品</h1><p>登録されている作品を、1ページでまとめて表示します。</p></div>
-      <div class="sort-controls">
-        <label>並び替え
+      <div>
+        <span class="eyebrow">ALL TITLES</span>
+        <h1>全作品</h1>
+        <p>登録されている全作品を、ページ分割せず1ページ上へ順次表示する画面です。</p>
+      </div>
+      <div class="sort-controls" aria-label="全作品の並び替え">
+        <label for="all-sort-key">並び替え
           <select id="all-sort-key">
             <option value="season">四季順</option>
             <option value="date">年代順</option>
@@ -27,22 +36,33 @@
             <option value="runtime">総時間順</option>
           </select>
         </label>
-        <button id="all-sort-direction" type="button">↑ 昇順</button>
+        <button id="all-sort-direction" type="button" data-dir="asc" aria-label="昇順・降順切り替え">↑ 昇順</button>
       </div>
     </div>
 
-    <div class="status-banner" id="all-status"><span class="spinner"></span><strong>作品データの準備待ち</strong><small>情報データはまだ接続していません</small></div>
+    <div class="status-banner idle" id="all-status" role="status" aria-live="polite">
+      <span class="status-icon" aria-hidden="true">○</span>
+      <div>
+        <strong>全件表示の画面は準備済み</strong>
+        <small>all.wasm と作品データを接続すると、同じページ内へ一定件数ずつ順次表示します。</small>
+      </div>
+    </div>
 
-    <section id="all-results" class="anime-grid">
+    <section id="all-results" class="anime-grid" aria-live="polite" aria-busy="false">
       <div class="empty-state card-surface full-width">
-        <div class="empty-icon">▦</div>
-        <h2>全件表示のUIは準備できています</h2>
-        <p>all.wasm とCSVを接続すると、ここへ順次カードが追加されます。</p>
+        <div class="empty-icon" aria-hidden="true">▦</div>
+        <h2>ここに全作品が並びます</h2>
+        <p>ページ分割は行わず、内部だけ段階描画してブラウザの負荷を抑えます。</p>
       </div>
     </section>
   </main>
 
-  <nav class="mobile-nav"><a href="../"><span>⌂</span>ホーム</a><a href="../search/"><span>⌕</span>検索</a><a class="active" href="./"><span>▦</span>全作品</a></nav>
+  <footer class="site-footer"><span>日本アニメ総合検索</span></footer>
+  <nav class="mobile-nav" aria-label="モバイルナビゲーション">
+    <a href="../"><span aria-hidden="true">⌂</span>ホーム</a>
+    <a href="../search/"><span aria-hidden="true">⌕</span>検索</a>
+    <a class="active" href="./" aria-current="page"><span aria-hidden="true">▦</span>全作品</a>
+  </nav>
   <script src="../assets/js/common.js"></script>
   <script src="../assets/js/all-bridge.js"></script>
 </body>
