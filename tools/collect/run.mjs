@@ -18,6 +18,8 @@ import {
   mergeOnlyBlank,
   splitStructured
 } from '../normalize/record.mjs';
+import { loadDiscoveryState } from '../discovery/state.mjs';
+import { readyDiscoveryRecords } from '../discovery/to-record.mjs';
 import { validateDataDirectory } from '../validate/data-validator.mjs';
 
 function parseArgs(argv) {
@@ -38,7 +40,7 @@ function parseArgs(argv) {
 
 function parseConfig() {
   const raw = process.env.ANIME_SOURCE_CONFIG_JSON;
-  if (!raw) throw new Error('ANIME_SOURCE_CONFIG_JSON が未設定です。情報源は勝手に決定しません。');
+  if (!raw) throw new Error('api-json入力には ANIME_SOURCE_CONFIG_JSON が必要です。');
   try {
     return JSON.parse(raw);
   } catch {
@@ -161,26 +163,21 @@ function writeTargetPreservingExisting(targetPath, selected, columns, mode) {
   fs.writeFileSync(targetPath, `${existingText}${separator}${recordsToCsvRows(selected, columns)}`, 'utf8');
 }
 
-async function main() {
-  const args = parseArgs(process.argv.slice(2));
-  const mode = String(args.mode || 'initial').toLowerCase();
-  if (!['initial', 'quarterly'].includes(mode)) throw new Error('--mode は initial または quarterly です。');
-
-  const root = process.cwd();
-  const dataDir = path.join(root, 'data');
-  const columns = loadColumns(root);
-  const config = parseConfig();
-  validateSourceConfigShape(config, columns);
-
-  if (fs.existsSync(dataDir)) {
-    const existingValidation = validateDataDirectory(dataDir);
-    if (existingValidation.failures.length) {
-      throw new Error(`既存CSVに問題があるため収集を開始しません:\n${existingValidation.failures.map((value) => `- ${value}`).join('\n')}`);
-    }
+async function loadInputRecords({ inputMode, root, columns, confirmedDate }) {
+  if (inputMode === 'discovery') {
+    const statePath = path.join(root, 'crawler', 'state.json');
+    const state = loadDiscoveryState(statePath);
+    const { records, skipped } = readyDiscoveryRecords(state, columns, confirmedDate);
+    return {
+      normalized: records,
+      safeStoppedSources: 0,
+      discoverySkipped: skipped.length,
+      inputDetails: `crawler/state.json candidates=${state.candidates.length}`
+    };
   }
 
-  const confirmedDate = new Date().toISOString().slice(0, 10);
-  const existing = readDataRecords(dataDir, columns);
+  const config = parseConfig();
+  validateSourceConfigShape(config, columns);
   const collectedGroups = await collectConfiguredSources(config);
   const normalized = [];
   let safeStoppedSources = 0;
@@ -192,11 +189,41 @@ async function main() {
     }
     for (const raw of items) {
       const record = normalizeSourceItem(raw, source, columns, confirmedDate);
-      // Gemini未接続段階では、外部の概要文をサイト独自概要として保存しない。
       record.synopsis = '';
       normalized.push(record);
     }
   }
+
+  return {
+    normalized,
+    safeStoppedSources,
+    discoverySkipped: 0,
+    inputDetails: `configured API sources=${collectedGroups.length}`
+  };
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const mode = String(args.mode || 'initial').toLowerCase();
+  const inputMode = String(args.input || 'discovery').toLowerCase();
+  if (!['initial', 'quarterly'].includes(mode)) throw new Error('--mode は initial または quarterly です。');
+  if (!['discovery', 'api-json'].includes(inputMode)) throw new Error('--input は discovery または api-json です。');
+
+  const root = process.cwd();
+  const dataDir = path.join(root, 'data');
+  const columns = loadColumns(root);
+
+  if (fs.existsSync(dataDir)) {
+    const existingValidation = validateDataDirectory(dataDir);
+    if (existingValidation.failures.length) {
+      throw new Error(`既存CSVに問題があるため収集を開始しません:\n${existingValidation.failures.map((value) => `- ${value}`).join('\n')}`);
+    }
+  }
+
+  const confirmedDate = new Date().toISOString().slice(0, 10);
+  const existing = readDataRecords(dataDir, columns);
+  const input = await loadInputRecords({ inputMode, root, columns, confirmedDate });
+  const normalized = input.normalized;
 
   const { accepted: uniqueIncoming, stats } = deduplicateIncoming(normalized, existing, columns);
   let selected = uniqueIncoming;
@@ -219,7 +246,14 @@ async function main() {
 
   if (selected.length === 0) {
     console.log('新規登録対象は0件です。既存CSVは変更しません。');
-    console.log(JSON.stringify({ fetched: normalized.length, selected: 0, safeStoppedSources, ...stats }));
+    console.log(JSON.stringify({
+      input: inputMode,
+      candidates: normalized.length,
+      selected: 0,
+      discoverySkipped: input.discoverySkipped,
+      safeStoppedSources: input.safeStoppedSources,
+      ...stats
+    }));
     return;
   }
 
@@ -250,11 +284,14 @@ async function main() {
   }
 
   console.log('Anime collection pipeline: PASS');
+  console.log(`input: ${inputMode}`);
+  console.log(`input details: ${input.inputDetails}`);
   console.log(`mode: ${mode}`);
   console.log(`target: data/${targetName}`);
-  console.log(`fetched records: ${normalized.length}`);
+  console.log(`candidate records: ${normalized.length}`);
   console.log(`new records: ${selected.length}`);
-  console.log(`safe-stopped sources: ${safeStoppedSources}`);
+  console.log(`discovery candidates not ready: ${input.discoverySkipped}`);
+  console.log(`safe-stopped API sources: ${input.safeStoppedSources}`);
   console.log(`existing exact duplicates skipped: ${stats.exactExisting}`);
   console.log(`uncertain duplicate candidates skipped: ${stats.candidateExisting + stats.candidateIncoming}`);
   console.log('Gemini: DISCONNECTED');
