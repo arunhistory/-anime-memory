@@ -9,6 +9,7 @@ on:
       - 'tools/normalize/**'
       - 'tools/collect/**'
       - 'tools/discovery/**'
+      - 'tools/gemini/**'
       - 'tools/validate/data-validator.mjs'
       - 'crawler/**'
       - 'data/**'
@@ -22,6 +23,7 @@ on:
       - 'tools/normalize/**'
       - 'tools/collect/**'
       - 'tools/discovery/**'
+      - 'tools/gemini/**'
       - 'tools/validate/data-validator.mjs'
       - 'crawler/**'
       - 'data/**'
@@ -65,12 +67,17 @@ jobs:
           node --check tools/discovery/engine.mjs
           node --check tools/discovery/run.mjs
           node --check tools/discovery/self-test.mjs
+          node --check tools/gemini/synopsis.mjs
+          node --check tools/gemini/self-test.mjs
 
       - name: Collection pipeline self-test
         run: node tools/collect/self-test.mjs
 
       - name: Web discovery self-test
         run: node tools/discovery/self-test.mjs
+
+      - name: Gemini synopsis self-test
+        run: node tools/gemini/self-test.mjs
 
       - name: Validate committed data when present
         run: |
