@@ -92,6 +92,16 @@ assert.equal(hostBlocked.ok, false);
 assert.equal(hostBlocked.skipped, true);
 assert.equal(hostBlocked.reason, 'host-not-allowed');
 
+const mixedDns = new PoliteFetcher({
+  minDelayMs: 0,
+  resolveHost: async () => [
+    { address: '8.8.8.8', family: 4 },
+    { address: '127.0.0.1', family: 4 }
+  ],
+  waitImpl: async () => {}
+});
+await assert.rejects(() => mixedDns.assertPublicHost('https://mixed.test/'), /private-address/);
+
 const pages = new Map([
   ['https://seed.test/', `
     <html><head><title>個人記事：TVアニメ「星の旅」放送・制作情報</title></head><body>
@@ -164,7 +174,7 @@ assert.equal(candidateToCommonRecord(unknownOriginCandidate, columns, '2026-09-0
 
 const conflictEvidence = [
   ...oneSourceEvidence,
-  { field: 'release_start', value: '2027-04-04', sourceUrl: 'https://conflict.test/article', rule: 'fixture', observedAt: '2026-09-09T00:00:00.000Z' }
+  { field: 'release_start', value: '2027-04-04', sourceUrl: 'https://conflict.test/article', sourceClass: 'secondary', rule: 'fixture', observedAt: '2026-09-09T00:00:00.000Z' }
 ];
 assert.equal(resolveEvidence(conflictEvidence).release_start.status, 'conflict');
 assert.equal(resolveEvidence(conflictEvidence).release_start.value, '');
@@ -214,6 +224,7 @@ console.log('candidate evidence persistence: PASS');
 console.log('robots enforcement: PASS');
 console.log('controlled-host pilot mode: PASS');
 console.log('mapped IPv6 private-address rejection: PASS');
+console.log('mixed public/private DNS rejection: PASS');
 console.log('raw HTML persistence: NONE');
 console.log('External search API: NONE');
 console.log('Gemini connection: NONE');
