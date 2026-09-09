@@ -7,7 +7,7 @@ on:
       - '.github/workflows/discovery-quality-pilot-once.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   pilot:
@@ -21,6 +21,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -32,5 +34,35 @@ jobs:
           node tools/discovery/self-test.mjs
           node tools/discovery/quality-self-test.mjs
 
-      - name: Controlled live dry-run
-        run: node tools/discovery/run.mjs --max-pages 6 --max-depth 2 --per-host-limit 6 --dry-run true
+      - name: Controlled live discovery
+        run: node tools/discovery/run.mjs --max-pages 6 --max-depth 2 --per-host-limit 6
+
+      - name: Commit controlled discovery state
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add crawler/state.json
+          if git diff --cached --quiet; then
+            echo 'No discovery state changes.'
+            exit 0
+          fi
+          unexpected="$(git status --porcelain | awk '$2 != "crawler/state.json" {print}')"
+          if [[ -n "${unexpected}" ]]; then
+            echo 'Pilot changed files outside crawler/state.json; refusing commit.' >&2
+            echo "${unexpected}" >&2
+            exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Persist hardened discovery pilot state'
+          base_sha="${GITHUB_SHA}"
+          git fetch origin main
+          remote_head="$(git rev-parse origin/main)"
+          if [[ "${remote_head}" != "${base_sha}" ]]; then
+            if ! git diff --quiet "${base_sha}..${remote_head}" -- crawler/state.json; then
+              echo 'crawler/state.json advanced during pilot; refusing overwrite.' >&2
+              exit 1
+            fi
+            git rebase origin/main
+          fi
+          git push origin HEAD:main
