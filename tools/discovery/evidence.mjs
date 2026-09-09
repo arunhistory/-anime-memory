@@ -32,11 +32,26 @@ function cleanValue(value, max = 120) {
 }
 
 function candidateContext(document, title) {
-  const text = `${document.title || ''}\n${document.ogTitle || ''}\n${document.description || ''}\n${document.keywords || ''}\n${document.text || ''}`;
-  if (!title) return text.slice(0, 50000);
-  const index = text.indexOf(title);
-  if (index < 0) return text.slice(0, 50000);
-  return text.slice(Math.max(0, index - 6000), Math.min(text.length, index + title.length + 12000));
+  const metadata = `${document.title || ''}\n${document.ogTitle || ''}\n${document.description || ''}\n${document.keywords || ''}`;
+  const body = String(document.text || '');
+  if (!title) return `${metadata}\n${body.slice(0, 8000)}`;
+
+  const windows = [];
+  let from = 0;
+  while (windows.length < 4) {
+    const index = body.indexOf(title, from);
+    if (index < 0) break;
+    windows.push(body.slice(Math.max(0, index - 1000), Math.min(body.length, index + title.length + 1600)));
+    from = index + Math.max(1, title.length);
+  }
+
+  if (windows.length === 0) {
+    const metadataIndex = metadata.indexOf(title);
+    if (metadataIndex < 0) return metadata.slice(0, 3000);
+    return metadata.slice(Math.max(0, metadataIndex - 800), Math.min(metadata.length, metadataIndex + title.length + 1600));
+  }
+
+  return `${metadata}\n${windows.join('\n---candidate-context---\n')}`.slice(0, 14000);
 }
 
 function normalizeDate(year, month = '', day = '') {
