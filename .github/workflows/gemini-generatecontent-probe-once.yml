@@ -1,0 +1,134 @@
+name: Gemini GenerateContent Probe Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gemini-generatecontent-probe-once.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: anime-data-write
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    if: ${{ github.event.head_commit.message == 'Probe Gemini generateContent once' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Confirm existing conservative reservation
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const state = JSON.parse(fs.readFileSync('crawler/gemini-usage.json', 'utf8'));
+          const entry = state?.days?.['2026-09-09'];
+          if (entry?.reservations?.['smoke-34417804256'] !== 1) {
+            throw new Error('Expected Gemini smoke reservation is missing; refusing unreserved probe.');
+          }
+          console.log('Existing one-call reservation: PASS');
+          NODE
+
+      - name: Probe GenerateContent with the reserved call
+        shell: bash
+        env:
+          ANIME_GEMINI_API_KEY: ${{ secrets.ANIME_GEMINI_API_KEY }}
+          ANIME_GEMINI_MODEL: ${{ vars.ANIME_GEMINI_MODEL }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${ANIME_GEMINI_API_KEY}" ]]; then
+            echo 'ANIME_GEMINI_API_KEY is not configured.' >&2
+            exit 1
+          fi
+          node --input-type=module - <<'NODE'
+          const model = process.env.ANIME_GEMINI_MODEL || 'gemini-3.5-flash-lite';
+          const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            redirect: 'error',
+            headers: {
+              'content-type': 'application/json',
+              'x-goog-api-key': process.env.ANIME_GEMINI_API_KEY
+            },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: 'Reply with the single word OK.' }] }]
+            })
+          });
+
+          if (!response.ok) {
+            let payload = null;
+            try { payload = await response.json(); } catch {}
+            const status = String(payload?.error?.status || '').slice(0, 80);
+            const quota = [];
+            for (const detail of Array.isArray(payload?.error?.details) ? payload.error.details : []) {
+              for (const violation of Array.isArray(detail?.violations) ? detail.violations : []) {
+                quota.push({
+                  quotaMetric: String(violation?.quotaMetric || '').slice(0, 160),
+                  quotaId: String(violation?.quotaId || '').slice(0, 160),
+                  quotaValue: String(violation?.quotaValue || '').slice(0, 40),
+                  model: String(violation?.quotaDimensions?.model || '').slice(0, 100)
+                });
+              }
+            }
+            console.error(JSON.stringify({ httpStatus: response.status, apiStatus: status, quota: quota.slice(0, 8) }));
+            process.exit(2);
+          }
+
+          const payload = await response.json();
+          const text = (payload?.candidates || [])
+            .flatMap((candidate) => candidate?.content?.parts || [])
+            .map((part) => typeof part?.text === 'string' ? part.text : '')
+            .join('')
+            .trim();
+          if (!text) throw new Error('GenerateContent returned no text.');
+          console.log(`Gemini GenerateContent probe: PASS model=${model} chars=${text.length}`);
+          NODE
+
+      - name: Finalize reserved call after successful generation
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tools/gemini/quota.mjs finalize \
+            --run-id 'smoke-34417804256' \
+            --day '2026-09-09' \
+            --actual 1
+
+          git add crawler/gemini-usage.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "Finalize Gemini diagnostic budget (${GITHUB_RUN_ID})"
+
+          base_sha="${GITHUB_SHA}"
+          for attempt in 1 2 3; do
+            git fetch origin main
+            remote_head="$(git rev-parse origin/main)"
+            if [[ "${remote_head}" != "${base_sha}" ]]; then
+              if ! git diff --quiet "${base_sha}..${remote_head}" -- crawler/gemini-usage.json; then
+                echo 'Gemini quota ledger advanced before diagnostic finalization.' >&2
+                exit 1
+              fi
+              git rebase origin/main
+              base_sha="${remote_head}"
+            fi
+            if git push origin HEAD:main; then
+              break
+            fi
+            if [[ "${attempt}" == 3 ]]; then
+              echo 'Could not persist Gemini diagnostic finalization.' >&2
+              exit 1
+            fi
+          done
