@@ -80,7 +80,7 @@
     const section = document.querySelector(`[data-detail-section="${CSS.escape(sectionId)}"]`);
     if (!section) return;
 
-    const body = section.querySelector('.data-placeholder');
+    const body = section.querySelector('.detail-data-list, .data-placeholder');
     if (!body) return;
 
     if (!Array.isArray(items) || items.length === 0) {
