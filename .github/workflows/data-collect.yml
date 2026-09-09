@@ -76,10 +76,55 @@ jobs:
       - name: Preflight self-test
         run: |
           node tools/collect/self-test.mjs
+          node tools/correct/self-test.mjs
           node tools/discovery/self-test.mjs
+          node tools/discovery/taxonomy-self-test.mjs
+          node tools/gemini/quota-self-test.mjs
           node tools/gemini/self-test.mjs
 
+      - name: Reserve Gemini daily budget
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          quota_json="$(node tools/gemini/quota.mjs reserve --run-id "${GITHUB_RUN_ID}" --requested 450)"
+          reservation="$(node -e 'const x=JSON.parse(process.argv[1]); process.stdout.write(String(x.reservation));' "${quota_json}")"
+          quota_day="$(node -e 'const x=JSON.parse(process.argv[1]); process.stdout.write(String(x.day));' "${quota_json}")"
+          if [[ ! "${reservation}" =~ ^[1-9][0-9]*$ ]] || (( reservation > 450 )); then
+            echo 'Invalid Gemini quota reservation.' >&2
+            exit 1
+          fi
+          echo "ANIME_GEMINI_MAX_CALLS=${reservation}" >> "${GITHUB_ENV}"
+          echo "GEMINI_QUOTA_DAY=${quota_day}" >> "${GITHUB_ENV}"
+
+          git add crawler/gemini-usage.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "Reserve Gemini daily budget (${GITHUB_RUN_ID})"
+
+          base_sha="${GITHUB_SHA}"
+          for attempt in 1 2 3; do
+            git fetch origin main
+            remote_head="$(git rev-parse origin/main)"
+            if [[ "${remote_head}" != "${base_sha}" ]]; then
+              if ! git diff --quiet "${base_sha}..${remote_head}" -- crawler/gemini-usage.json; then
+                echo 'Gemini quota ledger advanced; refusing conflicting reservation.' >&2
+                exit 1
+              fi
+              git rebase origin/main
+              base_sha="${remote_head}"
+            fi
+            if git push origin HEAD:main; then
+              break
+            fi
+            if [[ "${attempt}" == 3 ]]; then
+              echo 'Could not persist Gemini quota reservation.' >&2
+              exit 1
+            fi
+          done
+
       - name: Collect and build common CSV
+        id: collect
         shell: bash
         run: |
           set -euo pipefail
@@ -87,6 +132,10 @@ jobs:
           if [[ "${COLLECT_DRY_RUN}" == "true" ]]; then
             args+=(--gemini false)
           else
+            if [[ -z "${ANIME_GEMINI_MAX_CALLS:-}" ]]; then
+              echo 'Gemini quota was not reserved.' >&2
+              exit 1
+            fi
             args+=(--gemini true)
           fi
           if [[ "${COLLECT_MODE}" == "quarterly" ]]; then
@@ -118,38 +167,67 @@ jobs:
           git add data
           if git diff --cached --quiet; then
             echo 'No validated data changes to commit.'
-            exit 0
-          fi
+          else
+            unexpected="$(git status --porcelain | awk '$2 !~ /^data\// {print}')"
+            if [[ -n "${unexpected}" ]]; then
+              echo 'Collector modified files outside data/; refusing commit.' >&2
+              echo "${unexpected}" >&2
+              exit 1
+            fi
 
-          unexpected="$(git status --porcelain | awk '$2 !~ /^data\// {print}')"
-          if [[ -n "${unexpected}" ]]; then
-            echo 'Collector modified files outside data/; refusing commit.' >&2
-            echo "${unexpected}" >&2
-            exit 1
-          fi
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m "Collect validated anime data (${COLLECT_INPUT}/${COLLECT_MODE})"
 
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m "Collect validated anime data (${COLLECT_INPUT}/${COLLECT_MODE})"
+            base_sha="${GITHUB_SHA}"
+            for attempt in 1 2 3; do
+              git fetch origin main
+              remote_head="$(git rev-parse origin/main)"
+              if [[ "${remote_head}" != "${base_sha}" ]]; then
+                if ! git diff --quiet "${base_sha}..${remote_head}" -- data; then
+                  echo 'data/ advanced after collection started; aborting to prevent duplicate/overwrite.' >&2
+                  exit 1
+                fi
+                git rebase origin/main
+                base_sha="${remote_head}"
+              fi
 
-          base_sha="${GITHUB_SHA}"
-          for attempt in 1 2 3; do
-            git fetch origin main
-            remote_head="$(git rev-parse origin/main)"
-            if [[ "${remote_head}" != "${base_sha}" ]]; then
-              if ! git diff --quiet "${base_sha}..${remote_head}" -- data; then
-                echo 'data/ advanced after collection started; aborting to prevent duplicate/overwrite.' >&2
+              if git push origin HEAD:main; then
+                break
+              fi
+              if [[ "${attempt}" == 3 ]]; then
+                echo 'Could not publish validated data after safe fast-forward retries.' >&2
                 exit 1
               fi
-              git rebase origin/main
-              base_sha="${remote_head}"
-            fi
+            done
+          fi
 
-            if git push origin HEAD:main; then
-              exit 0
-            fi
-            echo "main advanced during publish attempt ${attempt}; retrying without force push."
-          done
+      - name: Finalize Gemini daily budget
+        if: ${{ !inputs.dry_run && success() }}
+        shell: bash
+        env:
+          GEMINI_CALLS: ${{ steps.collect.outputs.gemini_calls }}
+        run: |
+          set -euo pipefail
+          calls="${GEMINI_CALLS:-0}"
+          if [[ ! "${calls}" =~ ^[0-9]+$ ]]; then
+            echo 'Invalid Gemini call count; keeping conservative reservation.' >&2
+            exit 1
+          fi
+          node tools/gemini/quota.mjs finalize \
+            --run-id "${GITHUB_RUN_ID}" \
+            --day "${GEMINI_QUOTA_DAY}" \
+            --actual "${calls}"
 
-          echo 'Could not publish validated data after safe fast-forward retries.' >&2
-          exit 1
+          git add crawler/gemini-usage.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "Finalize Gemini daily budget (${GITHUB_RUN_ID})"
+          git fetch origin main
+          remote_head="$(git rev-parse origin/main)"
+          parent_head="$(git rev-parse HEAD^)"
+          if [[ "${remote_head}" != "${parent_head}" ]]; then
+            echo 'main advanced before quota finalization; keeping conservative reservation in remote state.' >&2
+            exit 1
+          fi
+          git push origin HEAD:main
