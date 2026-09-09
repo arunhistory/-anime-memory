@@ -64,6 +64,8 @@ jobs:
 
       - name: Discovery preflight self-tests
         run: |
+          node tools/discovery/known-work-wasm-self-test.mjs
+          node tools/discovery/known-work-skip-self-test.mjs
           node tools/discovery/self-test.mjs
           node tools/discovery/quality-self-test.mjs
           node tools/discovery/common-evidence-self-test.mjs
