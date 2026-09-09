@@ -25,13 +25,7 @@ const requiredFiles = [
   'assets/wasm/all.wasm'
 ];
 
-const htmlFiles = [
-  'index.html',
-  'search/index.html',
-  'all/index.html',
-  'detail/index.html'
-];
-
+const htmlFiles = ['index.html', 'search/index.html', 'all/index.html', 'detail/index.html'];
 const jsFiles = [
   'assets/js/common.js',
   'assets/js/wasm-runtime.js',
@@ -42,64 +36,31 @@ const jsFiles = [
 
 const requiredIds = {
   'search/index.html': [
-    'search-form',
-    'search-query',
-    'detail-toggle',
-    'detail-filters',
-    'active-filters',
-    'clear-search-ui',
-    'add-text-filter',
-    'text-filter-rows',
-    'add-date-filter',
-    'date-filter-rows',
-    'add-number-filter',
-    'number-filter-rows',
-    'sort-key',
-    'sort-direction',
-    'search-ui-message',
-    'results-title',
-    'result-note',
-    'results'
+    'search-form', 'search-query', 'detail-toggle', 'detail-filters', 'active-filters',
+    'clear-search-ui', 'add-text-filter', 'add-date-filter', 'add-number-filter',
+    'text-filter-rows', 'date-filter-rows', 'number-filter-rows',
+    'sort-key', 'sort-direction', 'search-ui-message', 'results-title', 'result-note', 'results'
   ],
-  'all/index.html': [
-    'all-sort-key',
-    'all-sort-direction',
-    'all-status',
-    'all-results'
-  ],
+  'all/index.html': ['all-sort-key', 'all-sort-direction', 'all-status', 'all-results'],
   'detail/index.html': [
-    'detail-status',
-    'detail-id-badge',
-    'detail-title',
-    'detail-sub-title',
-    'detail-synopsis',
-    'detail-tags',
-    'detail-sections'
+    'detail-status', 'detail-id-badge', 'detail-title', 'detail-sub-title',
+    'detail-synopsis', 'detail-tags', 'detail-sections'
   ]
 };
 
 const expectedSortValues = ['season', 'date', 'title', 'studio', 'episodes', 'runtime'];
-const requiredSearchSelectors = [
-  'title_ja', 'aliases', 'media_type', 'genres', 'original_author',
-  'animation_studio', 'production_committee', 'production_members',
-  'director', 'characters', 'opening_themes', 'broadcast_networks',
-  'streaming_services', 'film_distributor', 'relations', 'episodes',
-  'episode_staff', 'awards', 'synopsis', 'official_url', 'external_ids',
-  'streaming_start', 'streaming_end', 'episode_air_date',
-  'episode_count', 'runtime_min', 'season_number'
+const searchableColumns = [
+  'id','title_ja','title_kana','title_romaji','title_en','aliases','media_type','release_start','release_end','episode_count','runtime_min','series_id','season_number',
+  'genres','tags','target_demographic','setting','era','themes','original_type','original_title','original_author','original_artist','original_publisher','original_label','original_magazine','original_platform',
+  'animation_studio','co_animation_studio','animation_cooperation','production_name','production_committee','production_members','production_lead_company','planning','executive_producers','producers','animation_producers','line_producers',
+  'director','chief_director','series_composition','character_original_design','character_design','music','sound_director','staff','characters',
+  'opening_themes','ending_themes','insert_songs','music_production','soundtrack_label','broadcast_networks','broadcast_slots','streaming_services','film_distributor','theatrical_release_date',
+  'relations','episodes','episode_staff','awards','synopsis','image_url','official_url','official_x','official_youtube','official_other','external_ids','updated_at'
 ];
 
-function fail(message) {
-  failures.push(message);
-}
-
-function read(relativePath) {
-  return fs.readFileSync(path.join(root, relativePath), 'utf8');
-}
-
-function exists(relativePath) {
-  return fs.existsSync(path.join(root, relativePath));
-}
+function fail(message) { failures.push(message); }
+function read(relativePath) { return fs.readFileSync(path.join(root, relativePath), 'utf8'); }
+function exists(relativePath) { return fs.existsSync(path.join(root, relativePath)); }
 
 for (const file of requiredFiles) {
   if (!exists(file)) fail(`必須ファイルがありません: ${file}`);
@@ -108,51 +69,32 @@ for (const file of requiredFiles) {
 for (const file of htmlFiles) {
   if (!exists(file)) continue;
   const html = read(file);
-
-  if (!html.includes('<meta name="viewport"')) {
-    fail(`viewport meta がありません: ${file}`);
-  }
-
-  if (/<script\s+[^>]*src=["']https?:\/\//i.test(html)) {
-    fail(`外部scriptを直接読み込んでいます: ${file}`);
-  }
+  if (!html.includes('<meta name="viewport"')) fail(`viewport meta がありません: ${file}`);
+  if (/<script\s+[^>]*src=["']https?:\/\//i.test(html)) fail(`外部scriptを直接読み込んでいます: ${file}`);
 
   const directory = path.dirname(file);
   const refPattern = /(?:href|src)=["']([^"']+)["']/g;
   for (const match of html.matchAll(refPattern)) {
     const ref = match[1].trim();
-    if (!ref || ref.startsWith('#') || ref.startsWith('http://') || ref.startsWith('https://') || ref.startsWith('mailto:') || ref.startsWith('tel:')) {
-      continue;
-    }
-
+    if (!ref || ref.startsWith('#') || ref.startsWith('http://') || ref.startsWith('https://') || ref.startsWith('mailto:') || ref.startsWith('tel:')) continue;
     const withoutQuery = ref.split(/[?#]/, 1)[0];
     if (!withoutQuery) continue;
-
     let resolved = path.normalize(path.join(directory, withoutQuery));
-    if (resolved.endsWith(path.sep) || withoutQuery.endsWith('/')) {
-      resolved = path.join(resolved, 'index.html');
-    }
-
-    if (!exists(resolved)) {
-      fail(`参照先が存在しません: ${file} -> ${ref}`);
-    }
+    if (resolved.endsWith(path.sep) || withoutQuery.endsWith('/')) resolved = path.join(resolved, 'index.html');
+    if (!exists(resolved)) fail(`参照先が存在しません: ${file} -> ${ref}`);
   }
 }
 
 for (const file of ['search/index.html', 'all/index.html', 'detail/index.html']) {
   if (!exists(file)) continue;
-  const html = read(file);
-  if (!html.includes('assets/js/wasm-runtime.js')) {
-    fail(`WASMランタイム参照がありません: ${file}`);
-  }
+  if (!read(file).includes('assets/js/wasm-runtime.js')) fail(`WASMランタイム参照がありません: ${file}`);
 }
 
 for (const [file, ids] of Object.entries(requiredIds)) {
   if (!exists(file)) continue;
   const html = read(file);
   for (const id of ids) {
-    const pattern = new RegExp(`id=["']${id}["']`);
-    if (!pattern.test(html)) fail(`必須IDがありません: ${file} #${id}`);
+    if (!new RegExp(`id=["']${id}["']`).test(html)) fail(`必須IDがありません: ${file} #${id}`);
   }
 }
 
@@ -160,23 +102,19 @@ for (const file of ['search/index.html', 'all/index.html']) {
   if (!exists(file)) continue;
   const html = read(file);
   for (const value of expectedSortValues) {
-    if (!new RegExp(`<option\\s+value=["']${value}["']`).test(html)) {
-      fail(`共通ソート値がありません: ${file} value=${value}`);
-    }
+    if (!new RegExp(`<option\\s+value=["']${value}["']`).test(html)) fail(`共通ソート値がありません: ${file} value=${value}`);
   }
 }
 
 for (const file of jsFiles) {
   if (!exists(file)) continue;
   const js = read(file);
-
   const forbidden = [
     ['innerHTML', 'innerHTML を使用しています'],
     ['eval(', 'eval を使用しています'],
     ['new Function(', 'new Function を使用しています'],
     ['document.write(', 'document.write を使用しています']
   ];
-
   for (const [needle, label] of forbidden) {
     if (js.includes(needle)) fail(`${label}: ${file}`);
   }
@@ -193,16 +131,20 @@ if (exists('assets/js/search-bridge.js')) {
     if (js.includes(needle)) fail(label);
   }
 
-  for (const selector of requiredSearchSelectors) {
-    if (!js.includes(`'${selector}'`) && !js.includes(`"${selector}"`)) {
-      fail(`詳細検索セレクタがありません: ${selector}`);
+  for (const api of ['_anime_search_add_text_term', '_anime_search_add_date_range', '_anime_search_add_number_range']) {
+    if (!js.includes(api)) fail(`検索WASM APIが接続されていません: ${api}`);
+  }
+
+  for (const column of searchableColumns) {
+    if (!js.includes(`'${column}'`) && !js.includes(`"${column}"`)) {
+      fail(`詳細検索UIに共通CSV項目がありません: ${column}`);
     }
   }
 
-  if (!js.includes('_anime_search_add_text_term') ||
-      !js.includes('_anime_search_add_date_range') ||
-      !js.includes('_anime_search_add_number_range')) {
-    fail('詳細検索条件がsearch.wasm ABIへ接続されていません');
+  for (const virtualDate of ['streaming_start', 'streaming_end', 'episode_air_date']) {
+    if (!js.includes(`'${virtualDate}'`) && !js.includes(`"${virtualDate}"`)) {
+      fail(`構造化日付検索UIがありません: ${virtualDate}`);
+    }
   }
 }
 
@@ -228,4 +170,4 @@ console.log('UI static validation: PASS');
 console.log(`checked files: ${requiredFiles.length}`);
 console.log('checked pages: TOP / SEARCH / ALL / DETAIL');
 console.log('checked common sorts: 6');
-console.log(`checked detailed search selectors: ${requiredSearchSelectors.length}`);
+console.log(`checked searchable CSV columns: ${searchableColumns.length}`);
