@@ -33,7 +33,7 @@ jobs:
           node tools/discovery/quality-self-test.mjs
 
       - name: Controlled live discovery in runner only
-        run: node tools/discovery/run.mjs --max-pages 12 --max-depth 3 --per-host-limit 12
+        run: node tools/discovery/run.mjs --max-pages 14 --max-depth 3 --per-host-limit 14
 
       - name: Inspect runner-only candidates
         run: |
@@ -42,7 +42,7 @@ jobs:
           const state = JSON.parse(fs.readFileSync('crawler/state.json', 'utf8'));
           console.log(`documents=${state.documents.length}`);
           console.log(`candidates=${state.candidates.length}`);
-          for (const candidate of state.candidates.slice(0, 20)) {
+          for (const candidate of state.candidates.slice(0, 25)) {
             console.log(JSON.stringify({
               title: candidate.title,
               sources: candidate.sources,
