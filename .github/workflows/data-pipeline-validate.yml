@@ -59,6 +59,8 @@ jobs:
           node --check tools/validate/data-validator.mjs
           node --check tools/collect/run.mjs
           node --check tools/collect/self-test.mjs
+          node --check tools/collect/initial-budget.mjs
+          node --check tools/collect/initial-budget-self-test.mjs
           node --check tools/correct/run.mjs
           node --check tools/correct/self-test.mjs
           node --check tools/discovery/url.mjs
@@ -90,6 +92,9 @@ jobs:
 
       - name: Collection pipeline self-test
         run: node tools/collect/self-test.mjs
+
+      - name: Initial import rolling budget self-test
+        run: node tools/collect/initial-budget-self-test.mjs
 
       - name: Manual correction self-test
         run: node tools/correct/self-test.mjs
