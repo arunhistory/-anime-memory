@@ -108,6 +108,7 @@ assert.equal(exists('tools/discovery/relation-evidence.mjs'), false, 'unconnecte
 const productionCodeRoots = ['tools', 'wasm-src', 'assets/js'];
 const unfinished = [];
 function scan(relative) {
+  if (relative === 'tools/validate/pre-gemini-audit.mjs') return;
   const absolute = path.join(root, relative);
   if (!fs.existsSync(absolute)) return;
   const stat = fs.statSync(absolute);
