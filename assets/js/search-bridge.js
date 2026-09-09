@@ -22,25 +22,76 @@
   const runtime = window.AnimeWasmRuntime;
 
   const TEXT_TARGETS = [
-    ['all', '全保存項目'],
-    ['title', 'タイトル・読み・別名'],
-    ['media', '媒体種別'],
-    ['genre', '分類・ジャンル・タグ・テーマ'],
-    ['original', '原作情報'],
-    ['studio', 'アニメーション制作'],
-    ['production', '製作・委員会・企画・プロデューサー'],
-    ['staff', 'スタッフ'],
-    ['cast', 'キャラクター・声優'],
-    ['music', 'OP・ED・挿入歌・音楽'],
-    ['broadcast', '放送局・放送枠'],
-    ['streaming', '配信サービス・配信形態'],
-    ['theater', '劇場・配給'],
-    ['relations', 'シリーズ・関連作品'],
-    ['episodes', 'エピソード・各話スタッフ'],
-    ['awards', '受賞歴'],
-    ['synopsis', '概要'],
-    ['official', '公式サイト・公式SNS'],
-    ['external', '外部ID']
+    ['all', 'すべて｜全保存項目'],
+    ['title', 'タイトル｜タイトル系まとめ'],
+    ['title_ja', 'タイトル｜日本語タイトル'],
+    ['title_kana', 'タイトル｜かな'],
+    ['title_romaji', 'タイトル｜ローマ字'],
+    ['title_en', 'タイトル｜英題'],
+    ['aliases', 'タイトル｜別名'],
+    ['id', '基本｜内部ID'],
+    ['media_type', '基本｜媒体種別'],
+    ['series_id', '基本｜シリーズID'],
+    ['genres', '分類｜ジャンル'],
+    ['tags', '分類｜タグ'],
+    ['target_demographic', '分類｜対象層'],
+    ['setting', '分類｜舞台・設定'],
+    ['era', '分類｜時代'],
+    ['themes', '分類｜テーマ'],
+    ['original', '原作｜原作系まとめ'],
+    ['original_type', '原作｜原作種別'],
+    ['original_title', '原作｜原作タイトル'],
+    ['original_author', '原作｜原作者'],
+    ['original_artist', '原作｜作画'],
+    ['original_publisher', '原作｜出版社'],
+    ['original_label', '原作｜レーベル'],
+    ['original_magazine', '原作｜掲載誌'],
+    ['original_platform', '原作｜掲載プラットフォーム'],
+    ['studio', '制作｜アニメーション制作系まとめ'],
+    ['animation_studio', '制作｜アニメーション制作'],
+    ['co_animation_studio', '制作｜共同制作'],
+    ['animation_cooperation', '制作｜制作協力'],
+    ['production', '製作｜製作・企画・プロデューサー系まとめ'],
+    ['production_name', '製作｜製作名義'],
+    ['production_committee', '製作｜製作委員会'],
+    ['production_members', '製作｜製作委員会構成企業'],
+    ['production_lead_company', '製作｜製作主幹会社'],
+    ['planning', '製作｜企画'],
+    ['executive_producers', '製作｜エグゼクティブプロデューサー'],
+    ['producers', '製作｜プロデューサー'],
+    ['animation_producers', '製作｜アニメーションプロデューサー'],
+    ['line_producers', '製作｜ラインプロデューサー'],
+    ['staff', 'スタッフ｜スタッフ系まとめ'],
+    ['director', 'スタッフ｜監督'],
+    ['chief_director', 'スタッフ｜総監督'],
+    ['series_composition', 'スタッフ｜シリーズ構成'],
+    ['character_original_design', 'スタッフ｜キャラクター原案'],
+    ['character_design', 'スタッフ｜キャラクターデザイン'],
+    ['music', 'スタッフ｜音楽担当'],
+    ['sound_director', 'スタッフ｜音響監督'],
+    ['cast', 'キャスト｜キャラクター・声優まとめ'],
+    ['characters', 'キャスト｜キャラクター・声優'],
+    ['opening_themes', '音楽｜オープニング'],
+    ['ending_themes', '音楽｜エンディング'],
+    ['insert_songs', '音楽｜挿入歌'],
+    ['music_production', '音楽｜音楽制作'],
+    ['soundtrack_label', '音楽｜サウンドトラックレーベル'],
+    ['broadcast', '放送｜放送系まとめ'],
+    ['broadcast_networks', '放送｜放送局'],
+    ['broadcast_slots', '放送｜放送枠'],
+    ['streaming_services', '配信｜サービス・配信形態・地域'],
+    ['film_distributor', '劇場｜配給会社'],
+    ['relations', '関連｜関連作品'],
+    ['episodes', '各話｜エピソード'],
+    ['episode_staff', '各話｜各話スタッフ'],
+    ['awards', '受賞｜受賞歴'],
+    ['synopsis', '概要｜あらすじ'],
+    ['official_url', '公式｜公式サイト'],
+    ['official_x', '公式｜公式X'],
+    ['official_youtube', '公式｜公式YouTube'],
+    ['official_other', '公式｜その他公式URL'],
+    ['external_ids', '識別｜外部ID'],
+    ['image_url', '識別｜画像URL']
   ];
 
   const MATCH_MODES = [
@@ -50,10 +101,13 @@
   ];
 
   const DATE_TARGETS = [
-    ['release_start', '開始日'],
-    ['release_end', '終了日'],
+    ['release_start', '作品開始日'],
+    ['release_end', '作品終了日'],
     ['theatrical_release_date', '劇場公開日'],
-    ['updated_at', '更新日']
+    ['streaming_start', '配信開始日'],
+    ['streaming_end', '配信終了日'],
+    ['episode_air_date', '各話放送日'],
+    ['updated_at', '情報更新日']
   ];
 
   const NUMBER_TARGETS = [
@@ -187,7 +241,7 @@
     minimum.className = 'range-min';
     minimum.type = 'text';
     minimum.inputMode = kind === 'number' ? 'decimal' : 'numeric';
-    minimum.placeholder = kind === 'number' ? '下限' : '開始（YYYY-MM-DD）';
+    minimum.placeholder = kind === 'number' ? '下限' : '開始（YYYY / YYYY-MM / YYYY-MM-DD）';
     minimum.setAttribute('aria-label', kind === 'number' ? '下限' : '範囲開始日');
     minimum.value = preset.minimum || '';
 
@@ -199,7 +253,7 @@
     maximum.className = 'range-max';
     maximum.type = 'text';
     maximum.inputMode = kind === 'number' ? 'decimal' : 'numeric';
-    maximum.placeholder = kind === 'number' ? '上限' : '終了（YYYY-MM-DD）';
+    maximum.placeholder = kind === 'number' ? '上限' : '終了（YYYY / YYYY-MM / YYYY-MM-DD）';
     maximum.setAttribute('aria-label', kind === 'number' ? '上限' : '範囲終了日');
     maximum.value = preset.maximum || '';
 
@@ -214,8 +268,7 @@
     return row;
   };
 
-  const selectedOperator = () =>
-    document.querySelector('.segmented button.selected')?.dataset.op || 'AND';
+  const selectedOperator = () => document.querySelector('.segmented button.selected')?.dataset.op || 'AND';
 
   const collectTextTerms = () => [...document.querySelectorAll('.text-filter-row')]
     .map((row) => ({
@@ -257,18 +310,15 @@
     request.textTerms.forEach((term) => {
       const pill = document.createElement('span');
       pill.className = 'active-filter';
-      const mode = labelFor(MATCH_MODES, term.match);
-      pill.textContent = `${term.negated ? '除外：' : ''}${labelFor(TEXT_TARGETS, term.group)}「${term.value}」 ${mode}`;
+      pill.textContent = `${term.negated ? '除外：' : ''}${labelFor(TEXT_TARGETS, term.group)}「${term.value}」 ${labelFor(MATCH_MODES, term.match)}`;
       activeFilters.appendChild(pill);
     });
-
     request.dateRanges.forEach((range) => {
       const pill = document.createElement('span');
       pill.className = 'active-filter';
       pill.textContent = `${range.negated ? '除外：' : ''}${labelFor(DATE_TARGETS, range.column)} ${range.minimum || '指定なし'}〜${range.maximum || '指定なし'}`;
       activeFilters.appendChild(pill);
     });
-
     request.numberRanges.forEach((range) => {
       const pill = document.createElement('span');
       pill.className = 'active-filter';
@@ -277,15 +327,7 @@
     });
   };
 
-  const sortCode = (key) => ({
-    season: 0,
-    date: 1,
-    title: 2,
-    studio: 3,
-    episodes: 4,
-    runtime: 5
-  }[key] ?? 0);
-
+  const sortCode = (key) => ({ season: 0, date: 1, title: 2, studio: 3, episodes: 4, runtime: 5 }[key] ?? 0);
   const directionCode = (direction) => direction === 'desc' ? 1 : 0;
   const matchCode = (mode) => ({ exact: 0, prefix: 1, contains: 2 }[mode] ?? 2);
 
@@ -298,9 +340,9 @@
     if (wasm._anime_search_add_csv(pointer, size) !== 1) throw new Error(getEngineError());
   });
 
-  const addTextTerm = (value, group, matchMode, negated) => runtime.withCString(wasm, value, (valuePointer) =>
-    runtime.withCString(wasm, group, (groupPointer) => {
-      const ok = wasm._anime_search_add_text_term(valuePointer, groupPointer, matchCode(matchMode), negated ? 1 : 0);
+  const addTextTerm = (value, selector, matchMode, negated) => runtime.withCString(wasm, value, (valuePointer) =>
+    runtime.withCString(wasm, selector, (selectorPointer) => {
+      const ok = wasm._anime_search_add_text_term(valuePointer, selectorPointer, matchCode(matchMode), negated ? 1 : 0);
       if (ok !== 1) throw new Error(getEngineError());
     }));
 
@@ -319,7 +361,6 @@
     const generation = ++renderGeneration;
     const total = Number(wasm._anime_search_count());
     setBusy(true);
-
     if (total === 0) {
       setResultMeta('0作品', '条件に一致する作品はありません');
       setEmpty('見つかりませんでした', '条件を少し変えて、もう一度検索してみてください。');
@@ -329,7 +370,6 @@
 
     setResultMeta(`${total.toLocaleString()}作品`, '検索結果を順次表示しています');
     renderCards([]);
-
     const chunkSize = 100;
     for (let offset = 0; offset < total; offset += chunkSize) {
       if (generation !== renderGeneration) return;
@@ -338,7 +378,6 @@
       appendCards(payload.items || []);
       if (payload.hasMore) await nextFrame();
     }
-
     if (generation === renderGeneration) {
       setResultMeta(`${total.toLocaleString()}作品`, 'すべての検索結果を表示しました');
       setBusy(false);
@@ -347,10 +386,7 @@
 
   const executeSearch = async (request = getRequest()) => {
     window.dispatchEvent(new CustomEvent('anime-search-request', { detail: request }));
-
-    const hasAnyCondition = Boolean(
-      request.query || request.textTerms.length || request.dateRanges.length || request.numberRanges.length
-    );
+    const hasAnyCondition = Boolean(request.query || request.textTerms.length || request.dateRanges.length || request.numberRanges.length);
     if (!hasAnyCondition) {
       setMessage('error', '検索語または詳しい条件を1つ以上指定してください。');
       setResultMeta('検索条件を入力してください', '検索結果はここに表示されます');
@@ -367,17 +403,12 @@
     try {
       if (wasm._anime_search_clear_terms() !== 1) throw new Error(getEngineError());
       if (wasm._anime_search_set_combine_mode(request.operator === 'OR' ? 1 : 0) !== 1) throw new Error(getEngineError());
-
       if (request.query) addTextTerm(request.query, 'all', 'contains', false);
       request.textTerms.forEach((term) => addTextTerm(term.value, term.group, term.match, term.negated));
       request.dateRanges.forEach((range) => addRangeTerm('date', range));
       request.numberRanges.forEach((range) => addRangeTerm('number', range));
-
       if (wasm._anime_search_execute() !== 1) throw new Error(getEngineError());
-      if (wasm._anime_search_sort(sortCode(request.sort.key), directionCode(request.sort.direction)) !== 1) {
-        throw new Error(getEngineError());
-      }
-
+      if (wasm._anime_search_sort(sortCode(request.sort.key), directionCode(request.sort.direction)) !== 1) throw new Error(getEngineError());
       setMessage('', '');
       await renderCurrentResults();
     } catch (error) {
@@ -414,16 +445,11 @@
   addNumberFilterButton?.addEventListener('click', () => addRangeFilterRow(numberFilterRows, NUMBER_TARGETS, 'number'));
 
   const applySort = async () => {
-    const detail = {
-      key: sortKey?.value || 'season',
-      direction: sortDirection?.dataset.dir || 'asc'
-    };
+    const detail = { key: sortKey?.value || 'season', direction: sortDirection?.dataset.dir || 'asc' };
     window.dispatchEvent(new CustomEvent('anime-search-sort-change', { detail }));
     if (!wasm || !dataReady || Number(wasm._anime_search_count()) === 0) return;
     try {
-      if (wasm._anime_search_sort(sortCode(detail.key), directionCode(detail.direction)) !== 1) {
-        throw new Error(getEngineError());
-      }
+      if (wasm._anime_search_sort(sortCode(detail.key), directionCode(detail.direction)) !== 1) throw new Error(getEngineError());
       await renderCurrentResults();
     } catch (error) {
       setMessage('error', error?.message || '並び替えに失敗しました。');
@@ -439,7 +465,6 @@
       void applySort();
     });
   }
-
   sortKey?.addEventListener('change', () => void applySort());
 
   if (clearButton) {
@@ -495,12 +520,10 @@
       const imported = await import(wasmModuleUrl);
       wasm = await imported.default();
       if (wasm._anime_search_reset() !== 1) throw new Error(getEngineError());
-
       const fileCount = await runtime.feedCsvFiles((bytes) => addCsvBytes(bytes), { concurrency: 4 });
       if (wasm._anime_search_finalize() !== 1) throw new Error(getEngineError());
       dataReady = true;
       setMessage('success', `検索エンジン準備完了（CSV ${fileCount}ファイル）。`);
-
       if (searchInput?.value.trim()) await executeSearch();
     } catch (error) {
       dataReady = false;
