@@ -34,7 +34,7 @@ GitHub・CSV・WASM統合型の日本アニメ総合検索サイト。
 - JavaScript: UI / HTTP取得 / WASMとの受け渡し / DOM描画
 - Web探索Tools: 公開Web巡回 / アニメ言及判定 / 作品候補発見 / Evidence抽出・照合 / 探索状態管理
 - CSV収集Tools: 正規化 / 重複候補判定 / CSV生成 / 公開前検証
-- Gemini API: 確定済み事実だけを入力したサイト独自 `synopsis` 生成。Web探索・事実確定には使用しない。現在は接続を後工程へ保留する
+- Gemini API: 確定済み事実だけを入力したサイト独自 `synopsis` 生成。Web探索・事実確定には使用しない。GitHub ActionsからAPIまでの接続経路は確認済みで、実生成はGoogle側の `429 RESOURCE_EXHAUSTED` 解消待ちのため既定OFFとする
 
 ## JavaScriptで行わない処理
 
@@ -145,7 +145,7 @@ Web探索で確定した事実は `tools/discovery/to-record.mjs` で共通70列
 
 初期導入では既存 `initial-NNN.csv` へ追記せず毎回新規ファイルを作成する。さらにGit履歴から直近24時間に追加された初期CSVの作品数を数え、複数実行を跨いでも450作品を超えない残枠だけを登録対象にする。追加のDB、Cron、quota保存テーブルは使わない。
 
-Gemini処理コードは探索・事実確定から分離してあるが、現在はユーザー指示により実接続を保留している。`Anime Data Collect` の `gemini` 入力は既定 `false` で、明示的に有効化しない限りGemini API呼び出しもGemini用quota予約も行わない。モデル/API疎通の最終確定はGemini接続工程で実施する。
+Gemini処理コードは探索・事実確定から分離してある。GitHub Actions SecretからGemini APIへ到達することはライブ試験で確認済みだが、InteractionsとGenerateContentの双方がGoogle側のHTTP 429 `RESOURCE_EXHAUSTED` で停止したため、`Anime Data Collect` の `gemini` 入力は既定 `false` のままとする。quota/billingが利用可能になるまで同じ失敗を根拠なく再試行しない。
 
 既存CSV後段の詳細は `docs/DATA_COLLECTION.md` を参照。
 
@@ -185,7 +185,7 @@ Gemini処理コードは探索・事実確定から分離してあるが、現�
 - 探索候補と根拠URLの永続化
 - 探索メタデータ用の自前検索index
 - Web探索候補からのEvidence抽出
-- 一次情報直接性 / 複数ホスト一致 / conflict判定
+- 一次情報直接性 / 独立source family一致 / conflict判定
 - 日本アニメ確定ゲート
 - explicit alias + 複合identityによる保守的Entity Resolution
 - ジャンル複数選択・原作タグ単一選択の分類体系
@@ -197,6 +197,7 @@ Gemini処理コードは探索・事実確定から分離してあるが、現�
 - 共通70列への宣言的マッピング・正規化
 - 可変長scalar/list値のescape
 - 外部ID完全一致と複合条件による重複候補検出
+- 既登録作品の次回探索除外に公開検索用 `search.wasm` を流用
 - 初期導入 `initial-NNN.csv` 新規生成
 - 初期導入の直近24時間450作品上限
 - 四半期 `YYYY-QN.csv` 追加経路
@@ -206,16 +207,16 @@ Gemini処理コードは探索・事実確定から分離してあるが、現�
 - Geminiを既定OFFにした収集Workflow
 - 失敗時Commit禁止・force push禁止・data競合時停止
 - 自動収集 / Web探索の自己試験とActions検証
-- 実Webread-only crawler pilot
+- 実Webbootstrapを40ページ本番stateへ保存し、23作品候補・継続frontierを生成
 - エラー / 状態表示の共通UI
 - C++ネイティブ試験 / ブラウザWASM ABIスモーク試験 / UI静的検証
 
-Gemini接続後に行う工程:
+現在残っている実運用工程:
 
-- Geminiのモデル/API経路を現行仕様で確定
-- GitHub ActionsからGemini実API疎通
+- 利用条件を確認した独立source familyへ探索を段階拡張
+- Geminiなしで確定できる実作品CSVの初回本番収集
+- Google側quota/billing解消後にGeminiを1件だけ再疎通
 - 確定済み事実のみを使った `synopsis` 実生成
-- 実作品CSVの初回本番収集
 - 初期導入完了後の四半期更新実運用
 
 ## データ実装時の原則
