@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>全作品 | 日本アニメ総合検索</title>
+  <link rel="stylesheet" href="../assets/css/common.css" />
+  <link rel="stylesheet" href="../assets/css/all.css" />
+</head>
+<body data-page="all">
+  <header class="site-header">
+    <a class="brand" href="../"><span class="brand-mark">あ</span><span class="brand-text">日本アニメ総合検索</span></a>
+    <nav class="desktop-nav"><a href="../search/">検索</a><a class="active" href="./">全作品</a></nav>
+  </header>
+
+  <main class="section-shell page-main">
+    <div class="page-heading heading-row">
+      <div><span class="eyebrow">ALL TITLES</span><h1>全作品</h1><p>登録されている作品を、1ページでまとめて表示します。</p></div>
+      <div class="sort-controls">
+        <label>並び替え
+          <select id="all-sort-key">
+            <option value="season">四季順</option>
+            <option value="date">年代順</option>
+            <option value="title">タイトル順</option>
+            <option value="studio">制作会社名順</option>
+            <option value="episodes">話数順</option>
+            <option value="runtime">総時間順</option>
+          </select>
+        </label>
+        <button id="all-sort-direction" type="button">↑ 昇順</button>
+      </div>
+    </div>
+
+    <div class="status-banner" id="all-status"><span class="spinner"></span><strong>作品データの準備待ち</strong><small>情報データはまだ接続していません</small></div>
+
+    <section id="all-results" class="anime-grid">
+      <div class="empty-state card-surface full-width">
+        <div class="empty-icon">▦</div>
+        <h2>全件表示のUIは準備できています</h2>
+        <p>all.wasm とCSVを接続すると、ここへ順次カードが追加されます。</p>
+      </div>
+    </section>
+  </main>
+
+  <nav class="mobile-nav"><a href="../"><span>⌂</span>ホーム</a><a href="../search/"><span>⌕</span>検索</a><a class="active" href="./"><span>▦</span>全作品</a></nav>
+  <script src="../assets/js/common.js"></script>
+  <script src="../assets/js/all-bridge.js"></script>
+</body>
+</html>
