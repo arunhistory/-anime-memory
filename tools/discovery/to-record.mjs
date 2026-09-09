@@ -1,19 +1,5 @@
-const FACT_TO_COLUMN = new Map([
-  ['title_ja', 'title_ja'],
-  ['media_type', 'media_type'],
-  ['release_start', 'release_start'],
-  ['theatrical_release_date', 'theatrical_release_date'],
-  ['genres', 'genres'],
-  ['original_type', 'original_type'],
-  ['animation_studio', 'animation_studio'],
-  ['director', 'director'],
-  ['series_composition', 'series_composition'],
-  ['character_design', 'character_design'],
-  ['music', 'music'],
-  ['sound_director', 'sound_director']
-]);
-
 const IDENTITY_CORROBORATORS = ['release_start', 'theatrical_release_date', 'animation_studio'];
+const PROTECTED_COLUMNS = new Set(['id', 'synopsis', 'updated_at']);
 
 function emptyRecord(columns) {
   return Object.fromEntries(columns.map((column) => [column, '']));
@@ -47,10 +33,9 @@ export function candidateToCommonRecord(candidate, columns, confirmedDate) {
   if (!readiness.ready) return null;
   const record = emptyRecord(columns);
 
-  for (const [factField, column] of FACT_TO_COLUMN) {
-    if (!columns.includes(column)) continue;
-    const fact = candidate.facts?.[factField];
-    if (fact?.status === 'confirmed' && fact.value) record[column] = String(fact.value);
+  for (const [field, fact] of Object.entries(candidate.facts || {})) {
+    if (!columns.includes(field) || PROTECTED_COLUMNS.has(field)) continue;
+    if (fact?.status === 'confirmed' && fact.value) record[field] = String(fact.value);
   }
 
   if (columns.includes('synopsis')) record.synopsis = '';
