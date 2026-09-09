@@ -1,4 +1,7 @@
 import dns from 'node:dns/promises';
+import http from 'node:http';
+import https from 'node:https';
+import net from 'node:net';
 import { normalizeUrl, isForbiddenHostname, isPrivateIp } from './url.mjs';
 import { parseRobotsTxt, evaluateRobots } from './robots.mjs';
 
@@ -31,6 +34,34 @@ function normalizeAllowedHosts(value) {
 
 async function defaultResolveHost(hostname) {
   return dns.lookup(hostname, { all: true, verbatim: true });
+}
+
+class HeaderView {
+  constructor(headers = {}) {
+    this.map = new Map();
+    for (const [name, value] of Object.entries(headers)) {
+      if (Array.isArray(value)) this.map.set(name.toLowerCase(), value.join(', '));
+      else if (value !== undefined) this.map.set(name.toLowerCase(), String(value));
+    }
+  }
+
+  get(name) {
+    return this.map.get(String(name || '').toLowerCase()) || null;
+  }
+}
+
+class BufferedResponse {
+  constructor(status, headers, buffer) {
+    this.status = Number(status || 0);
+    this.ok = this.status >= 200 && this.status < 300;
+    this.headers = new HeaderView(headers);
+    this.body = null;
+    this.buffer = Buffer.from(buffer || []);
+  }
+
+  async arrayBuffer() {
+    return this.buffer.buffer.slice(this.buffer.byteOffset, this.buffer.byteOffset + this.buffer.byteLength);
+  }
 }
 
 async function readLimitedBody(response, maxBytes) {
@@ -101,7 +132,7 @@ export class PoliteFetcher {
     this.maxBytes = clamp(options.maxBytes, 32 * 1024, 4 * 1024 * 1024, 1024 * 1024);
     this.minDelayMs = clamp(options.minDelayMs, 0, 10000, 500);
     this.maxRedirects = clamp(options.maxRedirects, 0, 5, 3);
-    this.fetchImpl = options.fetchImpl || globalThis.fetch;
+    this.fetchImpl = options.fetchImpl || null;
     this.resolveHost = options.resolveHost || defaultResolveHost;
     this.waitImpl = options.waitImpl || sleep;
     this.allowedHosts = normalizeAllowedHosts(options.allowedHosts);
@@ -121,7 +152,13 @@ export class PoliteFetcher {
     if (isForbiddenHostname(parsed.hostname)) throw new Error('forbidden-host');
     const resolved = await this.resolveHost(parsed.hostname);
     if (!Array.isArray(resolved) || resolved.length === 0) throw new Error('dns-empty');
-    if (resolved.some((entry) => isPrivateIp(entry.address))) throw new Error('private-address');
+    const normalized = resolved.map((entry) => ({
+      address: String(entry?.address || ''),
+      family: Number(entry?.family || net.isIP(String(entry?.address || '')))
+    }));
+    if (normalized.some((entry) => !net.isIP(entry.address))) throw new Error('dns-invalid-address');
+    if (normalized.some((entry) => isPrivateIp(entry.address))) throw new Error('private-address');
+    return normalized;
   }
 
   async waitForHost(origin, crawlDelayMs = 0) {
@@ -132,7 +169,64 @@ export class PoliteFetcher {
     this.nextRequestAt.set(origin, Date.now() + delay);
   }
 
+  async pinnedFetch(url, options = {}) {
+    const parsed = new URL(url);
+    const resolved = await this.assertPublicHost(url);
+    const selected = resolved[0];
+    const transport = parsed.protocol === 'https:' ? https : http;
+    const maxBytes = this.maxBytes;
+
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const request = transport.request(parsed, {
+        method: 'GET',
+        servername: parsed.hostname,
+        family: selected.family,
+        autoSelectFamily: false,
+        lookup: (_hostname, lookupOptions, callback) => {
+          if (lookupOptions?.all) callback(null, [{ address: selected.address, family: selected.family }]);
+          else callback(null, selected.address, selected.family);
+        },
+        headers: {
+          'user-agent': this.userAgent,
+          accept: options.accept || 'text/html,application/xhtml+xml,application/xml;q=0.9,text/xml;q=0.8,*/*;q=0.1'
+        }
+      }, (response) => {
+        const chunks = [];
+        let total = 0;
+        response.on('data', (chunk) => {
+          total += chunk.length;
+          if (total > maxBytes) {
+            response.destroy(new Error(`response-too-large:${total}`));
+            return;
+          }
+          chunks.push(Buffer.from(chunk));
+        });
+        response.on('end', () => {
+          if (settled) return;
+          settled = true;
+          resolve(new BufferedResponse(response.statusCode, response.headers, Buffer.concat(chunks, total)));
+        });
+        response.on('error', (error) => {
+          if (settled) return;
+          settled = true;
+          reject(error);
+        });
+      });
+
+      request.setTimeout(this.timeoutMs, () => request.destroy(new Error('request-timeout')));
+      request.on('error', (error) => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      });
+      request.end();
+    });
+  }
+
   async rawFetch(url, options = {}) {
+    if (!this.fetchImpl) return this.pinnedFetch(url, options);
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
