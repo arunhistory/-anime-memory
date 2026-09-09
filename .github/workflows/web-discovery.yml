@@ -62,8 +62,12 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Discovery self-test
-        run: node tools/discovery/self-test.mjs
+      - name: Discovery preflight self-tests
+        run: |
+          node tools/discovery/self-test.mjs
+          node tools/discovery/quality-self-test.mjs
+          node tools/discovery/common-evidence-self-test.mjs
+          node tools/discovery/taxonomy-self-test.mjs
 
       - name: Run web discovery
         shell: bash
