@@ -93,6 +93,7 @@ async function main() {
   console.log(`relevant pages: ${result.stats.relevant}`);
   console.log(`discovery-only pages: ${result.stats.discoveryOnlyPages}`);
   console.log(`new anime candidates: ${result.stats.candidatesFound}`);
+  console.log(`entity merges: ${result.stats.entityMerges}`);
   console.log(`evidence claims: ${result.stats.evidenceClaims}`);
   console.log(`new links queued: ${result.stats.newLinks}`);
   console.log(`host-filtered deferred: ${result.stats.hostFiltered}`);
