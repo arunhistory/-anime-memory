@@ -78,6 +78,7 @@ std::string make_csv() {
       {"release_start", "2027-04"},
       {"episode_count", "12"},
       {"runtime_min", "24"},
+      {"tags", "共通"},
       {"animation_studio", "Studio A"},
       {"production_committee", "春委員会"},
       {"characters", "主人公::MAIN::声優A"},
@@ -95,6 +96,7 @@ std::string make_csv() {
       {"media_type", "MOVIE"},
       {"release_start", "2027-10-01"},
       {"runtime_min", "110"},
+      {"tags", "共通"},
       {"animation_studio", "Studio B"},
       {"production_committee", "秋委員会"},
       {"characters", "主人公::MAIN::声優B"},
@@ -191,6 +193,21 @@ int main() {
   assert(anime_search_execute() == 1);
   assert(anime_search_count() == 1);
   assert(std::string(anime_search_chunk_json(0, 100)).find("A00000001") != std::string::npos);
+
+  // 共通6ソートは同じ入力ならsearch/allで必ず同じ順序を返す。
+  assert(anime_search_clear_terms() == 1);
+  assert(anime_search_set_combine_mode(0) == 1);
+  assert(anime_search_add_text_term("共通", "tags", 0, 0) == 1);
+  assert(anime_search_execute() == 1);
+  assert(anime_search_count() == anime_all_count());
+  for (int key = 0; key < 6; ++key) {
+    for (int direction = 0; direction < 2; ++direction) {
+      assert(anime_all_sort(key, direction) == 1);
+      assert(anime_search_sort(key, direction) == 1);
+      assert(std::string(anime_all_chunk_json(0, 100)) ==
+             std::string(anime_search_chunk_json(0, 100)));
+    }
+  }
 
   assert(anime_all_reset() == 1);
   const std::string invalid = "id,title_ja\nA00000001,invalid\n";
