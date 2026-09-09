@@ -36,6 +36,13 @@ function readInputSeeds() {
     .filter(Boolean);
 }
 
+function readAllowedHosts() {
+  return String(process.env.DISCOVERY_ALLOWED_HOSTS || '')
+    .split(/[\s,]+/)
+    .map((value) => value.trim().toLowerCase().replace(/\.$/, ''))
+    .filter(Boolean);
+}
+
 function validateNumber(value, name, min, max, fallback) {
   if (value === undefined) return fallback;
   const parsed = Number(value);
@@ -52,6 +59,7 @@ async function main() {
   const maxDepth = validateNumber(args['max-depth'], '--max-depth', 0, 12, 5);
   const perHostLimit = validateNumber(args['per-host-limit'], '--per-host-limit', 1, 200, 40);
   const dryRun = String(args['dry-run'] || '').toLowerCase() === 'true' || args['dry-run'] === true;
+  const allowedHosts = readAllowedHosts();
 
   const state = loadDiscoveryState(statePath);
   const rawSeeds = [...readSeedFile(seedPath), ...readInputSeeds()];
@@ -65,7 +73,8 @@ async function main() {
   const fetcher = new PoliteFetcher({
     timeoutMs: process.env.DISCOVERY_TIMEOUT_MS || 12000,
     maxBytes: process.env.DISCOVERY_MAX_BYTES || 1048576,
-    minDelayMs: process.env.DISCOVERY_MIN_DELAY_MS || 500
+    minDelayMs: process.env.DISCOVERY_MIN_DELAY_MS || 500,
+    allowedHosts
   });
 
   const before = JSON.stringify(state);
@@ -78,6 +87,7 @@ async function main() {
   console.log(`mode: ${dryRun ? 'dry-run' : 'persist'}`);
   console.log(`state: ${path.relative(root, statePath)}`);
   console.log(`seed URLs: ${seeds.length}`);
+  console.log(`allowed hosts: ${allowedHosts.length ? allowedHosts.join(',') : 'unrestricted-public-web'}`);
   console.log(`attempted: ${result.stats.attempted}`);
   console.log(`fetched: ${result.stats.fetched}`);
   console.log(`relevant pages: ${result.stats.relevant}`);
