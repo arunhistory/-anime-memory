@@ -167,17 +167,21 @@ assert.ok(collectorSource.includes("path.join(root, 'crawler', 'state.json')"), 
 assert.ok(collectWorkflow.includes('default: discovery'), 'Actions collection input must default to discovery');
 assert.ok(collectWorkflow.includes('--input'), 'Actions must pass collection input explicitly');
 
-const allCollectorSources = [
+const integrationSource = [
   collectorSource,
   fs.readFileSync(path.join(root, 'tools/fetch/http-json.mjs'), 'utf8'),
   collectWorkflow
 ].join('\n');
-for (const forbidden of ['GEMINI_API_KEY', 'generativelanguage.googleapis.com', '@google/generative-ai']) {
-  assert.equal(allCollectorSources.includes(forbidden), false, `Gemini connection found: ${forbidden}`);
-}
+assert.ok(integrationSource.includes('ANIME_GEMINI_API_KEY'), 'dedicated anime Gemini secret must be wired');
+assert.ok(integrationSource.includes('--gemini true'), 'non-dry collection must enable synopsis generation');
+assert.ok(integrationSource.includes('--gemini false'), 'dry-run must not spend Gemini quota');
+assert.equal(integrationSource.includes('secrets.GEMINI_API_KEY'), false, 'generic Gemini secret must not be used');
+assert.equal(integrationSource.includes('@google/generative-ai'), false, 'legacy Google SDK must not be coupled into collector');
+assert.equal(integrationSource.includes('generativelanguage.googleapis.com'), false, 'Gemini endpoint must stay isolated in tools/gemini');
 
 console.log('Data collection self-test: PASS');
 console.log('discovery input default: PASS');
 console.log('theatrical duplicate detection: PASS');
 console.log('safe-stop partial collection: PASS');
-console.log('Gemini connection: NONE');
+console.log('dedicated Gemini secret wiring: PASS');
+console.log('dry-run Gemini calls: NONE');
