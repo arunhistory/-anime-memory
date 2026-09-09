@@ -48,6 +48,14 @@ function cleanValue(value, max = 180) {
     .slice(0, max);
 }
 
+function cleanStructuredValue(value, max = 2400) {
+  return String(value || '')
+    .replace(/[\t\r\n]+/g, ' ')
+    .trim()
+    .slice(0, max)
+    .normalize('NFKC');
+}
+
 function candidateContext(document, title) {
   const metadata = `${document.title || ''}\n${document.ogTitle || ''}\n${document.description || ''}\n${document.keywords || ''}`;
   const body = String(document.text || '');
@@ -206,6 +214,9 @@ function normalizeEvidenceValue(field, value) {
   if (URL_FACT_FIELDS.has(field)) {
     const normalizedUrl = normalizeUrl(value);
     return normalizedUrl ? normalizedUrl.slice(0, 1000) : '';
+  }
+  if (STRUCTURED_MULTI_FIELDS.has(field)) {
+    return cleanStructuredValue(value);
   }
 
   let normalized = cleanValue(value, 300).normalize('NFKC');
