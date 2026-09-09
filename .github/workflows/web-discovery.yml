@@ -7,6 +7,10 @@ on:
         description: '追加の探索起点URL（改行またはカンマ区切り）'
         required: false
         type: string
+      allowed_hosts:
+        description: '任意: この実行で取得を許可するホスト（改行/カンマ区切り、空欄は公開Web全体）'
+        required: false
+        type: string
       max_pages:
         description: '1回の最大取得ページ数'
         required: true
@@ -41,6 +45,7 @@ jobs:
     timeout-minutes: 30
     env:
       DISCOVERY_SEED_URLS: ${{ inputs.seed_urls }}
+      DISCOVERY_ALLOWED_HOSTS: ${{ inputs.allowed_hosts }}
       DISCOVERY_MAX_PAGES: ${{ inputs.max_pages }}
       DISCOVERY_MAX_DEPTH: ${{ inputs.max_depth }}
       DISCOVERY_PER_HOST_LIMIT: ${{ inputs.per_host_limit }}
