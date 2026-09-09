@@ -22,6 +22,27 @@
     message.hidden = !text;
   };
 
+  const setResultMeta = (title, note = '') => {
+    if (resultCount) resultCount.textContent = title;
+    if (resultNote) resultNote.textContent = note;
+  };
+
+  const setBusy = (busy) => {
+    if (results) results.setAttribute('aria-busy', String(Boolean(busy)));
+  };
+
+  const setEmpty = (title, note, icon = '⌕') => {
+    window.AnimeUI?.setEmptyState(results, { icon, title, message: note });
+  };
+
+  const renderCards = (cards) => {
+    if (!results || !window.AnimeUI || !Array.isArray(cards)) return;
+    window.AnimeUI.clearNode(results);
+    const fragment = document.createDocumentFragment();
+    cards.forEach((card) => fragment.appendChild(window.AnimeUI.createAnimeCard(card)));
+    results.appendChild(fragment);
+  };
+
   const selectedOperator = () =>
     document.querySelector('.segmented button.selected')?.dataset.op || 'AND';
 
@@ -30,6 +51,16 @@
       key: button.dataset.filter || '',
       label: button.textContent.trim()
     }));
+
+  const getRequest = () => ({
+    query: searchInput?.value || '',
+    operator: selectedOperator(),
+    categories: selectedCategories().map(({ key }) => key),
+    sort: {
+      key: sortKey?.value || 'season',
+      direction: sortDirection?.dataset.dir || 'asc'
+    }
+  });
 
   const renderActiveFilters = () => {
     if (!activeFilters) return;
@@ -83,32 +114,26 @@
     });
   });
 
+  const emitSortRequest = () => {
+    window.dispatchEvent(new CustomEvent('anime-search-sort-change', {
+      detail: {
+        key: sortKey?.value || 'season',
+        direction: sortDirection?.dataset.dir || 'asc'
+      }
+    }));
+  };
+
   if (sortDirection) {
     sortDirection.addEventListener('click', () => {
       const current = sortDirection.dataset.dir === 'desc' ? 'desc' : 'asc';
       const next = current === 'asc' ? 'desc' : 'asc';
       sortDirection.dataset.dir = next;
       sortDirection.textContent = next === 'asc' ? '↑ 昇順' : '↓ 降順';
-
-      window.dispatchEvent(new CustomEvent('anime-search-sort-change', {
-        detail: {
-          key: sortKey?.value || 'season',
-          direction: next
-        }
-      }));
+      emitSortRequest();
     });
   }
 
-  if (sortKey) {
-    sortKey.addEventListener('change', () => {
-      window.dispatchEvent(new CustomEvent('anime-search-sort-change', {
-        detail: {
-          key: sortKey.value,
-          direction: sortDirection?.dataset.dir || 'asc'
-        }
-      }));
-    });
-  }
+  sortKey?.addEventListener('change', emitSortRequest);
 
   if (clearButton) {
     clearButton.addEventListener('click', () => {
@@ -125,6 +150,8 @@
       }
       renderActiveFilters();
       setMessage('info', '検索条件をクリアしました。');
+      setResultMeta('検索条件を入力してください', '検索結果はここに表示されます');
+      setEmpty('探したい条件を入れてみよう', '自由検索でも、詳しい条件からでも検索できます。');
       searchInput?.focus();
     });
   }
@@ -132,23 +159,21 @@
   if (form) {
     form.addEventListener('submit', (event) => {
       event.preventDefault();
-      const request = {
-        query: searchInput?.value || '',
-        operator: selectedOperator(),
-        categories: selectedCategories().map(({ key }) => key),
-        sort: {
-          key: sortKey?.value || 'season',
-          direction: sortDirection?.dataset.dir || 'asc'
-        }
-      };
-
-      window.dispatchEvent(new CustomEvent('anime-search-request', { detail: request }));
+      window.dispatchEvent(new CustomEvent('anime-search-request', { detail: getRequest() }));
       setMessage('info', '検索UIは準備済みです。検索データと search.wasm の接続後、この入力をそのまま検索処理へ渡します。');
-      if (resultCount) resultCount.textContent = '検索エンジン接続待ち';
-      if (resultNote) resultNote.textContent = '画面と入力経路は動作しています';
-      if (results) results.setAttribute('aria-busy', 'false');
+      setResultMeta('検索エンジン接続待ち', '画面と入力経路は動作しています');
+      setBusy(false);
     });
   }
+
+  window.AnimeSearchUI = Object.freeze({
+    getRequest,
+    setMessage,
+    setResultMeta,
+    setBusy,
+    setEmpty,
+    renderCards
+  });
 
   // このファイルはUI入力の収集・WASMへの受け渡し・DOM描画だけを担当する。
   // CSV解析、正規化、検索一致判定、AND/OR/NOTの意味解釈、範囲判定、ソート処理は行わない。
