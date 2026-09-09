@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadColumns, parseCsv, rowsToRecords, listDataCsvFiles, readUtf8Strict } from '../csv/csv.mjs';
 import { splitEscaped, splitStructured, externalIdSet, titleSet, normalizeText, releaseIdentitySet } from '../normalize/record.mjs';
+import { ANIME_GENRE_SET, ORIGINAL_TYPE_SET } from '../discovery/taxonomy.mjs';
 
 export const MEDIA_TYPES = new Set(['TV', 'MOVIE', 'OVA', 'ONA', 'SPECIAL', 'SHORT', 'OTHER']);
 const RELATION_TYPES = new Set(['PREQUEL', 'SEQUEL', 'SPINOFF', 'MOVIE', 'OVA', 'ONA', 'SPECIAL', 'REMAKE', 'REBOOT', 'COMPILATION', 'ALTERNATIVE', 'OTHER']);
-const STREAMING_MODES = new Set(['通常', '独占', '見放題独占', '配信独占', '最速', '先行', '地上波先行', 'Web最速', '同時配信', '期間限定', 'レンタル', '購入', '無料', 'その他']);
+const STREAMING_MODES = new Set(['通常', '独占', '見放題独占', '配信独占', '最速', '先行', '地上波先行', 'Web 最速', '同時配信', '期間限定', 'レンタル', '購入', '無料', 'その他']);
 const URL_FIELDS = ['image_url', 'official_url', 'official_x', 'official_youtube', 'official_other'];
 const DATE_FIELDS = ['release_start', 'release_end', 'theatrical_release_date', 'updated_at'];
 const NUMBER_FIELDS = ['episode_count', 'runtime_min', 'season_number'];
@@ -31,7 +32,7 @@ function validDate(value) {
     const month = Number(value.slice(5, 7));
     const day = Number(value.slice(8, 10));
     const date = new Date(Date.UTC(year, month - 1, day));
-    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return false;
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== d) return false;
   }
   return true;
 }
@@ -94,6 +95,24 @@ function validateStructuredField(record, field, expectedParts, label, failures, 
       continue;
     }
     if (itemValidator) itemValidator(parts);
+  }
+}
+
+function validateTaxonomy(record, label, failures) {
+  const seenGenres = new Set();
+  for (const genre of splitEscaped(record.genres).map((value) => value.trim()).filter(Boolean)) {
+    if (!ANIME_GENRE_SET.has(genre)) failures.push(`${label}: genres 定義値外 (${genre})`);
+    if (seenGenres.has(genre)) failures.push(`${label}: genres 重複 (${genre})`);
+    seenGenres.add(genre);
+  }
+
+  if (record.original_type) {
+    const values = splitEscaped(record.original_type).map((value) => value.trim()).filter(Boolean);
+    if (values.length !== 1) {
+      failures.push(`${label}: original_type は原作タグ1つのみ指定可能です`);
+    } else if (!ORIGINAL_TYPE_SET.has(values[0])) {
+      failures.push(`${label}: original_type 定義値外 (${values[0]})`);
+    }
   }
 }
 
@@ -179,6 +198,7 @@ export function validateRecords(entries, columns) {
       if (!validateVariableEscapes(record[field])) failures.push(`${label}: ${field} の区切りescapeが不正`);
     }
 
+    validateTaxonomy(record, label, failures);
     validateStructuredField(record, 'staff', 2, label, failures);
     validateStructuredField(record, 'characters', 3, label, failures);
     validateStructuredField(record, 'opening_themes', 6, label, failures);
