@@ -1,0 +1,63 @@
+import createAllModule from '../../assets/wasm/all.js';
+import createSearchModule from '../../assets/wasm/search.js';
+
+const csv = new TextEncoder().encode(
+  'id,title_ja,title_kana,media_type,release_start,episode_count,runtime_min,animation_studio,image_url,genres,characters,staff,streaming_services\n' +
+  'A00000001,春の作品,はるのさくひん,TV,2027-04-05,12,24,Studio A,,青春,主人公::MAIN::声優A,監督::監督A,Service A::通常::日本::2027-04-05::\n' +
+  'A00000002,秋の作品,あきのさくひん,MOVIE,2027-10-01,,110,Studio B,,冒険,主人公::MAIN::声優B,監督::監督B,Service B::独占::日本::2027-10-01::\n'
+);
+
+function addCsv(module, fn) {
+  const ptr = module._malloc(csv.length);
+  try {
+    module.HEAPU8.set(csv, ptr);
+    if (fn(ptr, csv.length) !== 1) {
+      throw new Error('CSV load failed');
+    }
+  } finally {
+    module._free(ptr);
+  }
+}
+
+function withCString(module, value, callback) {
+  const bytes = new TextEncoder().encode(`${value}\0`);
+  const ptr = module._malloc(bytes.length);
+  try {
+    module.HEAPU8.set(bytes, ptr);
+    return callback(ptr);
+  } finally {
+    module._free(ptr);
+  }
+}
+
+const all = await createAllModule();
+all._anime_all_reset();
+addCsv(all, all._anime_all_add_csv);
+if (all._anime_all_finalize() !== 1) throw new Error(all.UTF8ToString(all._anime_all_last_error()));
+if (all._anime_all_count() !== 2) throw new Error('all count mismatch');
+const allPayload = JSON.parse(all.UTF8ToString(all._anime_all_chunk_json(0, 100)));
+if (allPayload.items.length !== 2 || allPayload.items[0].id !== 'A00000001') throw new Error('all payload mismatch');
+
+const search = await createSearchModule();
+search._anime_search_reset();
+addCsv(search, search._anime_search_add_csv);
+if (search._anime_search_finalize() !== 1) throw new Error(search.UTF8ToString(search._anime_search_last_error()));
+
+withCString(search, 'Studio B', (termPtr) =>
+  withCString(search, 'studio', (groupPtr) => {
+    if (search._anime_search_add_text_term(termPtr, groupPtr, 2, 0) !== 1) {
+      throw new Error(search.UTF8ToString(search._anime_search_last_error()));
+    }
+  })
+);
+if (search._anime_search_execute() !== 1) throw new Error(search.UTF8ToString(search._anime_search_last_error()));
+if (search._anime_search_count() !== 1) throw new Error('search count mismatch');
+const searchPayload = JSON.parse(search.UTF8ToString(search._anime_search_chunk_json(0, 100)));
+if (searchPayload.items[0].id !== 'A00000002') throw new Error('search payload mismatch');
+
+const record = withCString(search, 'A00000002', (idPtr) =>
+  JSON.parse(search.UTF8ToString(search._anime_search_record_json_by_id(idPtr)))
+);
+if (record.title_ja !== '秋の作品') throw new Error('detail record mismatch');
+
+console.log('wasm_smoke: PASS');

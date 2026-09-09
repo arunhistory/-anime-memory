@@ -1,0 +1,58 @@
+name: WASM Build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'wasm-src/**'
+      - '.github/workflows/wasm-build.yml'
+  pull_request:
+    paths:
+      - 'wasm-src/**'
+      - '.github/workflows/wasm-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Native C++ test
+        run: |
+          c++ -std=c++17 -O3 -Wall -Wextra -Werror \
+            wasm-src/shared/anime_engine.cpp \
+            wasm-src/tests/engine_test.cpp \
+            -o /tmp/anime-engine-test
+          /tmp/anime-engine-test
+
+      - name: Install Emscripten
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends emscripten
+          em++ --version
+
+      - name: Build search.wasm and all.wasm
+        run: bash wasm-src/build.sh
+
+      - name: WASM ABI smoke test
+        run: node wasm-src/tests/wasm_smoke.mjs
+
+      - name: Upload WASM build artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: anime-wasm
+          path: |
+            assets/wasm/all.js
+            assets/wasm/all.wasm
+            assets/wasm/search.js
+            assets/wasm/search.wasm
+          if-no-files-found: error
+          retention-days: 7
