@@ -123,6 +123,7 @@ function extractGenreClaims(document, context) {
       continue;
     }
 
+    if (/(?:原作タグ|原作種別|原作媒体|原作|原案|連載|掲載)\s*[:：]/.test(line)) continue;
     if (/(?:監督|音楽|制作|声優|キャスト)\s*[:：]/.test(line)) continue;
     if (!/(?:系|もの|モノ)/.test(line)) continue;
     for (const genre of normalizeGenresFromText(line)) found.add(genre);
