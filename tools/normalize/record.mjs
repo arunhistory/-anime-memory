@@ -1,4 +1,4 @@
-const escapeVariable = (value) => String(value ?? '')
+export const escapeVariable = (value) => String(value ?? '')
   .replaceAll('\\', '\\\\')
   .replaceAll('|', '\\|')
   .replaceAll('::', '\\::');
@@ -41,7 +41,6 @@ function mapOne(raw, rule) {
   }
 
   if (Array.isArray(value)) {
-    const itemSeparator = rule.separator ?? '|';
     const encoded = value.map((item) => {
       if (Array.isArray(rule.fields)) {
         return rule.fields.map((fieldPath) => escapeVariable(scalar(getPath(item, fieldPath)))).join('::');
@@ -49,7 +48,7 @@ function mapOne(raw, rule) {
       const itemValue = rule.valuePath ? getPath(item, rule.valuePath) : item;
       return escapeVariable(applyTransform(scalar(itemValue), rule.transform));
     }).filter((item) => item !== '');
-    return encoded.join(itemSeparator);
+    return encoded.join('|');
   }
 
   return applyTransform(scalar(value), rule.transform);
@@ -86,36 +85,72 @@ export function normalizeText(value) {
     .replace(/[‐‑‒–—―・･·.。,:：;；'"“”‘’()（）［\]【】{}「」『』]/g, '');
 }
 
-export function splitEscaped(value, delimiter = '|') {
+export function splitEscapedRaw(value, delimiter = '|') {
   const text = String(value ?? '');
+  if (!delimiter) throw new Error('delimiter must not be empty.');
   const result = [];
   let current = '';
-  let escaped = false;
+
   for (let i = 0; i < text.length; i += 1) {
-    const c = text[i];
-    if (escaped) {
-      current += c;
-      escaped = false;
+    if (text[i] === '\\') {
+      current += text[i];
+      if (i + 1 < text.length) {
+        current += text[i + 1];
+        i += 1;
+      }
       continue;
     }
-    if (c === '\\') {
-      escaped = true;
-      continue;
-    }
-    if (c === delimiter) {
+    if (text.startsWith(delimiter, i)) {
       result.push(current);
       current = '';
+      i += delimiter.length - 1;
       continue;
     }
-    current += c;
+    current += text[i];
   }
-  if (escaped) current += '\\';
   result.push(current);
   return result;
 }
 
+export function unescapeVariable(value) {
+  const text = String(value ?? '');
+  let output = '';
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] !== '\\') {
+      output += text[i];
+      continue;
+    }
+    if (i + 1 >= text.length) {
+      output += '\\';
+      continue;
+    }
+    if (text[i + 1] === '\\' || text[i + 1] === '|') {
+      output += text[i + 1];
+      i += 1;
+      continue;
+    }
+    if (text.startsWith('::', i + 1)) {
+      output += '::';
+      i += 2;
+      continue;
+    }
+    output += '\\';
+  }
+  return output;
+}
+
+export function splitEscaped(value, delimiter = '|') {
+  return splitEscapedRaw(value, delimiter).map(unescapeVariable);
+}
+
+export function splitStructured(value) {
+  return splitEscapedRaw(value, '|')
+    .filter(Boolean)
+    .map((entry) => splitEscapedRaw(entry, '::').map(unescapeVariable));
+}
+
 export function externalIdSet(record) {
-  return new Set(splitEscaped(record.external_ids).map((value) => value.trim()).filter(Boolean));
+  return new Set(splitEscapedRaw(record.external_ids, '|').map((value) => value.trim()).filter(Boolean));
 }
 
 export function titleSet(record) {
@@ -131,11 +166,11 @@ export function isCompositeDuplicateCandidate(left, right) {
   if (!left.release_start || !right.release_start || left.release_start !== right.release_start) return false;
 
   const corroborators = [
-    ['original_title', left.original_title, right.original_title],
-    ['original_author', left.original_author, right.original_author],
-    ['animation_studio', left.animation_studio, right.animation_studio]
+    [left.original_title, right.original_title],
+    [left.original_author, right.original_author],
+    [left.animation_studio, right.animation_studio]
   ];
-  return corroborators.some(([, a, b]) => a && b && normalizeText(a) === normalizeText(b));
+  return corroborators.some(([a, b]) => a && b && normalizeText(a) === normalizeText(b));
 }
 
 export function hasExactExternalId(left, right) {
