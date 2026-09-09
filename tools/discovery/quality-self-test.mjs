@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { extractDocument, extractAnimeTitleCandidates } from './html.mjs';
-import { extractCandidateEvidence } from './evidence.mjs';
+import { extractCandidateEvidence, resolveEvidence } from './evidence.mjs';
 import { runDiscovery } from './engine.mjs';
 import { emptyDiscoveryState } from './state.mjs';
 
@@ -61,6 +61,26 @@ assert.ok(starEvidence.some((item) => item.field === 'release_start' && item.val
 assert.equal(starEvidence.some((item) => item.field === 'release_start' && item.value === '1999-08-09'), false, 'another work date must not leak into candidate evidence');
 assert.ok(starEvidence.some((item) => item.field === 'animation_studio' && item.value === 'Studio Star'));
 assert.equal(starEvidence.some((item) => item.field === 'animation_studio' && item.value === 'Studio Sea'), false, 'another work staff must not leak into candidate evidence');
+
+const ambiguousMedia = extractDocument(`<!doctype html><html><head>
+<title>星の旅 | TVアニメ公式サイト</title>
+</head><body>
+<p>TVアニメ「星の旅」を紹介する。</p>
+<p>関連情報として劇場版の企画にも触れる。</p>
+</body></html>`, 'https://official.test/star-mixed-media');
+const ambiguousStar = ambiguousMedia.candidates.find((item) => item.title === '星の旅');
+assert.ok(ambiguousStar);
+const ambiguousFacts = resolveEvidence(extractCandidateEvidence(ambiguousMedia, ambiguousStar, '2026-09-09T00:00:00.000Z'));
+assert.equal(ambiguousFacts.media_type.status, 'conflict', 'multiple media types on one page must not be collapsed to the first match');
+assert.equal(ambiguousFacts.media_type.value, '');
+
+const majorityConflict = resolveEvidence([
+  { field: 'release_start', value: '2027-04-03', sourceUrl: 'https://a.test/star', rule: 'fixture', observedAt: '' },
+  { field: 'release_start', value: '2027-04-03', sourceUrl: 'https://b.test/star', rule: 'fixture', observedAt: '' },
+  { field: 'release_start', value: '2027-04-04', sourceUrl: 'https://c.test/star', rule: 'fixture', observedAt: '' }
+]);
+assert.equal(majorityConflict.release_start.status, 'conflict', 'conflicting scalar facts must not be decided by majority vote');
+assert.equal(majorityConflict.release_start.value, '');
 
 const aggregateUrl = 'https://catalog.test/anime-list';
 const workUrl = 'https://catalog.test/work/hana';
@@ -129,5 +149,7 @@ console.log('aggregate/list pages: LINK-ONLY');
 console.log('URL title false positives: BLOCKED');
 console.log('page subject identification: PASS');
 console.log('secondary work evidence: TITLE-ONLY');
+console.log('media ambiguity: CONFLICT');
+console.log('scalar majority vote: DISABLED');
 console.log('single-work page evidence: PASS');
 console.log('cross-work evidence leakage: BLOCKED');
