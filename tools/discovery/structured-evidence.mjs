@@ -70,7 +70,7 @@ function extractStaff(context, claims) {
   const rolePattern = roles.map((role) => role.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
   const regex = new RegExp(`(?:^|\\n|[ \\t])(${rolePattern})\\s*[:：]\\s*([^\\n]{1,160})`, 'gi');
   for (const match of String(context || '').matchAll(regex)) {
-    for (const name of String(match[2]).split(/\s*(?:、|,|，|;|；)\s*/).map(clean).filter(Boolean)) {
+    for (const name of String(match[2]).split(/\s*(?:、|,|，|;|；)\s*/).map((value) => clean(value)).filter(Boolean)) {
       add(claims, 'staff', [match[1], name], 'structured-staff-label');
     }
   }
@@ -145,7 +145,7 @@ function extractEpisodes(context, claims) {
 
     const staff = line.match(/第\s*(\d{1,4})\s*話[^\n]{0,120}?((?:脚本|絵コンテ|演出|作画監督|総作画監督))\s*[:：]\s*([^\n]{1,120})/);
     if (staff) {
-      for (const name of String(staff[3]).split(/\s*(?:、|,|，|;|；)\s*/).map(clean).filter(Boolean)) {
+      for (const name of String(staff[3]).split(/\s*(?:、|,|，|;|；)\s*/).map((value) => clean(value)).filter(Boolean)) {
         add(claims, 'episode_staff', [staff[1], staff[2], name], 'structured-episode-staff');
       }
     }
