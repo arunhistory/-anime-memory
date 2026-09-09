@@ -57,6 +57,8 @@ assert.ok(collectStep >= 0 && geminiSecret > collectStep, 'Gemini secret must no
 assert.match(collectWorkflow.slice(collectStep), /ANIME_GEMINI_API_KEY:\s*\$\{\{\s*\(!inputs\.dry_run\s*&&\s*inputs\.gemini\)/, 'Gemini secret must be gated by explicit opt-in and non-dry-run');
 assert.match(collectWorkflow, /node tools\/collect\/initial-budget-self-test\.mjs/, 'initial rolling-budget preflight missing');
 assert.match(collectWorkflow, /node tools\/discovery\/structured-evidence-self-test\.mjs/, 'structured Evidence preflight missing');
+assert.match(discoveryWorkflow, /known-work-wasm-self-test\.mjs/, 'search.wasm registered-work preflight missing');
+assert.match(discoveryWorkflow, /known-work-skip-self-test\.mjs/, 'next-run registered-work skip preflight missing');
 
 assert.equal(INITIAL_IMPORT_ROLLING_LIMIT, 450, 'initial rolling 24-hour limit must remain 450');
 const budgetSource = read('tools/collect/initial-budget.mjs');
@@ -68,9 +70,21 @@ assert.match(validator, /'Web 最速'/, 'streaming mode Web 最速 spacing drift
 assert.match(validator, /relations targetが存在しない/, 'relation target existence validation missing');
 assert.match(validator, /original_type は原作タグ1つのみ指定可能/, 'single original_type enforcement missing');
 
+const knownWorkWasm = read('tools/discovery/known-work-wasm.mjs');
+assert.match(knownWorkWasm, /assets[^\n]+wasm[^\n]+search\.js/, 'registered-work lookup must reuse assets/wasm/search.js');
+assert.match(knownWorkWasm, /search\.wasm/, 'registered-work lookup must reuse search.wasm');
+assert.match(knownWorkWasm, /_anime_search_add_text_term/, 'registered-work lookup must use search.wasm text search ABI');
+assert.match(knownWorkWasm, /'title'/, 'registered-work lookup must search the WASM title group');
+const discoveryRun = read('tools/discovery/run.mjs');
+const discoveryEngine = read('tools/discovery/engine.mjs');
+assert.match(discoveryRun, /loadKnownWorkWasmSearch/, 'discovery runner must load registered works through search.wasm');
+assert.match(discoveryRun, /knownWorkSearch/, 'discovery runner must pass search.wasm lookup into the engine');
+assert.match(discoveryEngine, /hasExactTitle/, 'discovery engine must query search.wasm before collecting known-work evidence');
+assert.match(discoveryEngine, /knownStateCandidatesPruned/, 'registered candidates already in discovery state must be pruned after CSV registration');
+
 const discoveryDir = path.join(root, 'tools', 'discovery');
 const discoverySource = fs.readdirSync(discoveryDir)
-  .filter((name) => name.endsWith('.mjs') && !name.endsWith('-self-test.mjs'))
+  .filter((name) => name.endsWith('.mjs') && !name.endsWith('self-test.mjs'))
   .map((name) => fs.readFileSync(path.join(discoveryDir, name), 'utf8'))
   .join('\n');
 for (const forbidden of ['BRAVE_SEARCH_API_KEY', 'SERPAPI', 'GOOGLE_CUSTOM_SEARCH', 'ANIME_GEMINI_API_KEY']) {
@@ -116,6 +130,7 @@ console.log('cron/polling workflows: NONE');
 console.log('Gemini default: OFF');
 console.log('Gemini secret scope: OPT-IN COLLECTION STEP ONLY');
 console.log('rolling 24-hour initial limit: 450');
+console.log('registered-work next-run lookup: search.wasm');
 console.log('streaming/original/relation validation: PASS');
 console.log('external search API coupling: NONE');
 console.log('public secret exposure markers: NONE');
