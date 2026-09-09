@@ -15,8 +15,7 @@ jobs:
     timeout-minutes: 5
     env:
       DISCOVERY_SEED_URLS: https://ja.wikipedia.org/wiki/%E6%97%A5%E6%9C%AC%E3%81%AE%E3%83%86%E3%83%AC%E3%83%93%E3%82%A2%E3%83%8B%E3%83%A1%E4%BD%9C%E5%93%81%E4%B8%80%E8%A6%A7
-      DISCOVERY_ALLOWED_HOSTS: ja.wikipedia.org
-      DISCOVERY_MIN_DELAY_MS: '6000'
+      DISCOVERY_MIN_DELAY_MS: '4000'
 
     steps:
       - name: Checkout
@@ -36,8 +35,8 @@ jobs:
           node tools/discovery/entity-resolution-self-test.mjs
           node tools/discovery/taxonomy-self-test.mjs
 
-      - name: Controlled live discovery in runner only
-        run: node tools/discovery/run.mjs --max-pages 14 --max-depth 3 --per-host-limit 14
+      - name: Bounded multi-host live discovery in runner only
+        run: node tools/discovery/run.mjs --max-pages 24 --max-depth 4 --per-host-limit 4
 
       - name: Inspect runner-only admission results
         run: |
@@ -48,7 +47,10 @@ jobs:
           const state = JSON.parse(fs.readFileSync('crawler/state.json', 'utf8'));
           const columns = loadColumns(process.cwd());
           const ready = readyDiscoveryRecords(state, columns, '2026-09-10');
+          const hosts = new Set(state.documents.map((doc) => new URL(doc.url).hostname));
           console.log(`documents=${state.documents.length}`);
+          console.log(`hosts=${hosts.size}`);
+          console.log(`host_names=${JSON.stringify([...hosts].sort())}`);
           console.log(`candidates=${state.candidates.length}`);
           console.log(`ready_records=${ready.records.length}`);
           const reasons = {};
@@ -60,18 +62,11 @@ jobs:
             }
           }
           console.log(`skip_reasons=${JSON.stringify(reasons)}`);
-          for (const candidate of state.candidates.slice(0, 25)) {
-            console.log(JSON.stringify({
-              title: candidate.title,
-              origin: candidate.facts?.origin_country,
-              media: candidate.facts?.media_type,
-              readiness: discoveryCandidateReadiness(candidate)
-            }));
+          for (const candidate of state.candidates.filter((item) => discoveryCandidateReadiness(item).ready).slice(0, 20)) {
+            console.log(`READY ${JSON.stringify({ title: candidate.title, facts: candidate.facts })}`);
           }
           NODE
 
       - name: Confirm repository remains read-only
         run: |
-          if [[ -n "$(git status --porcelain)" ]]; then
-            echo 'Runner workspace changed only for the live pilot; nothing is committed or pushed.'
-          fi
+          test -n "$(git status --porcelain)" && echo 'Runner workspace changed only for the live pilot; nothing is committed or pushed.' || true
