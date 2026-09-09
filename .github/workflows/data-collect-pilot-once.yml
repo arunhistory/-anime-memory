@@ -1,0 +1,43 @@
+name: Data Collect Pilot Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/data-collect-pilot-once.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Preflight
+        run: |
+          node tools/collect/self-test.mjs
+          node tools/correct/self-test.mjs
+          node tools/discovery/self-test.mjs
+          node tools/discovery/taxonomy-self-test.mjs
+          node tools/gemini/quota-self-test.mjs
+          node tools/gemini/self-test.mjs
+
+      - name: Discovery to common CSV dry-run
+        run: node tools/collect/run.mjs --input discovery --mode initial --gemini false
+
+      - name: Validate generated data if present
+        run: |
+          if [[ -d data ]]; then
+            node tools/validate/data-validator.mjs data
+          else
+            echo 'No ready discovery records yet.'
+          fi
