@@ -32,7 +32,7 @@ function validDate(value) {
     const month = Number(value.slice(5, 7));
     const day = Number(value.slice(8, 10));
     const date = new Date(Date.UTC(year, month - 1, day));
-    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== d) return false;
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return false;
   }
   return true;
 }
