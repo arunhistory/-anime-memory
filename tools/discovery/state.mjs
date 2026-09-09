@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { normalizeUrl, urlHash } from './url.mjs';
 import { normalizeTitleKey } from './html.mjs';
+import { mergeEvidence, resolveEvidence } from './evidence.mjs';
 
 export function emptyDiscoveryState() {
   return {
@@ -30,6 +31,30 @@ export function loadDiscoveryState(filePath) {
   return sanitizeState(JSON.parse(fs.readFileSync(filePath, 'utf8')));
 }
 
+function sanitizeFacts(facts) {
+  const output = {};
+  if (!facts || typeof facts !== 'object' || Array.isArray(facts)) return output;
+  for (const [field, value] of Object.entries(facts)) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    const status = ['observed', 'confirmed', 'conflict'].includes(value.status) ? value.status : 'observed';
+    output[String(field).slice(0, 80)] = {
+      status,
+      value: status === 'conflict' ? '' : String(value.value || '').slice(0, 160),
+      sourceCount: Math.max(0, Number(value.sourceCount || 0)),
+      hostCount: Math.max(0, Number(value.hostCount || 0)),
+      alternatives: Array.isArray(value.alternatives)
+        ? value.alternatives.slice(0, 5).map((item) => ({
+          value: String(item?.value || '').slice(0, 160),
+          sourceCount: Math.max(0, Number(item?.sourceCount || 0)),
+          hostCount: Math.max(0, Number(item?.hostCount || 0)),
+          evidenceCount: Math.max(0, Number(item?.evidenceCount || 0))
+        }))
+        : []
+    };
+  }
+  return output;
+}
+
 export function saveDiscoveryState(filePath, state) {
   const clean = sanitizeState(state);
   clean.updatedAt = new Date().toISOString();
@@ -50,12 +75,18 @@ export function saveDiscoveryState(filePath, state) {
     .sort((a, b) => b.score - a.score)
     .slice(0, 20000);
   clean.candidates = clean.candidates
-    .map((candidate) => ({
-      key: normalizeTitleKey(candidate.title || candidate.key),
-      title: String(candidate.title || '').slice(0, 120),
-      sources: [...new Set((candidate.sources || []).map((value) => normalizeUrl(value)).filter(Boolean))].slice(0, 50),
-      lastSeen: String(candidate.lastSeen || '')
-    }))
+    .map((candidate) => {
+      const evidence = mergeEvidence(candidate.evidence || []);
+      const resolved = resolveEvidence(evidence);
+      return {
+        key: normalizeTitleKey(candidate.title || candidate.key),
+        title: String(candidate.title || '').slice(0, 120),
+        sources: [...new Set((candidate.sources || []).map((value) => normalizeUrl(value)).filter(Boolean))].slice(0, 50),
+        evidence,
+        facts: sanitizeFacts(resolved),
+        lastSeen: String(candidate.lastSeen || '')
+      };
+    })
     .filter((candidate) => candidate.key && candidate.title)
     .slice(0, 20000);
 
