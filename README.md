@@ -32,9 +32,9 @@ GitHub・CSV・WASM統合型の日本アニメ総合検索サイト。
 - `search.wasm`: 検索・条件判定・検索結果ソート・内部ID完全一致詳細取得
 - `all.wasm`: 全件読込・全件出力・全件ソート
 - JavaScript: UI / HTTP取得 / WASMとの受け渡し / DOM描画
-- Web探索Tools: 公開Web巡回 / アニメ言及判定 / 作品候補発見 / 探索状態管理
+- Web探索Tools: 公開Web巡回 / アニメ言及判定 / 作品候補発見 / Evidence抽出・照合 / 探索状態管理
 - CSV収集Tools: 正規化 / 重複候補判定 / CSV生成 / 公開前検証
-- Gemini API: 将来のサイト独自概要生成。**現在は未接続**
+- Gemini API: 確定済み事実だけを入力したサイト独自 `synopsis` 生成。Web探索・事実確定には使用しない
 
 ## JavaScriptで行わない処理
 
@@ -100,28 +100,36 @@ title / OGP / JSON-LD / 本文 / リンクを実行時解析
   ↓
 作品候補抽出
   ↓
+作品ごとのEvidence抽出
+  ↓
+別ホストを含む複数Evidenceを照合
+  ↓
+一致した事実だけconfirmed
+  ↓
 関連リンクを優先度付きfrontierへ追加
   ↓
-別ドメインを含めて探索範囲を自己拡張
-  ↓
-作品候補 + 根拠URLを探索状態へ保存
+探索範囲を自己拡張
 ```
 
 作品専用ホームページだけを対象にしない。ニュース、ブログ、ポータル、出版社、放送局、制作会社、配信、動画等の公開ページも同じ探索対象として扱う。
 
-HTML本文や記事全文はGitHubへ保存しない。実行中の判定にのみ使用し、`crawler/state.json` にはURL、ページタイトル、関連度、作品候補、根拠URL、frontier、巡回済みURLハッシュ等の最小限の探索状態だけを保持する。
+HTML本文や記事全文はGitHubへ保存しない。実行中の判定にのみ使用し、`crawler/state.json` にはURL、ページタイトル、関連度、作品候補、Evidence、確定状態、frontier、巡回済みURLハッシュ等の探索状態だけを保持する。
 
-`Web Anime Discovery` は `workflow_dispatch` のみで、定期Cronは持たない。初期値は `dry_run=true`。外部検索API、Gemini API、外部AI検索は接続していない。
+`Web Anime Discovery` は `workflow_dispatch` のみで、定期Cronは持たない。初期値は `dry_run=true`。この探索工程自体には外部検索API、Gemini API、外部AI検索を接続しない。
 
 検索APIを使わないため、最初のリンクグラフへ入る起点URLは `crawler/seeds.txt` またはActions入力から与える。これは作品ごとの情報源指定ではなく、その後の自律巡回を開始する初期ノードである。
 
 詳細は `docs/WEB_DISCOVERY.md` を参照。
 
-## CSV自動収集
+## CSV自動収集とGemini概要生成
 
-共通70列への正規化・重複候補判定・CSV生成・全CSV検証の後段は実装済み。既存のJSON API取得器もコード上は残っているが、最終的な自動探索方式として固定しない。Web探索で発見した候補を複数ページで照合し、このCSV後段へ接続する工程は次の統合作業対象とする。
+Web探索で複数ページから確認された事実は `tools/discovery/to-record.mjs` で共通70列Recordへ変換し、既存の重複判定・CSV生成・全CSV検証へ接続する。
 
-Gemini API、Gemini APIキー、Google生成AI SDKは自動収集経路へ未接続。Gemini接続前は `synopsis` を空欄に固定する。
+Geminiは `tools/gemini/synopsis.mjs` に分離し、作品探索や事実確定には使用しない。共通Recordの確定済み非空値だけを入力して `synopsis` を生成する。APIキーはGitHub Actions Repository Secret `ANIME_GEMINI_API_KEY` からサーバー側だけで読み取り、PagesやブラウザJavaScriptへ渡さない。
+
+標準モデルは `gemini-3.5-flash-lite`。Repository Variable `ANIME_GEMINI_MODEL` が設定されている場合のみモデルを差し替えられる。1作品につき概要生成API呼び出しは最大1回、1実行あたりのGemini呼び出し上限は450件。429、5xx、ネットワーク障害、出力不正時は再送せず安全停止し、その実行で既に概要生成できた作品だけを後段へ残す。
+
+`Anime Data Collect` の `dry_run=true` ではGeminiを呼ばず、API枠を消費しない。`dry_run=false` の実収集時だけGemini概要生成を有効にする。外部から取得した概要文をそのままサイト独自概要として保存せず、Gemini生成前の `synopsis` は空欄にする。
 
 既存CSV後段の詳細は `docs/DATA_COLLECTION.md` を参照。
 
@@ -153,10 +161,13 @@ Gemini API、Gemini APIキー、Google生成AI SDKは自動収集経路へ未接
 - title / OGP / JSON-LD / 本文からのアニメ言及判定
 - 作品名候補抽出
 - 同一サイト・外部サイト双方への優先度付きリンク探索
-- Web本文を保存しない最小探索state
+- Web本文を保存しない探索state
 - 探索候補と根拠URLの永続化
 - 探索メタデータ用の自前検索index
-- Web探索の自己試験とActions検証
+- Web探索候補からのEvidence抽出
+- 複数ホストEvidenceの一致 / conflict判定
+- confirmed事実だけの共通70列Record変換
+- Web探索 → 共通70列CSV後段の接続
 - HTTPS JSON API専用の既存取得器
 - 共通70列への宣言的マッピング・正規化
 - 外部ID完全一致と複合条件による重複候補検出
@@ -164,20 +175,22 @@ Gemini API、Gemini APIキー、Google生成AI SDKは自動収集経路へ未接
 - 四半期 `YYYY-QN.csv` 追加経路
 - `manifest.csv` ファイル名専用生成
 - CSVスキーマ / UTF-8相当 / ID / media_type / 日付 / URL / relations / 重複候補 / 四半期所属の公開前検証
+- Gemini Interactions API概要生成モジュール
+- `ANIME_GEMINI_API_KEY` のGitHub Actions Secret接続
+- 1作品1呼び出し / 1実行450呼び出し上限
+- Gemini 429 / 5xx / ネットワーク / 不正出力の安全停止
+- dry-run時Gemini未呼び出し
 - 失敗時Commit禁止・force push禁止・data競合時停止
-- 自動収集パイプラインの自己試験とActions検証
+- 自動収集 / Web探索 / Geminiの自己試験とActions検証
 - エラー / 状態表示の共通UI
 - C++ネイティブ試験 / ブラウザWASM ABIスモーク試験 / UI静的検証
 
-未接続・次工程:
+未実測・次工程:
 
-- Web探索候補から70列事実を抽出するEvidence処理
-- 複数Webページ間の事実照合と確定判定
-- Web探索 → 共通70列CSV後段の接続
 - 実Webの初期起点選定とdry-run実測
+- GitHub Actionsから登録済みGeminiキーを使った実API疎通
 - 実作品CSVの初回収集
-- Gemini概要生成
-- 初期導入1日最大450作品の実運用
+- 初期導入の「1日最大450作品」を複数実行間でも超えない日次ガード
 - 初期導入完了後の四半期更新実運用
 
 ## データ実装時の原則
