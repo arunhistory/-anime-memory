@@ -1,9 +1,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+const utf8Fatal = new TextDecoder('utf-8', { fatal: true });
+
+export function readUtf8Strict(filePath) {
+  const bytes = fs.readFileSync(filePath);
+  try {
+    return utf8Fatal.decode(bytes);
+  } catch {
+    throw new Error(`UTF-8として不正なバイト列です: ${filePath}`);
+  }
+}
+
 export function loadColumns(root = process.cwd()) {
   const schemaPath = path.join(root, 'wasm-src/shared/schema.hpp');
-  const source = fs.readFileSync(schemaPath, 'utf8');
+  const source = readUtf8Strict(schemaPath);
   const block = source.match(/kColumns\s*=\s*\{([\s\S]*?)\};/);
   if (!block) throw new Error('共通CSVスキーマを schema.hpp から読み取れません。');
   const columns = [...block[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
@@ -121,6 +132,10 @@ export function recordsToCsv(records, columns) {
   return serializeRows(rows);
 }
 
+export function recordsToCsvRows(records, columns) {
+  return serializeRows(records.map((record) => columns.map((column) => record[column] ?? '')));
+}
+
 export function listDataCsvFiles(dataDir) {
   if (!fs.existsSync(dataDir)) return [];
   return fs.readdirSync(dataDir)
@@ -132,7 +147,7 @@ export function readDataRecords(dataDir, columns) {
   const result = [];
   for (const fileName of listDataCsvFiles(dataDir)) {
     const filePath = path.join(dataDir, fileName);
-    const records = rowsToRecords(parseCsv(fs.readFileSync(filePath, 'utf8')), columns);
+    const records = rowsToRecords(parseCsv(readUtf8Strict(filePath)), columns);
     for (const record of records) result.push({ fileName, record });
   }
   return result;
