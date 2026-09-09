@@ -22,7 +22,7 @@
     <div class="page-heading">
       <span class="eyebrow">SEARCH</span>
       <h1>アニメを検索</h1>
-      <p>自由検索と詳しい条件を組み合わせて、保存されている情報を横断して探せる画面です。</p>
+      <p>作品名だけでなく、制作・スタッフ・声優・音楽・放送・配信など保存情報を横断して探せます。</p>
     </div>
 
     <section class="search-panel card-surface" aria-labelledby="search-panel-title">
@@ -31,8 +31,8 @@
       <form id="search-form" novalidate>
         <div class="search-box large">
           <span class="search-icon" aria-hidden="true">⌕</span>
-          <label class="sr-only" for="search-query">検索語</label>
-          <input id="search-query" name="q" type="search" placeholder="作品名・声優・制作会社・スタッフなど" autocomplete="off" />
+          <label class="sr-only" for="search-query">自由検索</label>
+          <input id="search-query" name="q" type="search" placeholder="作品名・声優・制作会社・スタッフなどをまとめて検索" autocomplete="off" />
           <button id="search-button" type="submit">検索</button>
         </div>
 
@@ -46,7 +46,7 @@
           <div class="filter-head">
             <div>
               <strong>詳しい条件</strong>
-              <small>必要な項目だけ選んで使えます。</small>
+              <small>必要な条件だけ追加できます。自由検索を空欄にして詳細条件だけでも検索できます。</small>
             </div>
             <button id="clear-search-ui" class="clear-button" type="button">条件をクリア</button>
           </div>
@@ -54,27 +54,43 @@
           <div class="filter-section">
             <h3>条件の組み合わせ</h3>
             <div class="segmented" role="group" aria-label="条件の組み合わせ">
-              <button type="button" class="selected" data-op="AND" aria-pressed="true">AND</button>
-              <button type="button" data-op="OR" aria-pressed="false">OR</button>
-              <button type="button" data-op="NOT" aria-pressed="false">NOT</button>
+              <button type="button" class="selected" data-op="AND" aria-pressed="true">すべて一致（AND）</button>
+              <button type="button" data-op="OR" aria-pressed="false">どれか一致（OR）</button>
             </div>
+            <p class="filter-help">除外したい条件は、各条件の「含めない（NOT）」を選択します。</p>
           </div>
 
           <div class="filter-section">
-            <h3>検索項目</h3>
-            <div class="filter-grid" aria-label="詳細検索カテゴリ">
-              <button type="button" class="filter-chip" data-filter="media" aria-pressed="false">媒体</button>
-              <button type="button" class="filter-chip" data-filter="date" aria-pressed="false">年代・期間</button>
-              <button type="button" class="filter-chip" data-filter="genre" aria-pressed="false">ジャンル</button>
-              <button type="button" class="filter-chip" data-filter="studio" aria-pressed="false">制作会社</button>
-              <button type="button" class="filter-chip" data-filter="staff" aria-pressed="false">スタッフ</button>
-              <button type="button" class="filter-chip" data-filter="cast" aria-pressed="false">声優</button>
-              <button type="button" class="filter-chip" data-filter="original" aria-pressed="false">原作</button>
-              <button type="button" class="filter-chip" data-filter="music" aria-pressed="false">音楽</button>
-              <button type="button" class="filter-chip" data-filter="broadcast" aria-pressed="false">放送</button>
-              <button type="button" class="filter-chip" data-filter="streaming" aria-pressed="false">配信</button>
+            <div class="filter-section-head">
+              <div>
+                <h3>文字・名称・属性</h3>
+                <p class="filter-help">タイトル、制作会社、声優、配信サービスなど、保存されている各情報を対象に指定できます。</p>
+              </div>
+              <button id="add-text-filter" class="add-filter-button" type="button">＋ 条件を追加</button>
             </div>
-            <p class="filter-help">カテゴリを選択すると、その項目だけを対象に検索できます。条件の組み合わせは AND / OR / NOT から選べます。</p>
+            <div id="text-filter-rows" class="filter-rows"></div>
+          </div>
+
+          <div class="filter-section">
+            <div class="filter-section-head">
+              <div>
+                <h3>日付範囲</h3>
+                <p class="filter-help">開始日・終了日・劇場公開日・更新日を範囲指定できます。</p>
+              </div>
+              <button id="add-date-filter" class="add-filter-button" type="button">＋ 日付条件</button>
+            </div>
+            <div id="date-filter-rows" class="filter-rows"></div>
+          </div>
+
+          <div class="filter-section">
+            <div class="filter-section-head">
+              <div>
+                <h3>数値範囲</h3>
+                <p class="filter-help">話数・1話あたり時間・シーズン番号を下限／上限で指定できます。</p>
+              </div>
+              <button id="add-number-filter" class="add-filter-button" type="button">＋ 数値条件</button>
+            </div>
+            <div id="number-filter-rows" class="filter-rows"></div>
           </div>
         </div>
       </form>
@@ -107,7 +123,7 @@
         <div class="empty-state card-surface">
           <div class="empty-icon" aria-hidden="true">⌕</div>
           <h2>探したい条件を入れてみよう</h2>
-          <p>自由検索でも、詳しい条件からでも検索できます。</p>
+          <p>自由検索でも、詳しい条件だけでも検索できます。</p>
         </div>
       </div>
     </section>
