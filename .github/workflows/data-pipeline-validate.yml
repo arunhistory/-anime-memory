@@ -69,6 +69,7 @@ jobs:
           node --check tools/discovery/taxonomy-self-test.mjs
           node --check tools/discovery/source-quality.mjs
           node --check tools/discovery/common-evidence.mjs
+          node --check tools/discovery/structured-evidence.mjs
           node --check tools/discovery/evidence.mjs
           node --check tools/discovery/entity-resolution.mjs
           node --check tools/discovery/to-record.mjs
@@ -80,6 +81,7 @@ jobs:
           node --check tools/discovery/self-test.mjs
           node --check tools/discovery/quality-self-test.mjs
           node --check tools/discovery/common-evidence-self-test.mjs
+          node --check tools/discovery/structured-evidence-self-test.mjs
           node --check tools/discovery/entity-resolution-self-test.mjs
           node --check tools/gemini/synopsis.mjs
           node --check tools/gemini/quota.mjs
@@ -100,6 +102,9 @@ jobs:
 
       - name: Common evidence self-test
         run: node tools/discovery/common-evidence-self-test.mjs
+
+      - name: Structured evidence self-test
+        run: node tools/discovery/structured-evidence-self-test.mjs
 
       - name: Entity resolution self-test
         run: node tools/discovery/entity-resolution-self-test.mjs
