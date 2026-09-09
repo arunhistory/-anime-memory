@@ -3,6 +3,7 @@ import path from 'node:path';
 import { PoliteFetcher } from './fetch-page.mjs';
 import { runDiscovery } from './engine.mjs';
 import { loadDiscoveryState, saveDiscoveryState, seedFrontier } from './state.mjs';
+import { loadKnownWorkWasmSearch } from './known-work-wasm.mjs';
 import { normalizeUrl } from './url.mjs';
 
 function parseArgs(argv) {
@@ -70,6 +71,7 @@ async function main() {
     throw new Error('探索開始URLがありません。crawler/seeds.txt または DISCOVERY_SEED_URLS に最低1件の公開Web URLが必要です。');
   }
 
+  const knownWorkSearch = await loadKnownWorkWasmSearch({ root });
   const fetcher = new PoliteFetcher({
     timeoutMs: process.env.DISCOVERY_TIMEOUT_MS || 12000,
     maxBytes: process.env.DISCOVERY_MAX_BYTES || 1048576,
@@ -78,7 +80,14 @@ async function main() {
   });
 
   const before = JSON.stringify(state);
-  const result = await runDiscovery({ state, fetcher, maxPages, maxDepth, perHostLimit });
+  const result = await runDiscovery({
+    state,
+    fetcher,
+    knownWorkSearch,
+    maxPages,
+    maxDepth,
+    perHostLimit
+  });
 
   if (!dryRun) saveDiscoveryState(statePath, result.state);
   const changed = before !== JSON.stringify(result.state);
@@ -88,11 +97,14 @@ async function main() {
   console.log(`state: ${path.relative(root, statePath)}`);
   console.log(`seed URLs: ${seeds.length}`);
   console.log(`allowed hosts: ${allowedHosts.length ? allowedHosts.join(',') : 'unrestricted-public-web'}`);
+  console.log(`registered CSV files loaded into search.wasm: ${knownWorkSearch.fileCount}`);
   console.log(`attempted: ${result.stats.attempted}`);
   console.log(`fetched: ${result.stats.fetched}`);
   console.log(`relevant pages: ${result.stats.relevant}`);
   console.log(`discovery-only pages: ${result.stats.discoveryOnlyPages}`);
   console.log(`new anime candidates: ${result.stats.candidatesFound}`);
+  console.log(`registered-work candidates skipped: ${result.stats.knownWorkCandidatesSkipped}`);
+  console.log(`registered candidates pruned from saved state: ${result.stats.knownStateCandidatesPruned}`);
   console.log(`entity merges: ${result.stats.entityMerges}`);
   console.log(`evidence claims: ${result.stats.evidenceClaims}`);
   console.log(`new links queued: ${result.stats.newLinks}`);
@@ -103,6 +115,7 @@ async function main() {
   console.log(`frontier remaining: ${result.state.frontier.length}`);
   console.log(`known candidates: ${result.state.candidates.length}`);
   console.log(`changed: ${changed}`);
+  console.log('Existing-work lookup: search.wasm');
   console.log('External search API: NONE');
   console.log('Gemini: DISCONNECTED');
 }
