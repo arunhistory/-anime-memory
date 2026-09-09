@@ -99,6 +99,9 @@ assert.equal(savedText.includes('筆者が見つけた'), false, 'page body must
 assert.equal(savedText.includes('<html>'), false, 'raw HTML must not be persisted');
 const restored = loadDiscoveryState(statePath);
 assert.ok(restored.visited.includes(urlHash('https://seed.test/')));
+const restoredCandidate = restored.candidates.find((item) => item.title === '星の旅');
+assert.ok(restoredCandidate?.sources.includes('https://seed.test/'));
+assert.ok(restoredCandidate?.sources.includes('https://news.test/star'));
 fs.rmSync(temp, { recursive: true, force: true });
 
 const sourceText = [
@@ -110,6 +113,7 @@ for (const forbidden of ['GEMINI_API_KEY', 'BRAVE_SEARCH_API_KEY', 'SERPAPI', 'A
 
 console.log('Web discovery self-test: PASS');
 console.log('non-official anime mention discovery: PASS');
+console.log('candidate evidence persistence: PASS');
 console.log('robots enforcement: PASS');
 console.log('raw HTML persistence: NONE');
 console.log('External search API: NONE');
