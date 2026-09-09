@@ -43,7 +43,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: anime-data-collect
+  group: anime-data-write
   cancel-in-progress: false
 
 jobs:
