@@ -7,11 +7,36 @@ import createAllModule from '../../assets/wasm/all.js';
 import createSearchModule from '../../assets/wasm/search.js';
 
 const output = document.getElementById('result');
-const csv = new TextEncoder().encode(
-  'id,title_ja,title_kana,media_type,release_start,episode_count,runtime_min,animation_studio,image_url,genres,characters,staff,streaming_services\n' +
-  'A00000001,春の作品,はるのさくひん,TV,2027-04-05,12,24,Studio A,,青春,主人公::MAIN::声優A,監督::監督A,Service A::通常::日本::2027-04-05::\n' +
-  'A00000002,秋の作品,あきのさくひん,MOVIE,2027-10-01,,110,Studio B,,冒険,主人公::MAIN::声優B,監督::監督B,Service B::独占::日本::2027-10-01::\n'
-);
+const columns = [
+  'id','title_ja','title_kana','title_romaji','title_en','aliases','media_type','release_start','release_end','episode_count','runtime_min','series_id','season_number',
+  'genres','tags','target_demographic','setting','era','themes','original_type','original_title','original_author','original_artist','original_publisher','original_label','original_magazine','original_platform',
+  'animation_studio','co_animation_studio','animation_cooperation','production_name','production_committee','production_members','production_lead_company','planning','executive_producers','producers','animation_producers','line_producers',
+  'director','chief_director','series_composition','character_original_design','character_design','music','sound_director','staff','characters',
+  'opening_themes','ending_themes','insert_songs','music_production','soundtrack_label','broadcast_networks','broadcast_slots','streaming_services','film_distributor','theatrical_release_date',
+  'relations','episodes','episode_staff','awards','synopsis','image_url','official_url','official_x','official_youtube','official_other','external_ids','updated_at'
+];
+
+const escapeCsv = (value) => {
+  const text = String(value ?? '');
+  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+};
+const row = (values) => columns.map((column) => escapeCsv(values[column] || '')).join(',');
+const csvText = [
+  columns.join(','),
+  row({
+    id:'A00000001', title_ja:'春の作品', title_kana:'はるのさくひん', media_type:'TV', release_start:'2027-04-05',
+    episode_count:'12', runtime_min:'24', animation_studio:'Studio A', production_committee:'春委員会',
+    characters:'主人公::MAIN::声優A', opening_themes:'OP::春の歌::歌手A::作詞A::作曲A::編曲A',
+    streaming_services:'Service A::通常::日本::2027-04-05::', episodes:'1::第一話::2027-04-05', updated_at:'2027-04-06'
+  }),
+  row({
+    id:'A00000002', title_ja:'秋の作品', title_kana:'あきのさくひん', media_type:'MOVIE', release_start:'2027-10-01',
+    runtime_min:'110', animation_studio:'Studio B', production_committee:'秋委員会',
+    characters:'主人公::MAIN::声優B', opening_themes:'OP::秋の歌::歌手B::作詞B::作曲B::編曲B',
+    streaming_services:'Service B::独占::日本::2027-10-01::2028-01-01', episodes:'1::本編::2027-10-01', updated_at:'2027-10-02'
+  })
+].join('\n') + '\n';
+const csv = new TextEncoder().encode(csvText);
 
 function addCsv(module, fn) {
   const ptr = module._malloc(csv.length);
@@ -34,6 +59,19 @@ function withCString(module, value, callback) {
   }
 }
 
+function addText(search, value, selector, matchMode = 2, negated = 0) {
+  return withCString(search, value, (valuePtr) =>
+    withCString(search, selector, (selectorPtr) =>
+      search._anime_search_add_text_term(valuePtr, selectorPtr, matchMode, negated)));
+}
+
+function addDate(search, selector, min, max, negated = 0) {
+  return withCString(search, selector, (selectorPtr) =>
+    withCString(search, min, (minPtr) =>
+      withCString(search, max, (maxPtr) =>
+        search._anime_search_add_date_range(selectorPtr, minPtr, maxPtr, negated))));
+}
+
 try {
   const all = await createAllModule();
   all._anime_all_reset();
@@ -41,29 +79,28 @@ try {
   if (all._anime_all_finalize() !== 1) throw new Error(all.UTF8ToString(all._anime_all_last_error()));
   if (all._anime_all_count() !== 2) throw new Error('all count mismatch');
   const allPayload = JSON.parse(all.UTF8ToString(all._anime_all_chunk_json(0, 100)));
-  if (allPayload.items.length !== 2 || allPayload.items[0].id !== 'A00000001') throw new Error('all payload mismatch');
+  if (allPayload.items.length !== 2 || !allPayload.items.some((item) => item.id === 'A00000001')) throw new Error('all payload mismatch');
 
   const search = await createSearchModule();
   search._anime_search_reset();
   addCsv(search, search._anime_search_add_csv);
   if (search._anime_search_finalize() !== 1) throw new Error(search.UTF8ToString(search._anime_search_last_error()));
 
-  withCString(search, 'Studio B', (termPtr) =>
-    withCString(search, 'studio', (groupPtr) => {
-      if (search._anime_search_add_text_term(termPtr, groupPtr, 2, 0) !== 1) {
-        throw new Error(search.UTF8ToString(search._anime_search_last_error()));
-      }
-    })
-  );
-  if (search._anime_search_execute() !== 1) throw new Error(search.UTF8ToString(search._anime_search_last_error()));
-  if (search._anime_search_count() !== 1) throw new Error('search count mismatch');
-  const searchPayload = JSON.parse(search.UTF8ToString(search._anime_search_chunk_json(0, 100)));
-  if (searchPayload.items[0].id !== 'A00000002') throw new Error('search payload mismatch');
+  if (addText(search, '秋委員会', 'production_committee') !== 1) throw new Error(search.UTF8ToString(search._anime_search_last_error()));
+  if (search._anime_search_execute() !== 1 || search._anime_search_count() !== 1) throw new Error('field search mismatch');
+  let payload = JSON.parse(search.UTF8ToString(search._anime_search_chunk_json(0, 100)));
+  if (payload.items[0].id !== 'A00000002') throw new Error('field result mismatch');
+
+  search._anime_search_clear_terms();
+  if (addDate(search, 'streaming_start', '2027-09-01', '2027-12-31') !== 1) throw new Error(search.UTF8ToString(search._anime_search_last_error()));
+  if (search._anime_search_execute() !== 1 || search._anime_search_count() !== 1) throw new Error('streaming date range mismatch');
+  payload = JSON.parse(search.UTF8ToString(search._anime_search_chunk_json(0, 100)));
+  if (payload.items[0].id !== 'A00000002') throw new Error('streaming date result mismatch');
 
   const record = withCString(search, 'A00000002', (idPtr) =>
     JSON.parse(search.UTF8ToString(search._anime_search_record_json_by_id(idPtr)))
   );
-  if (record.title_ja !== '秋の作品') throw new Error('detail record mismatch');
+  if (record.title_ja !== '秋の作品' || record.streaming_services.indexOf('独占') < 0) throw new Error('detail record mismatch');
 
   output.textContent = 'wasm_smoke: PASS';
   document.body.dataset.result = 'pass';

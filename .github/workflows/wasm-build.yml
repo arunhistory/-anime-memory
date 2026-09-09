@@ -24,13 +24,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Native C++ test
+      - name: Native C++ engine test
         run: |
           c++ -std=c++17 -O3 -Wall -Wextra -Werror \
             wasm-src/shared/anime_engine.cpp \
             wasm-src/tests/engine_test.cpp \
             -o /tmp/anime-engine-test
           /tmp/anime-engine-test
+
+      - name: Native C++ wrapper/schema test
+        run: |
+          c++ -std=c++17 -O3 -Wall -Wextra -Werror \
+            wasm-src/shared/anime_engine.cpp \
+            wasm-src/search/main.cpp \
+            wasm-src/all/main.cpp \
+            wasm-src/tests/wrapper_test.cpp \
+            -o /tmp/anime-wrapper-test
+          /tmp/anime-wrapper-test
 
       - name: Install Emscripten
         run: |
