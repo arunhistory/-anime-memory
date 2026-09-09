@@ -1,6 +1,6 @@
 # 自動収集パイプライン
 
-この段階では Gemini API を接続しない。公開Web探索で得た作品候補と複数ページのEvidenceから、確定できる事実だけを共通70列CSVへ渡す。
+公開Web探索で得た作品候補と複数ページのEvidenceから、確定できる事実だけを共通70列CSVへ渡し、その確定済み事実からGeminiでサイト独自 `synopsis` を生成する。
 
 ## 標準実行経路
 
@@ -23,6 +23,8 @@ confirmed の事実だけ共通70列Recordへ変換
   ↓
 既存作品との重複候補判定
   ↓
+Gemini概要生成（実収集時のみ）
+  ↓
 initial-NNN.csv / YYYY-QN.csv
   ↓
 全CSV検証
@@ -30,7 +32,7 @@ initial-NNN.csv / YYYY-QN.csv
 検証成功時だけ Commit
 ```
 
-Gemini の呼び出し、APIキー参照、概要生成はこの経路に存在しない。`synopsis` は Gemini 接続前は空欄に固定する。
+Geminiは作品探索や事実確定には使わない。入力するのはCSV候補Recordの確定済み非空値だけで、外部から取得した既存概要文をそのまま `synopsis` として保存しない。
 
 ## Discovery入力
 
@@ -41,6 +43,18 @@ Evidence はページ本文の複製ではなく、`field / value / sourceUrl / 
 CSVへ渡すのは `confirmed` だけ。`observed` と `conflict` は自動確定しない。現段階のEvidence抽出対象は、作品名、媒体種別、放送・公開開始日、劇場公開日、アニメーション制作、監督、シリーズ構成、キャラクターデザイン、音楽、音響監督。残りの70列項目は今後同じEvidence方式へ拡張する。
 
 CSV登録候補になるには、少なくとも作品名と媒体種別が複数ホストで確認済みで、さらに開始日・劇場公開日・アニメーション制作のいずれかに確認済みの識別補強情報が必要。根拠が不足している候補は `crawler/state.json` に残し、追加探索を待つ。
+
+## Gemini概要生成
+
+Gemini処理は `tools/gemini/synopsis.mjs` に分離する。GitHub Actions Repository Secret `ANIME_GEMINI_API_KEY` をサーバー側だけで読み取り、Pages、ブラウザJavaScript、CSV、ログへAPIキーを出さない。
+
+標準モデルは `gemini-3.5-flash-lite`。必要な場合だけ Repository Variable `ANIME_GEMINI_MODEL` で差し替えられる。Gemini Interactions APIを使用し、Google Search groundingやその他のツールは有効化しない。
+
+概要生成は空の `synopsis` を持つ作品につき最大1回。既に `synopsis` があるRecordは上書きせず、そのまま保持する。1実行のGemini呼び出しは最大450件に固定する。
+
+429、5xx、ネットワーク障害、応答JSON不正、概要空欄などが起きた場合は同じ作品をその場で再送せず安全停止する。それ以前に正常生成できた作品だけを後段へ残す。401、403、400など設定・認証系の恒常エラーは処理全体を失敗させる。
+
+`dry_run=true` ではGeminiを呼ばない。`dry_run=false` の実収集時だけ `--gemini true` を渡すため、確認用dry-runでGemini枠を消費しない。
 
 ## 既存JSON API入力
 
@@ -70,12 +84,12 @@ API取得器は採用前にAPI利用条件、商用利用、再配布、画像�
 
 ## 失敗時
 
-取得、変換、重複判定、CSV生成、検証のどこかで失敗した場合は Commit しない。生成後の検証に失敗した場合は対象CSVとmanifestを元状態へ戻す。
+取得、Evidence変換、重複判定、Gemini概要生成、CSV生成、検証のどこかで致命的に失敗した場合は Commit しない。生成後の検証に失敗した場合は対象CSVとmanifestを元状態へ戻す。
 
 GitHubへの確定時は force push を使用しない。処理開始後に `data/` が別Commitで進んでいた場合は自動確定を中止し、古い状態を基準に上書きしない。
 
 ## 実行方法
 
-`Web Anime Discovery` と `Anime Data Collect` はどちらも `workflow_dispatch` のみで、Cronは持たない。初期値は `dry_run=true`。
+`Web Anime Discovery` と `Anime Data Collect` はどちらも `workflow_dispatch` のみで、Cronは持たない。`Anime Data Collect` の初期値は `dry_run=true`。
 
-実Web探索用の起点が未設定の現在は、モックWebを使った回帰試験とパイプライン検証だけを行う。実Webを探索・保存する前に起点と対象サイトの利用条件・負荷条件を確認する。
+実Web探索用の起点が未設定の現在は、モックWebを使った回帰試験とパイプライン検証まで実測済み。登録済み `ANIME_GEMINI_API_KEY` を使う実API疎通と実作品収集はまだ未実測で、実Webを探索・保存する前に起点と対象サイトの利用条件・負荷条件を確認する。
