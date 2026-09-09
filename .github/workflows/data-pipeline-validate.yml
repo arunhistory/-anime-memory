@@ -59,6 +59,8 @@ jobs:
           node --check tools/discovery/robots.mjs
           node --check tools/discovery/fetch-page.mjs
           node --check tools/discovery/html.mjs
+          node --check tools/discovery/taxonomy.mjs
+          node --check tools/discovery/taxonomy-self-test.mjs
           node --check tools/discovery/evidence.mjs
           node --check tools/discovery/to-record.mjs
           node --check tools/discovery/score.mjs
@@ -75,6 +77,9 @@ jobs:
 
       - name: Web discovery self-test
         run: node tools/discovery/self-test.mjs
+
+      - name: Anime taxonomy self-test
+        run: node tools/discovery/taxonomy-self-test.mjs
 
       - name: Gemini synopsis self-test
         run: node tools/gemini/self-test.mjs
