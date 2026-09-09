@@ -8,20 +8,26 @@ on:
       - 'tools/fetch/**'
       - 'tools/normalize/**'
       - 'tools/collect/**'
+      - 'tools/discovery/**'
       - 'tools/validate/data-validator.mjs'
+      - 'crawler/**'
       - 'data/**'
       - '.github/workflows/data-pipeline-validate.yml'
       - '.github/workflows/data-collect.yml'
+      - '.github/workflows/web-discovery.yml'
   pull_request:
     paths:
       - 'tools/csv/**'
       - 'tools/fetch/**'
       - 'tools/normalize/**'
       - 'tools/collect/**'
+      - 'tools/discovery/**'
       - 'tools/validate/data-validator.mjs'
+      - 'crawler/**'
       - 'data/**'
       - '.github/workflows/data-pipeline-validate.yml'
       - '.github/workflows/data-collect.yml'
+      - '.github/workflows/web-discovery.yml'
 
 permissions:
   contents: read
@@ -47,9 +53,22 @@ jobs:
           node --check tools/validate/data-validator.mjs
           node --check tools/collect/run.mjs
           node --check tools/collect/self-test.mjs
+          node --check tools/discovery/url.mjs
+          node --check tools/discovery/robots.mjs
+          node --check tools/discovery/fetch-page.mjs
+          node --check tools/discovery/html.mjs
+          node --check tools/discovery/score.mjs
+          node --check tools/discovery/index.mjs
+          node --check tools/discovery/state.mjs
+          node --check tools/discovery/engine.mjs
+          node --check tools/discovery/run.mjs
+          node --check tools/discovery/self-test.mjs
 
       - name: Collection pipeline self-test
         run: node tools/collect/self-test.mjs
+
+      - name: Web discovery self-test
+        run: node tools/discovery/self-test.mjs
 
       - name: Validate committed data when present
         run: |
