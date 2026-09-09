@@ -3,6 +3,14 @@ name: Anime Data Collect
 on:
   workflow_dispatch:
     inputs:
+      input:
+        description: '入力元'
+        required: true
+        type: choice
+        options:
+          - discovery
+          - api-json
+        default: discovery
       mode:
         description: '収集モード'
         required: true
@@ -45,6 +53,7 @@ jobs:
     env:
       ANIME_SOURCE_CONFIG_JSON: ${{ vars.ANIME_SOURCE_CONFIG_JSON }}
       ANIME_SOURCE_TOKEN: ${{ secrets.ANIME_SOURCE_TOKEN }}
+      COLLECT_INPUT: ${{ inputs.input }}
       COLLECT_MODE: ${{ inputs.mode }}
       COLLECT_YEAR: ${{ inputs.year }}
       COLLECT_QUARTER: ${{ inputs.quarter }}
@@ -62,13 +71,15 @@ jobs:
           node-version: '22'
 
       - name: Preflight self-test
-        run: node tools/collect/self-test.mjs
+        run: |
+          node tools/collect/self-test.mjs
+          node tools/discovery/self-test.mjs
 
       - name: Collect and build common CSV
         shell: bash
         run: |
           set -euo pipefail
-          args=(--mode "${COLLECT_MODE}")
+          args=(--input "${COLLECT_INPUT}" --mode "${COLLECT_MODE}")
           if [[ "${COLLECT_MODE}" == "quarterly" ]]; then
             if [[ ! "${COLLECT_YEAR}" =~ ^[0-9]{4}$ ]]; then
               echo 'quarterly requires a four-digit year.' >&2
@@ -110,7 +121,7 @@ jobs:
 
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m "Collect validated anime data (${COLLECT_MODE})"
+          git commit -m "Collect validated anime data (${COLLECT_INPUT}/${COLLECT_MODE})"
 
           base_sha="${GITHUB_SHA}"
           for attempt in 1 2 3; do
