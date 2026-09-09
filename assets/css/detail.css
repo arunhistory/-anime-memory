@@ -3,6 +3,7 @@
 .back-link:hover{text-decoration:underline;text-underline-offset:3px}
 .detail-hero{display:grid;grid-template-columns:260px 1fr;gap:28px;padding:22px}
 .visual-placeholder{aspect-ratio:3/4;border-radius:16px;background:linear-gradient(145deg,#e7f6ff,#fff0f4);display:grid;place-items:center;color:#86a2b5;font-weight:900;letter-spacing:.2em;border:1px solid #e3edf3;overflow:hidden}
+.visual-placeholder img{width:100%;height:100%;object-fit:cover;display:block}
 .detail-hero-copy{align-self:center;min-width:0}
 .detail-hero h1{font-size:clamp(2rem,5vw,3.6rem);line-height:1.15;margin:.15em 0;overflow-wrap:anywhere}
 .sub-title{color:var(--muted);margin-top:0;overflow-wrap:anywhere}
@@ -12,6 +13,7 @@
 .detail-index strong{display:block;margin-bottom:10px}
 .detail-index a{display:block;padding:8px 9px;border-radius:10px;color:#5b687b;font-size:.88rem;transition:background .18s,color .18s}
 .detail-index a:hover,.detail-index a.is-current{background:#eef9ff;color:var(--main-dark)}
+.detail-index a[hidden]{display:none}
 .detail-sections{display:grid;gap:14px}
 .detail-card{padding:20px;scroll-margin-top:95px}
 .detail-card[hidden]{display:none}
@@ -19,6 +21,12 @@
 .detail-card h2 span{display:grid;place-items:center;width:31px;height:31px;flex:0 0 31px;border-radius:10px;background:#eef9ff;color:var(--main-dark)}
 .data-placeholder{padding:18px;border-radius:14px;background:#fafbfd;color:#8a96a6;border:1px dashed #dce3ec}
 .data-placeholder.emphasis{background:#fff8dc;border-color:#f1dd8c;color:#806d23}
+.detail-data-list{display:grid;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#fff}
+.detail-data-row{display:grid;grid-template-columns:minmax(120px,180px) 1fr;gap:16px;padding:12px 14px;align-items:start}
+.detail-data-row+.detail-data-row{border-top:1px solid var(--line)}
+.detail-data-row strong{font-size:.84rem;color:#687386}
+.detail-data-row span,.detail-data-row a{min-width:0;overflow-wrap:anywhere}
+.detail-data-row a{color:var(--main-dark);font-weight:800;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
 
 @media(max-width:820px){
   .detail-hero{grid-template-columns:160px 1fr}
@@ -34,4 +42,5 @@
   .visual-placeholder{max-width:240px;width:68%;margin:0 auto}
   .detail-hero-copy{text-align:left}
   .detail-card{padding:16px}
+  .detail-data-row{grid-template-columns:1fr;gap:3px}
 }
