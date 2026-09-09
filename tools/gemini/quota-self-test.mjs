@@ -22,16 +22,19 @@ assert.equal(geminiQuotaDay(new Date('2026-09-09T07:00:00Z')), '2026-09-09');
 const state = emptyGeminiUsage();
 const now = new Date('2026-09-09T12:00:00Z');
 const first = reserveGeminiCalls(state, { runId: 'run-1', requested: 300, now });
+assert.equal(first.reservation, 300);
 assert.equal(first.reserved, 300);
 assert.equal(quotaStatus(state, now).remaining, 150);
 
 const duplicate = reserveGeminiCalls(state, { runId: 'run-1', requested: 450, now });
+assert.equal(duplicate.reservation, 300);
 assert.equal(duplicate.reserved, 300);
 assert.equal(duplicate.idempotent, true);
 assert.equal(quotaStatus(state, now).remaining, 150);
 
 const second = reserveGeminiCalls(state, { runId: 'run-2', requested: 300, now });
-assert.equal(second.reserved, 150);
+assert.equal(second.reservation, 150);
+assert.equal(second.reserved, 450);
 assert.equal(quotaStatus(state, now).remaining, 0);
 assert.throws(() => reserveGeminiCalls(state, { runId: 'run-3', requested: 1, now }), /gemini-daily-budget-exhausted/);
 
