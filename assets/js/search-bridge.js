@@ -1,4 +1,8 @@
 (() => {
+  const searchInput = document.getElementById('search-query');
+  const initialQuery = new URLSearchParams(window.location.search).get('q');
+  if (searchInput && initialQuery) searchInput.value = initialQuery;
+
   const toggle = document.getElementById('detail-toggle');
   const filters = document.getElementById('detail-filters');
   if (toggle && filters) toggle.addEventListener('click', () => {
