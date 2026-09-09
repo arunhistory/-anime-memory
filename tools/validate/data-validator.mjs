@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadColumns, parseCsv, rowsToRecords, listDataCsvFiles, readUtf8Strict } from '../csv/csv.mjs';
-import { splitEscaped, splitStructured, externalIdSet, titleSet, normalizeText } from '../normalize/record.mjs';
+import { splitEscaped, splitStructured, externalIdSet, titleSet, normalizeText, releaseIdentitySet } from '../normalize/record.mjs';
 
 export const MEDIA_TYPES = new Set(['TV', 'MOVIE', 'OVA', 'ONA', 'SPECIAL', 'SHORT', 'OTHER']);
 const RELATION_TYPES = new Set(['PREQUEL', 'SEQUEL', 'SPINOFF', 'MOVIE', 'OVA', 'ONA', 'SPECIAL', 'REMAKE', 'REBOOT', 'COMPILATION', 'ALTERNATIVE', 'OTHER']);
@@ -125,20 +125,25 @@ function validateDuplicates(entries, failures) {
       }
     }
 
-    if (!record.media_type || !record.release_start) return;
+    if (!record.media_type) return;
+    const releases = [...releaseIdentitySet(record)];
+    if (!releases.length) return;
+
     for (const title of titleSet(record)) {
-      const bucketKey = `${title}\u001f${record.media_type}\u001f${record.release_start}`;
-      const previousIndices = titleBuckets.get(bucketKey) || [];
-      for (const previous of previousIndices) {
-        const pair = previous < index ? `${previous}:${index}` : `${index}:${previous}`;
-        if (candidatePairs.has(pair) || exactPairs.has(pair)) continue;
-        candidatePairs.add(pair);
-        if (corroboratesDuplicate(entries[previous].record, record)) {
-          failures.push(`作品重複候補: ${entries[previous].record.id} / ${record.id}`);
+      for (const releaseIdentity of releases) {
+        const bucketKey = `${title}\u001f${record.media_type}\u001f${releaseIdentity}`;
+        const previousIndices = titleBuckets.get(bucketKey) || [];
+        for (const previous of previousIndices) {
+          const pair = previous < index ? `${previous}:${index}` : `${index}:${previous}`;
+          if (candidatePairs.has(pair) || exactPairs.has(pair)) continue;
+          candidatePairs.add(pair);
+          if (corroboratesDuplicate(entries[previous].record, record)) {
+            failures.push(`作品重複候補: ${entries[previous].record.id} / ${record.id}`);
+          }
         }
+        previousIndices.push(index);
+        titleBuckets.set(bucketKey, previousIndices);
       }
-      previousIndices.push(index);
-      titleBuckets.set(bucketKey, previousIndices);
     }
   });
 }
