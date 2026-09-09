@@ -33,6 +33,11 @@ on:
           - Q3
           - Q4
         default: Q1
+      gemini:
+        description: '概要生成にGeminiを使用する'
+        required: true
+        type: boolean
+        default: false
       dry_run:
         description: 'CSVを生成・検証するがCommitしない（Geminiは呼ばない）'
         required: true
@@ -60,6 +65,7 @@ jobs:
       COLLECT_MODE: ${{ inputs.mode }}
       COLLECT_YEAR: ${{ inputs.year }}
       COLLECT_QUARTER: ${{ inputs.quarter }}
+      COLLECT_GEMINI: ${{ inputs.gemini }}
       COLLECT_DRY_RUN: ${{ inputs.dry_run }}
 
     steps:
@@ -78,12 +84,13 @@ jobs:
           node tools/collect/self-test.mjs
           node tools/correct/self-test.mjs
           node tools/discovery/self-test.mjs
+          node tools/discovery/quality-self-test.mjs
           node tools/discovery/taxonomy-self-test.mjs
           node tools/gemini/quota-self-test.mjs
           node tools/gemini/self-test.mjs
 
       - name: Reserve Gemini daily budget
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !inputs.dry_run && inputs.gemini }}
         shell: bash
         run: |
           set -euo pipefail
@@ -129,7 +136,7 @@ jobs:
         run: |
           set -euo pipefail
           args=(--input "${COLLECT_INPUT}" --mode "${COLLECT_MODE}")
-          if [[ "${COLLECT_DRY_RUN}" == "true" ]]; then
+          if [[ "${COLLECT_DRY_RUN}" == "true" || "${COLLECT_GEMINI}" != "true" ]]; then
             args+=(--gemini false)
           else
             if [[ -z "${ANIME_GEMINI_MAX_CALLS:-}" ]]; then
@@ -203,7 +210,7 @@ jobs:
           fi
 
       - name: Finalize Gemini daily budget
-        if: ${{ !inputs.dry_run && success() }}
+        if: ${{ !inputs.dry_run && inputs.gemini && success() }}
         shell: bash
         env:
           GEMINI_CALLS: ${{ steps.collect.outputs.gemini_calls }}
