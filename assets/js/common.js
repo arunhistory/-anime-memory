@@ -47,13 +47,26 @@
     return '';
   };
 
+  const safeNavigationUrl = (value) => {
+    if (!value) return '#';
+    try {
+      const url = new URL(value, window.location.href);
+      if ((url.protocol === 'https:' || url.protocol === 'http:') && url.origin === window.location.origin) {
+        return url.href;
+      }
+    } catch (_) {
+      return '#';
+    }
+    return '#';
+  };
+
   const createAnimeCard = ({ href = '#', title = '作品タイトル', subtitle = '', tags = [], imageUrl = '', imageAlt = '' } = {}) => {
     const article = document.createElement('article');
     article.className = 'anime-card card-surface';
 
     const link = document.createElement('a');
     link.className = 'anime-card-link';
-    link.href = href;
+    link.href = safeNavigationUrl(href);
 
     const visual = document.createElement('div');
     visual.className = 'anime-card-visual';
