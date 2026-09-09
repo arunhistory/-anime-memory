@@ -67,6 +67,8 @@ jobs:
           node --check tools/discovery/html.mjs
           node --check tools/discovery/taxonomy.mjs
           node --check tools/discovery/taxonomy-self-test.mjs
+          node --check tools/discovery/source-quality.mjs
+          node --check tools/discovery/common-evidence.mjs
           node --check tools/discovery/evidence.mjs
           node --check tools/discovery/to-record.mjs
           node --check tools/discovery/score.mjs
@@ -76,6 +78,7 @@ jobs:
           node --check tools/discovery/run.mjs
           node --check tools/discovery/self-test.mjs
           node --check tools/discovery/quality-self-test.mjs
+          node --check tools/discovery/common-evidence-self-test.mjs
           node --check tools/gemini/synopsis.mjs
           node --check tools/gemini/quota.mjs
           node --check tools/gemini/quota-self-test.mjs
@@ -92,6 +95,9 @@ jobs:
 
       - name: Discovery quality self-test
         run: node tools/discovery/quality-self-test.mjs
+
+      - name: Common evidence self-test
+        run: node tools/discovery/common-evidence-self-test.mjs
 
       - name: Anime taxonomy self-test
         run: node tools/discovery/taxonomy-self-test.mjs
