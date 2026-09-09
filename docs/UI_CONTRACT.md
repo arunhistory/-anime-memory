@@ -1,6 +1,6 @@
 # UI / WASM 接続境界
 
-この文書は、画面側JavaScriptと将来接続するWASMの責務境界を固定する。
+この文書は、画面側JavaScriptとWASMの責務境界を固定する。
 
 ## 原則
 
@@ -32,8 +32,31 @@ JavaScriptは次を行わない。
 ```text
 {
   query: string,
-  operator: "AND" | "OR" | "NOT",
-  categories: string[],
+  operator: "AND" | "OR",
+  textTerms: [
+    {
+      group: string,
+      value: string,
+      match: "exact" | "prefix" | "contains",
+      negated: boolean
+    }
+  ],
+  dateRanges: [
+    {
+      column: string,
+      minimum: string,
+      maximum: string,
+      negated: boolean
+    }
+  ],
+  numberRanges: [
+    {
+      column: string,
+      minimum: string,
+      maximum: string,
+      negated: boolean
+    }
+  ],
   sort: {
     key: "season" | "date" | "title" | "studio" | "episodes" | "runtime",
     direction: "asc" | "desc"
@@ -41,7 +64,17 @@ JavaScriptは次を行わない。
 }
 ```
 
-これはUI入力の運搬形式であり、JavaScriptが検索条件を解釈した結果ではない。
+`negated: true` が NOT 条件に対応する。AND / OR / NOT の評価はJavaScriptでは行わず、入力値として `search.wasm` へ渡す。
+
+文字条件は共通CSVの保存フィールドを直接指定できる。タイトル・原作・制作・製作・スタッフ・キャスト・音楽・放送・配信・劇場・関連作品・各話・受賞・概要・公式URL・外部ID等を対象にする。自由検索 `query` は全保存項目を対象とする。
+
+日付条件では通常の日付列に加え、WASM側の構造化フィールド抽出として次を使用できる。
+
+- `streaming_start` — `streaming_services` の配信開始日
+- `streaming_end` — `streaming_services` の配信終了日
+- `episode_air_date` — `episodes` の放送日
+
+JavaScriptは `streaming_services` や `episodes` の `::` / `|` を解析しない。
 
 ### `anime-search-sort-change`
 
@@ -64,6 +97,11 @@ JavaScriptは次を行わない。
 - `setBusy(boolean)` — 結果領域のbusy状態を更新
 - `setEmpty(title, note, icon)` — 0件・初期・エラー等の空状態表示
 - `renderCards(cards)` — 表示用カード配列をDOMへ描画
+- `appendCards(cards)` — 検索結果の段階描画
+- `executeSearch(request?)` — UI入力をWASMへ転送して検索を開始
+- `addTextFilterRow(preset?)` — 文字条件UIを追加
+- `addDateFilterRow(preset?)` — 日付条件UIを追加
+- `addNumberFilterRow(preset?)` — 数値条件UIを追加
 
 ## 全件表示ページ
 
