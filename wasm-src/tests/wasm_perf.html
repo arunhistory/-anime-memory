@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ja">
+<head><meta charset="utf-8"><title>WASM performance smoke</title></head>
+<body><pre id="result">running</pre>
+<script type="module">
+import createSearchModule from '../../assets/wasm/search.js';
+
+const output = document.getElementById('result');
+const columns = [
+  'id','title_ja','title_kana','title_romaji','title_en','aliases','media_type','release_start','release_end','episode_count','runtime_min','series_id','season_number',
+  'genres','tags','target_demographic','setting','era','themes','original_type','original_title','original_author','original_artist','original_publisher','original_label','original_magazine','original_platform',
+  'animation_studio','co_animation_studio','animation_cooperation','production_name','production_committee','production_members','production_lead_company','planning','executive_producers','producers','animation_producers','line_producers',
+  'director','chief_director','series_composition','character_original_design','character_design','music','sound_director','staff','characters','opening_themes','ending_themes','insert_songs','music_production','soundtrack_label',
+  'broadcast_networks','broadcast_slots','streaming_services','film_distributor','theatrical_release_date','relations','episodes','episode_staff','awards','synopsis','image_url','official_url','official_x','official_youtube','official_other','external_ids','updated_at'
+];
+const columnIndex = Object.fromEntries(columns.map((name, index) => [name, index]));
+const encoder = new TextEncoder();
+
+function makeCsv(recordCount) {
+  const lines = new Array(recordCount + 1);
+  lines[0] = columns.join(',');
+  for (let i = 0; i < recordCount; i += 1) {
+    const row = new Array(columns.length).fill('');
+    const id = `A${String(i + 1).padStart(8, '0')}`;
+    const month = String((i % 12) + 1).padStart(2, '0');
+    row[columnIndex.id] = id;
+    row[columnIndex.title_ja] = `作品${i}`;
+    row[columnIndex.title_kana] = `さくひん${i}`;
+    row[columnIndex.media_type] = 'TV';
+    row[columnIndex.release_start] = `2027-${month}-01`;
+    row[columnIndex.episode_count] = '12';
+    row[columnIndex.runtime_min] = '24';
+    row[columnIndex.genres] = 'ジャンル';
+    row[columnIndex.tags] = '性能試験';
+    row[columnIndex.animation_studio] = `Studio ${String.fromCharCode(65 + (i % 26))}`;
+    row[columnIndex.production_committee] = '製作委員会';
+    row[columnIndex.characters] = '主人公::MAIN::声優';
+    row[columnIndex.staff] = '監督::監督';
+    row[columnIndex.streaming_services] = 'Service::通常::日本::2027-01-01::';
+    row[columnIndex.updated_at] = '2027-01-01';
+    lines[i + 1] = row.join(',');
+  }
+  return encoder.encode(`${lines.join('\n')}\n`);
+}
+
+function withCString(module, value, callback) {
+  const bytes = encoder.encode(`${value}\0`);
+  const pointer = module._malloc(bytes.length);
+  if (!pointer) throw new Error('malloc failed');
+  try {
+    module.HEAPU8.set(bytes, pointer);
+    return callback(pointer);
+  } finally {
+    module._free(pointer);
+  }
+}
+
+function addTextTerm(module, value, selector, mode = 0, negated = 0) {
+  return withCString(module, value, (valuePointer) =>
+    withCString(module, selector, (selectorPointer) =>
+      module._anime_search_add_text_term(valuePointer, selectorPointer, mode, negated)));
+}
+
+try {
+  const recordCount = 20000;
+  const csv = makeCsv(recordCount);
+  const search = await createSearchModule();
+
+  const loadStart = performance.now();
+  if (search._anime_search_reset() !== 1) throw new Error('reset failed');
+  const pointer = search._malloc(csv.length);
+  if (!pointer) throw new Error('CSV malloc failed');
+  try {
+    search.HEAPU8.set(csv, pointer);
+    if (search._anime_search_add_csv(pointer, csv.length) !== 1) {
+      throw new Error(search.UTF8ToString(search._anime_search_last_error()));
+    }
+  } finally {
+    search._free(pointer);
+  }
+  if (search._anime_search_finalize() !== 1) throw new Error(search.UTF8ToString(search._anime_search_last_error()));
+  const loadMs = performance.now() - loadStart;
+
+  if (addTextTerm(search, 'Studio Z', 'animation_studio', 0, 0) !== 1) {
+    throw new Error(search.UTF8ToString(search._anime_search_last_error()));
+  }
+  const searchStart = performance.now();
+  if (search._anime_search_execute() !== 1) throw new Error(search.UTF8ToString(search._anime_search_last_error()));
+  const searchMs = performance.now() - searchStart;
+  const matches = Number(search._anime_search_count());
+  if (matches !== 769) throw new Error(`match count mismatch: ${matches}`);
+
+  const sortStart = performance.now();
+  if (search._anime_search_sort(5, 1) !== 1) throw new Error(search.UTF8ToString(search._anime_search_last_error()));
+  const sortMs = performance.now() - sortStart;
+
+  if (loadMs > 5000) throw new Error(`load too slow: ${loadMs.toFixed(2)}ms`);
+  if (searchMs > 2000) throw new Error(`search too slow: ${searchMs.toFixed(2)}ms`);
+  if (sortMs > 2000) throw new Error(`sort too slow: ${sortMs.toFixed(2)}ms`);
+
+  output.textContent = `wasm_perf: PASS records=${recordCount} bytes=${csv.length} load_ms=${loadMs.toFixed(2)} search_ms=${searchMs.toFixed(2)} sort_ms=${sortMs.toFixed(2)} matches=${matches}`;
+  document.body.dataset.result = 'pass';
+} catch (error) {
+  output.textContent = `wasm_perf: FAIL ${error?.stack || error}`;
+  document.body.dataset.result = 'fail';
+}
+</script>
+</body>
+</html>
