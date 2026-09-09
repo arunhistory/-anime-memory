@@ -7,7 +7,7 @@ import { normalizeUrl, isPrivateIp, urlHash } from './url.mjs';
 import { parseRobotsTxt, evaluateRobots } from './robots.mjs';
 import { extractDocument, extractAnimeTitleCandidates } from './html.mjs';
 import { extractCandidateEvidence, resolveEvidence } from './evidence.mjs';
-import { candidateToCommonRecord, readyDiscoveryRecords } from './to-record.mjs';
+import { candidateToCommonRecord, discoveryCandidateReadiness, readyDiscoveryRecords } from './to-record.mjs';
 import { PoliteFetcher } from './fetch-page.mjs';
 import { runDiscovery } from './engine.mjs';
 import { emptyDiscoveryState, saveDiscoveryState, loadDiscoveryState, seedFrontier } from './state.mjs';
@@ -38,7 +38,7 @@ const unofficialHtml = `<!doctype html><html><head>
 <title>話題の新作アニメを紹介する個人記事</title>
 <meta property="og:title" content="ニュース：TVアニメ『星の旅』放送決定">
 </head><body>
-<p>筆者が見つけたTVアニメ『星の旅』について紹介します。2027年4月3日放送開始。</p>
+<p>筆者が見つけた日本のTVアニメ『星の旅』について紹介します。2027年4月3日放送開始。</p>
 <p>アニメーション制作：Studio Star</p>
 <a href="https://other.test/info?utm_campaign=x">別のニュース記事</a>
 <a href="/privacy">プライバシーポリシー</a>
@@ -52,6 +52,7 @@ const oneSourceEvidence = extractCandidateEvidence(parsedDoc, starCandidate, '20
 assert.equal(resolveEvidence(oneSourceEvidence).media_type.status, 'observed');
 assert.equal(resolveEvidence(oneSourceEvidence).release_start.value, '2027-04-03');
 assert.equal(resolveEvidence(oneSourceEvidence).animation_studio.value, 'Studio Star');
+assert.equal(resolveEvidence(oneSourceEvidence).origin_country.value, 'JP');
 
 const mockResponses = new Map([
   ['https://example.test/robots.txt', new Response('User-agent: *\nDisallow: /blocked\n', { status: 200, headers: { 'content-type': 'text/plain' } })],
@@ -94,13 +95,13 @@ assert.equal(hostBlocked.reason, 'host-not-allowed');
 const pages = new Map([
   ['https://seed.test/', `
     <html><head><title>個人記事：TVアニメ「星の旅」放送・制作情報</title></head><body>
-      <article>新作TVアニメ『星の旅』は2027年4月3日放送開始。アニメーション制作：Studio Star</article>
+      <article>日本の新作TVアニメ『星の旅』は2027年4月3日放送開始。アニメーション制作：Studio Star</article>
       <a href="https://news.test/star">星の旅 キャスト続報</a>
       <a href="https://random.test/jobs">採用情報</a>
     </body></html>`],
   ['https://news.test/star', `
     <html><head><title>TVアニメ「星の旅」キャスト・放送情報</title></head><body>
-      TVアニメ「星の旅」は2027年4月3日放送開始。アニメーション制作：Studio Star
+      日本のTVアニメ「星の旅」は2027年4月3日放送開始。アニメーション制作：Studio Star
       <a href="https://third.test/review">読者レビュー</a>
     </body></html>`],
   ['https://third.test/review', '<html><title>星の旅 感想</title><body>アニメ 星の旅 第1話の感想。</body></html>']
@@ -116,6 +117,8 @@ seedFrontier(state, ['https://seed.test/']);
 const discovery = await runDiscovery({ state, fetcher: fakeFetcher, maxPages: 10, maxDepth: 4, perHostLimit: 10, now: '2026-09-09T00:00:00.000Z' });
 const discoveredCandidate = discovery.state.candidates.find((item) => item.title === '星の旅');
 assert.ok(discoveredCandidate);
+assert.equal(discoveredCandidate.facts.origin_country.status, 'confirmed');
+assert.equal(discoveredCandidate.facts.origin_country.value, 'JP');
 assert.equal(discoveredCandidate.facts.media_type.status, 'confirmed');
 assert.equal(discoveredCandidate.facts.media_type.value, 'TV');
 assert.equal(discoveredCandidate.facts.release_start.status, 'confirmed');
@@ -125,7 +128,7 @@ assert.equal(discoveredCandidate.facts.animation_studio.value, 'Studio Star');
 assert.ok(discovery.state.documents.some((item) => item.url === 'https://seed.test/'));
 assert.ok(discovery.state.documents.some((item) => item.url === 'https://news.test/star'));
 assert.ok(discovery.stats.newLinks >= 1);
-assert.ok(discovery.stats.evidenceClaims >= 6);
+assert.ok(discovery.stats.evidenceClaims >= 8);
 
 const columns = loadColumns(process.cwd());
 const commonRecord = candidateToCommonRecord(discoveredCandidate, columns, '2026-09-09');
@@ -139,6 +142,25 @@ assert.equal(commonRecord.synopsis, '');
 assert.equal(commonRecord.updated_at, '2026-09-09');
 const readyRecords = readyDiscoveryRecords(discovery.state, columns, '2026-09-09');
 assert.equal(readyRecords.records.length, 1);
+
+const foreignCandidate = {
+  ...discoveredCandidate,
+  facts: {
+    ...discoveredCandidate.facts,
+    origin_country: { status: 'confirmed', value: 'OTHER', sourceCount: 2, hostCount: 2, alternatives: [] }
+  }
+};
+assert.equal(discoveryCandidateReadiness(foreignCandidate).ready, false);
+assert.equal(discoveryCandidateReadiness(foreignCandidate).reason, 'non-japanese-origin');
+assert.equal(candidateToCommonRecord(foreignCandidate, columns, '2026-09-09'), null);
+
+const unknownOriginCandidate = {
+  ...discoveredCandidate,
+  facts: { ...discoveredCandidate.facts }
+};
+delete unknownOriginCandidate.facts.origin_country;
+assert.equal(discoveryCandidateReadiness(unknownOriginCandidate).reason, 'japanese-origin-not-confirmed');
+assert.equal(candidateToCommonRecord(unknownOriginCandidate, columns, '2026-09-09'), null);
 
 const conflictEvidence = [
   ...oneSourceEvidence,
@@ -169,6 +191,7 @@ assert.ok(restored.visited.includes(urlHash('https://seed.test/')));
 const restoredCandidate = restored.candidates.find((item) => item.title === '星の旅');
 assert.ok(restoredCandidate?.sources.includes('https://seed.test/'));
 assert.ok(restoredCandidate?.sources.includes('https://news.test/star'));
+assert.equal(restoredCandidate?.facts?.origin_country?.status, 'confirmed');
 assert.equal(restoredCandidate?.facts?.release_start?.status, 'confirmed');
 assert.ok(restoredCandidate?.evidence?.some((item) => item.field === 'animation_studio' && item.sourceUrl === 'https://news.test/star'));
 fs.rmSync(temp, { recursive: true, force: true });
@@ -182,6 +205,8 @@ for (const forbidden of ['GEMINI_API_KEY', 'BRAVE_SEARCH_API_KEY', 'SERPAPI', 'A
 
 console.log('Web discovery self-test: PASS');
 console.log('non-official anime mention discovery: PASS');
+console.log('Japanese-origin admission gate: PASS');
+console.log('non-Japanese/unknown origin CSV admission: BLOCKED');
 console.log('multi-source evidence resolution: PASS');
 console.log('conflict preservation: PASS');
 console.log('confirmed facts to common record: PASS');
