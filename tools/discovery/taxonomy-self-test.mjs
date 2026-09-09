@@ -41,7 +41,7 @@ function fixtureDocument(url) {
     description: '',
     keywords: '',
     text: [
-      'TVアニメ「花の教室」は2027年4月3日放送開始。',
+      '日本のTVアニメ「花の教室」は2027年4月3日放送開始。',
       'ジャンル：学園モノ、ほのぼの系、百合系',
       '小説家になろう発の作品で、書籍版はライトノベル。',
       'アニメーション制作：Studio Flower'
@@ -57,6 +57,8 @@ const evidence = [
 const facts = resolveEvidence(evidence);
 assert.equal(facts.title_ja.status, 'confirmed');
 assert.equal(facts.media_type.status, 'confirmed');
+assert.equal(facts.origin_country.status, 'confirmed');
+assert.equal(facts.origin_country.value, 'JP');
 assert.equal(facts.release_start.value, '2027-04-03');
 assert.equal(facts.original_type.status, 'confirmed');
 assert.equal(facts.original_type.value, 'なろう系');
@@ -74,7 +76,7 @@ const originalOnlyDocument = {
   description: '',
   keywords: '',
   text: [
-    'TVアニメ「原作分類」は2027年4月3日放送開始。',
+    '日本のTVアニメ「原作分類」は2027年4月3日放送開始。',
     '原作タグ：ゲーム系',
     'アニメーション制作：Studio Origin'
   ].join('\n')
@@ -124,4 +126,5 @@ console.log('genre multi-select: PASS');
 console.log('original type single-select: PASS');
 console.log('original tags isolated from genres: PASS');
 console.log('broadcast-time labels excluded from genres: PASS');
+console.log('Japanese-origin gate retained in taxonomy fixture: PASS');
 console.log('multi-source taxonomy evidence: PASS');
