@@ -50,6 +50,11 @@ const merged = resolveCandidateEntities([canonical, alias]);
 assert.equal(merged.merges, 1);
 assert.equal(merged.candidates.length, 1);
 assert.equal(merged.candidates[0].title, '星の旅');
+assert.equal(merged.candidates[0].facts.title_ja.status, 'confirmed');
+assert.equal(merged.candidates[0].facts.title_ja.value, '星の旅');
+assert.equal(merged.candidates[0].facts.aliases.status, 'confirmed');
+assert.ok(merged.candidates[0].facts.aliases.value.includes('Star Journey'));
+assert.equal(merged.candidates[0].facts.release_start.value, '2027-04-03');
 
 const differentRelease = candidate('Star Journey', '', '2028-04-03', 'Studio Star');
 assert.equal(areCandidatesMergeable(canonical, differentRelease), false, 'alias alone must not merge different releases');
@@ -64,6 +69,7 @@ assert.equal(areCandidatesMergeable(canonical, foreign), false, 'Japanese/non-Ja
 
 console.log('Entity resolution self-test: PASS');
 console.log('explicit alias + identity merge: PASS');
+console.log('alternate title retained as alias: PASS');
 console.log('different release protection: PASS');
 console.log('no-alias conservative separation: PASS');
 console.log('origin conflict protection: PASS');
