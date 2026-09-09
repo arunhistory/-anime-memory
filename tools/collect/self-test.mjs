@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { loadColumns, parseCsv, recordsToCsv, rowsToRecords, writeManifest } from '../csv/csv.mjs';
-import { normalizeSourceItem, hasExactExternalId, isCompositeDuplicateCandidate } from '../normalize/record.mjs';
+import { loadColumns, parseCsv, recordsToCsv, rowsToRecords, writeManifest, readUtf8Strict } from '../csv/csv.mjs';
+import { normalizeSourceItem, hasExactExternalId, isCompositeDuplicateCandidate, splitStructured } from '../normalize/record.mjs';
 import { validateDataDirectory } from '../validate/data-validator.mjs';
 import { collectSource } from '../fetch/http-json.mjs';
 
@@ -39,14 +39,14 @@ const normalized = normalizeSourceItem({
   title: { native: '試験アニメ' },
   format: 'TV',
   aliases: ['試験', 'テスト'],
-  cast: [{ character: '主人公', role: 'MAIN', actor: '声優A' }],
+  cast: [{ character: '主人公|A', role: 'MAIN::ALT', actor: '声優\\A' }],
   start: '2027-04-01',
   original: { title: '試験原作' },
   studio: 'Studio Test'
 }, source, columns, '2026-09-09');
 assert.equal(normalized.external_ids, 'fixture::10');
 assert.equal(normalized.aliases, '試験|テスト');
-assert.equal(normalized.characters, '主人公::MAIN::声優A');
+assert.deepEqual(splitStructured(normalized.characters), [['主人公|A', 'MAIN::ALT', '声優\\A']]);
 
 const sameExternal = { ...normalized, title_ja: '別表記' };
 assert.equal(hasExactExternalId(normalized, sameExternal), true);
@@ -58,6 +58,24 @@ await assert.rejects(
   /API JSON以外/
 );
 
+const approvedPolicy = {
+  apiTermsChecked: true,
+  commercialUse: true,
+  redistribution: true,
+  imageUse: true,
+  rateLimitChecked: true
+};
+await assert.rejects(
+  () => collectSource({
+    name: 'secret-literal',
+    url: 'https://example.com/api',
+    transport: 'api-json',
+    policy: approvedPolicy,
+    headers: { Authorization: 'Bearer must-not-be-inline' }
+  }),
+  /env参照/
+);
+
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'anime-data-test-'));
 const dataDir = path.join(tempRoot, 'data');
 fs.mkdirSync(dataDir, { recursive: true });
@@ -67,6 +85,7 @@ Object.assign(validRecord, {
   title_ja: '検証作品',
   media_type: 'TV',
   release_start: '2027-04-01',
+  characters: normalized.characters,
   external_ids: 'fixture::1',
   updated_at: '2026-09-09'
 });
@@ -78,11 +97,20 @@ const badRecord = { ...validRecord, id: 'A00000002', media_type: 'INVALID', exte
 fs.writeFileSync(path.join(dataDir, 'initial-002.csv'), recordsToCsv([badRecord], columns), 'utf8');
 writeManifest(dataDir);
 assert.ok(validateDataDirectory(dataDir).failures.some((value) => value.includes('media_type')));
+
+const invalidUtf8 = path.join(tempRoot, 'invalid-utf8.csv');
+fs.writeFileSync(invalidUtf8, Buffer.from([0xff, 0xfe, 0xfd]));
+assert.throws(() => readUtf8Strict(invalidUtf8), /UTF-8/);
 fs.rmSync(tempRoot, { recursive: true, force: true });
 
 const collectorSource = fs.readFileSync(path.join(root, 'tools/collect/run.mjs'), 'utf8');
+const allCollectorSources = [
+  collectorSource,
+  fs.readFileSync(path.join(root, 'tools/fetch/http-json.mjs'), 'utf8'),
+  fs.readFileSync(path.join(root, '.github/workflows/data-collect.yml'), 'utf8')
+].join('\n');
 for (const forbidden of ['GEMINI_API_KEY', 'generativelanguage.googleapis.com', '@google/generative-ai']) {
-  assert.equal(collectorSource.includes(forbidden), false, `Gemini connection found: ${forbidden}`);
+  assert.equal(allCollectorSources.includes(forbidden), false, `Gemini connection found: ${forbidden}`);
 }
 
 console.log('Data collection self-test: PASS');
