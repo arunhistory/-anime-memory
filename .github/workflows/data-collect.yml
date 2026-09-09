@@ -58,7 +58,6 @@ jobs:
     env:
       ANIME_SOURCE_CONFIG_JSON: ${{ vars.ANIME_SOURCE_CONFIG_JSON }}
       ANIME_SOURCE_TOKEN: ${{ secrets.ANIME_SOURCE_TOKEN }}
-      ANIME_GEMINI_API_KEY: ${{ secrets.ANIME_GEMINI_API_KEY }}
       ANIME_GEMINI_MODEL: ${{ vars.ANIME_GEMINI_MODEL }}
       ANIME_GEMINI_REQUEST_DELAY_MS: ${{ vars.ANIME_GEMINI_REQUEST_DELAY_MS }}
       COLLECT_INPUT: ${{ inputs.input }}
@@ -82,10 +81,12 @@ jobs:
       - name: Preflight self-test
         run: |
           node tools/collect/self-test.mjs
+          node tools/collect/initial-budget-self-test.mjs
           node tools/correct/self-test.mjs
           node tools/discovery/self-test.mjs
           node tools/discovery/quality-self-test.mjs
           node tools/discovery/common-evidence-self-test.mjs
+          node tools/discovery/structured-evidence-self-test.mjs
           node tools/discovery/entity-resolution-self-test.mjs
           node tools/discovery/taxonomy-self-test.mjs
           node tools/gemini/quota-self-test.mjs
@@ -135,6 +136,8 @@ jobs:
       - name: Collect and build common CSV
         id: collect
         shell: bash
+        env:
+          ANIME_GEMINI_API_KEY: ${{ (!inputs.dry_run && inputs.gemini) && secrets.ANIME_GEMINI_API_KEY || '' }}
         run: |
           set -euo pipefail
           args=(--input "${COLLECT_INPUT}" --mode "${COLLECT_MODE}")
@@ -184,6 +187,7 @@ jobs:
               exit 1
             fi
 
+            git config user.name 'github-actions[bot]'
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git commit -m "Collect validated anime data (${COLLECT_INPUT}/${COLLECT_MODE})"
