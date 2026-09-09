@@ -91,6 +91,8 @@ function cleanCandidateTitle(value) {
   text = text.replace(/^[\s:：―—–\-]+|[\s:：―—–\-]+$/g, '');
   text = text.replace(/\s{2,}/g, ' ');
   if (text.length < 1 || text.length > 120) return null;
+  if (/^(?:https?:\/\/|www\.)/i.test(text)) return null;
+  if (/\b(?:oldid|index\.php\?title=)=?/i.test(text)) return null;
   if (/^(?:アニメ|anime|作品|公式|ニュース|最新情報|テレビアニメ作品一覧|日本のテレビアニメ作品一覧)$/i.test(text)) return null;
   if (/^(?:アニメ|anime)\s*[（(].*(?:アニメーション|作品).*[）)]$/i.test(text)) return null;
   if (/^(?:日本|世界|海外|国内)の.*アニメ(?:ーション)?(?:作品)?(?:一覧|史|事情)?$/i.test(text)) return null;
@@ -224,6 +226,8 @@ export function extractDocument(html, pageUrl) {
     nofollow: /<meta\b[^>]*(?:name\s*=\s*["']robots["'][^>]*content\s*=\s*["'][^"']*nofollow|content\s*=\s*["'][^"']*nofollow[^"']*["'][^>]*name\s*=\s*["']robots["'])/i.test(source)
   };
   document.candidates = extractAnimeTitleCandidates(document);
+  const subjectTitle = subjectCandidateFromPage(document);
+  document.subjectCandidate = subjectTitle ? { key: normalizeTitleKey(subjectTitle), title: subjectTitle } : null;
   document.discoveryOnly = isAggregateAnimePage(document);
   return document;
 }
