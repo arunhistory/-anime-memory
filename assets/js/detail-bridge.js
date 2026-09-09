@@ -1,4 +1,6 @@
 (() => {
+  const bridgeUrl = document.currentScript?.src || window.location.href;
+  const wasmModuleUrl = new URL('../wasm/search.js', bridgeUrl).href;
   const params = new URLSearchParams(window.location.search);
   const animeId = (params.get('id') || '').trim();
   const status = document.getElementById('detail-status');
@@ -10,6 +12,10 @@
   const visual = document.querySelector('.visual-placeholder');
   const sectionLinks = [...document.querySelectorAll('.detail-index a[href^="#"]')];
   const sections = [...document.querySelectorAll('[data-detail-section]')];
+  const runtime = window.AnimeWasmRuntime;
+
+  let wasm = null;
+  let dataReady = false;
 
   const setStatus = (type, text) => {
     if (!status) return;
@@ -127,14 +133,88 @@
     });
   };
 
-  const emitDetailRequest = () => {
-    if (!animeId) return;
-    window.dispatchEvent(new CustomEvent('anime-detail-request', {
-      detail: {
-        id: animeId,
-        match: 'exact'
+  const values = (record, definitions) => definitions.flatMap(([key, label]) => {
+    const value = record?.[key];
+    return value ? [{ label, value }] : [];
+  });
+
+  const links = (record, definitions) => definitions.flatMap(([key, label]) => {
+    const value = record?.[key];
+    return value ? [{ label, value, href: value }] : [];
+  });
+
+  const renderRecord = (record) => {
+    const subtitleParts = [record.title_kana, record.title_romaji, record.title_en].filter(Boolean);
+    setHero({
+      title: record.title_ja || '作品タイトル',
+      subtitle: subtitleParts.join(' / '),
+      summary: record.synopsis || '概要情報は登録されていません。',
+      tags: [record.media_type].filter(Boolean),
+      imageUrl: record.image_url || '',
+      imageAlt: record.title_ja || ''
+    });
+
+    setSectionItems('basic', values(record, [
+      ['id', '内部ID'], ['aliases', '別名'], ['media_type', '媒体'], ['release_start', '開始日'], ['release_end', '終了日'],
+      ['episode_count', '話数'], ['runtime_min', '標準時間'], ['series_id', 'シリーズID'], ['season_number', 'シーズン番号'], ['updated_at', '最終確認日']
+    ]));
+    setSectionItems('original', values(record, [
+      ['original_type', '原作種別'], ['original_title', '原作名'], ['original_author', '原作者'], ['original_artist', '作画'],
+      ['original_publisher', '出版社'], ['original_label', 'レーベル'], ['original_magazine', '掲載誌'], ['original_platform', '掲載・配信先']
+    ]));
+    setSectionItems('studio', values(record, [
+      ['animation_studio', 'アニメーション制作'], ['co_animation_studio', '共同制作'], ['animation_cooperation', '制作協力']
+    ]));
+    setSectionItems('production', values(record, [
+      ['production_name', '製作名義'], ['production_committee', '製作委員会'], ['production_members', '構成企業'],
+      ['production_lead_company', '主幹企業'], ['planning', '企画'], ['executive_producers', 'エグゼクティブプロデューサー'],
+      ['producers', 'プロデューサー'], ['animation_producers', 'アニメーションプロデューサー'], ['line_producers', 'ラインプロデューサー']
+    ]));
+    setSectionItems('staff', values(record, [
+      ['director', '監督'], ['chief_director', '総監督'], ['series_composition', 'シリーズ構成'], ['character_original_design', 'キャラクター原案'],
+      ['character_design', 'キャラクターデザイン'], ['music', '音楽'], ['sound_director', '音響監督'], ['staff', 'その他スタッフ']
+    ]));
+    setSectionItems('cast', values(record, [['characters', 'キャラクター・声優']]));
+    setSectionItems('music', values(record, [
+      ['opening_themes', 'オープニング'], ['ending_themes', 'エンディング'], ['insert_songs', '挿入歌'],
+      ['music_production', '音楽制作'], ['soundtrack_label', 'サウンドトラックレーベル']
+    ]));
+    setSectionItems('broadcast', values(record, [['broadcast_networks', '放送局'], ['broadcast_slots', '放送枠']]));
+    setSectionItems('streaming', values(record, [['streaming_services', '配信サービス']]));
+    setSectionItems('theater', values(record, [['film_distributor', '配給'], ['theatrical_release_date', '劇場公開日']]));
+    setSectionItems('relations', values(record, [['relations', '関連作品']]));
+    setSectionItems('episodes', values(record, [['episodes', 'エピソード'], ['episode_staff', '各話スタッフ']]));
+    setSectionItems('awards', values(record, [['awards', '受賞歴']]));
+    setSectionItems('official', links(record, [
+      ['official_url', '公式サイト'], ['official_x', '公式X'], ['official_youtube', '公式YouTube'], ['official_other', 'その他公式情報']
+    ]));
+  };
+
+  const getEngineError = () => {
+    if (!wasm || !runtime) return '詳細取得エンジンでエラーが発生しました。';
+    return runtime.readCString(wasm, wasm._anime_search_last_error()) || '詳細取得エンジンでエラーが発生しました。';
+  };
+
+  const addCsvBytes = (bytes) => runtime.withBytes(wasm, bytes, (pointer, size) => {
+    if (wasm._anime_search_add_csv(pointer, size) !== 1) throw new Error(getEngineError());
+  });
+
+  const requestDetail = () => {
+    if (!animeId || !wasm || !dataReady) return;
+    window.dispatchEvent(new CustomEvent('anime-detail-request', { detail: { id: animeId, match: 'exact' } }));
+
+    runtime.withCString(wasm, animeId, (idPointer) => {
+      const resultPointer = wasm._anime_search_record_json_by_id(idPointer);
+      const json = runtime.readCString(wasm, resultPointer);
+      const record = JSON.parse(json || 'null');
+      if (!record) {
+        setStatus('error', '指定された作品IDは見つかりませんでした。');
+        setTitle('作品が見つかりません');
+        return;
       }
-    }));
+      renderRecord(record);
+      setStatus('', '');
+    });
   };
 
   if (animeId) {
@@ -142,13 +222,6 @@
       const value = idBadge.querySelector('span:last-child');
       if (value) value.textContent = animeId;
       idBadge.hidden = false;
-    }
-    setStatus('info', '作品IDを受け取りました。search.wasm 接続後、このIDを完全一致条件として1作品を取得します。');
-
-    if (document.readyState === 'loading') {
-      window.addEventListener('DOMContentLoaded', emitDetailRequest, { once: true });
-    } else {
-      window.setTimeout(emitDetailRequest, 0);
     }
   } else {
     setTitle('作品が指定されていません');
@@ -181,9 +254,37 @@
     setHero,
     setSectionVisibility,
     setSectionItems,
-    emitDetailRequest
+    requestDetail
   });
 
-  // 詳細ページはsearch.wasmへ内部IDの完全一致条件を渡す。
-  // JS側ではCSV解析、ID検索、検索一致判定、作品情報の推測を行わない。
+  const initialize = async () => {
+    if (!animeId) return;
+    if (!runtime) {
+      setStatus('error', 'WASM接続ランタイムを読み込めませんでした。');
+      return;
+    }
+
+    setStatus('info', '作品詳細を準備しています…');
+    try {
+      const imported = await import(wasmModuleUrl);
+      wasm = await imported.default();
+      if (wasm._anime_search_reset() !== 1) throw new Error(getEngineError());
+      await runtime.feedCsvFiles((bytes) => addCsvBytes(bytes), { concurrency: 4 });
+      if (wasm._anime_search_finalize() !== 1) throw new Error(getEngineError());
+      dataReady = true;
+      requestDetail();
+    } catch (error) {
+      dataReady = false;
+      if (error?.code === 'DATA_NOT_CONNECTED') {
+        setStatus('info', '詳細取得エンジン本体は配置済みです。作品CSVの接続後に表示できます。');
+        return;
+      }
+      setStatus('error', error?.message || '作品詳細を読み込めませんでした。');
+    }
+  };
+
+  void initialize();
+
+  // 詳細ページはsearch.wasmへ内部IDの完全一致要求を渡す。
+  // JS側ではCSV解析・検索判定・ソート・派生値計算を行わず、WASM結果を表示項目へ配置する。
 })();
