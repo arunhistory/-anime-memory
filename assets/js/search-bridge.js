@@ -7,6 +7,12 @@
   const filters = document.getElementById('detail-filters');
   const activeFilters = document.getElementById('active-filters');
   const clearButton = document.getElementById('clear-search-ui');
+  const addTextFilterButton = document.getElementById('add-text-filter');
+  const addDateFilterButton = document.getElementById('add-date-filter');
+  const addNumberFilterButton = document.getElementById('add-number-filter');
+  const textFilterRows = document.getElementById('text-filter-rows');
+  const dateFilterRows = document.getElementById('date-filter-rows');
+  const numberFilterRows = document.getElementById('number-filter-rows');
   const sortKey = document.getElementById('sort-key');
   const sortDirection = document.getElementById('sort-direction');
   const message = document.getElementById('search-ui-message');
@@ -14,6 +20,47 @@
   const resultNote = document.getElementById('result-note');
   const results = document.getElementById('results');
   const runtime = window.AnimeWasmRuntime;
+
+  const TEXT_TARGETS = [
+    ['all', '全保存項目'],
+    ['title', 'タイトル・読み・別名'],
+    ['media', '媒体種別'],
+    ['genre', '分類・ジャンル・タグ・テーマ'],
+    ['original', '原作情報'],
+    ['studio', 'アニメーション制作'],
+    ['production', '製作・委員会・企画・プロデューサー'],
+    ['staff', 'スタッフ'],
+    ['cast', 'キャラクター・声優'],
+    ['music', 'OP・ED・挿入歌・音楽'],
+    ['broadcast', '放送局・放送枠'],
+    ['streaming', '配信サービス・配信形態'],
+    ['theater', '劇場・配給'],
+    ['relations', 'シリーズ・関連作品'],
+    ['episodes', 'エピソード・各話スタッフ'],
+    ['awards', '受賞歴'],
+    ['synopsis', '概要'],
+    ['official', '公式サイト・公式SNS'],
+    ['external', '外部ID']
+  ];
+
+  const MATCH_MODES = [
+    ['contains', '部分一致'],
+    ['prefix', '前方一致'],
+    ['exact', '完全一致']
+  ];
+
+  const DATE_TARGETS = [
+    ['release_start', '開始日'],
+    ['release_end', '終了日'],
+    ['theatrical_release_date', '劇場公開日'],
+    ['updated_at', '更新日']
+  ];
+
+  const NUMBER_TARGETS = [
+    ['episode_count', '話数'],
+    ['runtime_min', '1話・作品時間（分）'],
+    ['season_number', 'シーズン番号']
+  ];
 
   let wasm = null;
   let dataReady = false;
@@ -24,7 +71,7 @@
 
   const setMessage = (type, text) => {
     if (!message) return;
-    message.className = `ui-message ${type}`;
+    message.className = `ui-message ${type || 'info'}`;
     message.textContent = text;
     message.hidden = !text;
   };
@@ -55,45 +102,177 @@
     results.appendChild(fragment);
   };
 
+  const makeSelect = (options, className, label) => {
+    const select = document.createElement('select');
+    if (className) select.className = className;
+    select.setAttribute('aria-label', label);
+    options.forEach(([value, text]) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = text;
+      select.appendChild(option);
+    });
+    return select;
+  };
+
+  const makeNotToggle = () => {
+    const label = document.createElement('label');
+    label.className = 'not-toggle';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.className = 'filter-negated';
+    const text = document.createElement('span');
+    text.textContent = '含めない（NOT）';
+    label.append(input, text);
+    return label;
+  };
+
+  const makeRemoveButton = (row) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'remove-filter';
+    button.setAttribute('aria-label', 'この条件を削除');
+    button.textContent = '×';
+    button.addEventListener('click', () => {
+      row.remove();
+      renderActiveFilters();
+    });
+    return button;
+  };
+
+  const bindRowChange = (row) => {
+    row.addEventListener('input', renderActiveFilters);
+    row.addEventListener('change', renderActiveFilters);
+  };
+
+  const addTextFilterRow = (preset = {}) => {
+    if (!textFilterRows) return null;
+    const row = document.createElement('div');
+    row.className = 'filter-row text-filter-row';
+
+    const target = makeSelect(TEXT_TARGETS, 'filter-target', '検索対象');
+    target.value = TEXT_TARGETS.some(([value]) => value === preset.group) ? preset.group : 'title';
+
+    const value = document.createElement('input');
+    value.className = 'filter-value';
+    value.type = 'search';
+    value.autocomplete = 'off';
+    value.placeholder = '検索する語句';
+    value.setAttribute('aria-label', '検索する語句');
+    value.value = preset.value || '';
+
+    const match = makeSelect(MATCH_MODES, 'filter-match', '一致方法');
+    match.value = MATCH_MODES.some(([mode]) => mode === preset.match) ? preset.match : 'contains';
+
+    const notToggle = makeNotToggle();
+    notToggle.querySelector('input').checked = Boolean(preset.negated);
+
+    row.append(target, value, match, notToggle, makeRemoveButton(row));
+    bindRowChange(row);
+    textFilterRows.appendChild(row);
+    value.focus();
+    renderActiveFilters();
+    return row;
+  };
+
+  const addRangeFilterRow = (container, targets, kind, preset = {}) => {
+    if (!container) return null;
+    const row = document.createElement('div');
+    row.className = `filter-row range-row ${kind}-filter-row`;
+
+    const target = makeSelect(targets, 'filter-target', kind === 'date' ? '日付項目' : '数値項目');
+    target.value = targets.some(([value]) => value === preset.column) ? preset.column : targets[0][0];
+
+    const minimum = document.createElement('input');
+    minimum.className = 'range-min';
+    minimum.type = 'text';
+    minimum.inputMode = kind === 'number' ? 'decimal' : 'numeric';
+    minimum.placeholder = kind === 'number' ? '下限' : '開始（YYYY-MM-DD）';
+    minimum.setAttribute('aria-label', kind === 'number' ? '下限' : '範囲開始日');
+    minimum.value = preset.minimum || '';
+
+    const separator = document.createElement('span');
+    separator.className = 'range-separator';
+    separator.textContent = '〜';
+
+    const maximum = document.createElement('input');
+    maximum.className = 'range-max';
+    maximum.type = 'text';
+    maximum.inputMode = kind === 'number' ? 'decimal' : 'numeric';
+    maximum.placeholder = kind === 'number' ? '上限' : '終了（YYYY-MM-DD）';
+    maximum.setAttribute('aria-label', kind === 'number' ? '上限' : '範囲終了日');
+    maximum.value = preset.maximum || '';
+
+    const notToggle = makeNotToggle();
+    notToggle.querySelector('input').checked = Boolean(preset.negated);
+
+    row.append(target, minimum, separator, maximum, notToggle, makeRemoveButton(row));
+    bindRowChange(row);
+    container.appendChild(row);
+    minimum.focus();
+    renderActiveFilters();
+    return row;
+  };
+
   const selectedOperator = () =>
     document.querySelector('.segmented button.selected')?.dataset.op || 'AND';
 
-  const selectedCategories = () =>
-    [...document.querySelectorAll('.filter-chip[aria-pressed="true"]')].map((button) => ({
-      key: button.dataset.filter || '',
-      label: button.textContent.trim()
-    }));
+  const collectTextTerms = () => [...document.querySelectorAll('.text-filter-row')]
+    .map((row) => ({
+      group: row.querySelector('.filter-target')?.value || 'all',
+      value: row.querySelector('.filter-value')?.value.trim() || '',
+      match: row.querySelector('.filter-match')?.value || 'contains',
+      negated: Boolean(row.querySelector('.filter-negated')?.checked)
+    }))
+    .filter((term) => term.value);
+
+  const collectRanges = (selector) => [...document.querySelectorAll(selector)]
+    .map((row) => ({
+      column: row.querySelector('.filter-target')?.value || '',
+      minimum: row.querySelector('.range-min')?.value.trim() || '',
+      maximum: row.querySelector('.range-max')?.value.trim() || '',
+      negated: Boolean(row.querySelector('.filter-negated')?.checked)
+    }))
+    .filter((range) => range.column && (range.minimum || range.maximum));
 
   const getRequest = () => ({
-    query: searchInput?.value || '',
+    query: searchInput?.value.trim() || '',
     operator: selectedOperator(),
-    categories: selectedCategories().map(({ key }) => key),
+    textTerms: collectTextTerms(),
+    dateRanges: collectRanges('.date-filter-row'),
+    numberRanges: collectRanges('.number-filter-row'),
     sort: {
       key: sortKey?.value || 'season',
       direction: sortDirection?.dataset.dir || 'asc'
     }
   });
 
+  const labelFor = (options, value) => options.find(([key]) => key === value)?.[1] || value;
+
   const renderActiveFilters = () => {
     if (!activeFilters) return;
     activeFilters.replaceChildren();
+    const request = getRequest();
 
-    selectedCategories().forEach(({ key, label }) => {
+    request.textTerms.forEach((term) => {
       const pill = document.createElement('span');
       pill.className = 'active-filter';
-      pill.textContent = label;
+      const mode = labelFor(MATCH_MODES, term.match);
+      pill.textContent = `${term.negated ? '除外：' : ''}${labelFor(TEXT_TARGETS, term.group)}「${term.value}」 ${mode}`;
+      activeFilters.appendChild(pill);
+    });
 
-      const remove = document.createElement('button');
-      remove.type = 'button';
-      remove.setAttribute('aria-label', `${label}を外す`);
-      remove.textContent = '×';
-      remove.addEventListener('click', () => {
-        const target = document.querySelector(`.filter-chip[data-filter="${CSS.escape(key)}"]`);
-        if (target) target.setAttribute('aria-pressed', 'false');
-        renderActiveFilters();
-      });
+    request.dateRanges.forEach((range) => {
+      const pill = document.createElement('span');
+      pill.className = 'active-filter';
+      pill.textContent = `${range.negated ? '除外：' : ''}${labelFor(DATE_TARGETS, range.column)} ${range.minimum || '指定なし'}〜${range.maximum || '指定なし'}`;
+      activeFilters.appendChild(pill);
+    });
 
-      pill.appendChild(remove);
+    request.numberRanges.forEach((range) => {
+      const pill = document.createElement('span');
+      pill.className = 'active-filter';
+      pill.textContent = `${range.negated ? '除外：' : ''}${labelFor(NUMBER_TARGETS, range.column)} ${range.minimum || '指定なし'}〜${range.maximum || '指定なし'}`;
       activeFilters.appendChild(pill);
     });
   };
@@ -108,6 +287,7 @@
   }[key] ?? 0);
 
   const directionCode = (direction) => direction === 'desc' ? 1 : 0;
+  const matchCode = (mode) => ({ exact: 0, prefix: 1, contains: 2 }[mode] ?? 2);
 
   const getEngineError = () => {
     if (!wasm || !runtime) return '検索エンジンでエラーが発生しました。';
@@ -118,11 +298,19 @@
     if (wasm._anime_search_add_csv(pointer, size) !== 1) throw new Error(getEngineError());
   });
 
-  const addTextTerm = (value, group, negated) => runtime.withCString(wasm, value, (valuePointer) =>
+  const addTextTerm = (value, group, matchMode, negated) => runtime.withCString(wasm, value, (valuePointer) =>
     runtime.withCString(wasm, group, (groupPointer) => {
-      const ok = wasm._anime_search_add_text_term(valuePointer, groupPointer, 2, negated ? 1 : 0);
+      const ok = wasm._anime_search_add_text_term(valuePointer, groupPointer, matchCode(matchMode), negated ? 1 : 0);
       if (ok !== 1) throw new Error(getEngineError());
     }));
+
+  const addRangeTerm = (kind, range) => runtime.withCString(wasm, range.column, (columnPointer) =>
+    runtime.withCString(wasm, range.minimum, (minimumPointer) =>
+      runtime.withCString(wasm, range.maximum, (maximumPointer) => {
+        const fn = kind === 'date' ? wasm._anime_search_add_date_range : wasm._anime_search_add_number_range;
+        const ok = fn(columnPointer, minimumPointer, maximumPointer, range.negated ? 1 : 0);
+        if (ok !== 1) throw new Error(getEngineError());
+      })));
 
   const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
 
@@ -158,13 +346,15 @@
   };
 
   const executeSearch = async (request = getRequest()) => {
-    const query = request.query.trim();
     window.dispatchEvent(new CustomEvent('anime-search-request', { detail: request }));
 
-    if (!query) {
-      setMessage('error', '検索語を入力してください。');
+    const hasAnyCondition = Boolean(
+      request.query || request.textTerms.length || request.dateRanges.length || request.numberRanges.length
+    );
+    if (!hasAnyCondition) {
+      setMessage('error', '検索語または詳しい条件を1つ以上指定してください。');
       setResultMeta('検索条件を入力してください', '検索結果はここに表示されます');
-      setEmpty('探したい条件を入れてみよう', '自由検索でも、詳しい条件からでも検索できます。');
+      setEmpty('探したい条件を入れてみよう', '自由検索でも、詳しい条件だけでも検索できます。');
       return;
     }
     if (!wasm || !dataReady) {
@@ -176,13 +366,12 @@
     setMessage('info', '検索しています…');
     try {
       if (wasm._anime_search_clear_terms() !== 1) throw new Error(getEngineError());
+      if (wasm._anime_search_set_combine_mode(request.operator === 'OR' ? 1 : 0) !== 1) throw new Error(getEngineError());
 
-      const groups = request.categories.length ? request.categories : ['all'];
-      const isOr = request.operator === 'OR';
-      const negated = request.operator === 'NOT';
-      if (wasm._anime_search_set_combine_mode(isOr ? 1 : 0) !== 1) throw new Error(getEngineError());
-
-      groups.forEach((group) => addTextTerm(query, group, negated));
+      if (request.query) addTextTerm(request.query, 'all', 'contains', false);
+      request.textTerms.forEach((term) => addTextTerm(term.value, term.group, term.match, term.negated));
+      request.dateRanges.forEach((range) => addRangeTerm('date', range));
+      request.numberRanges.forEach((range) => addRangeTerm('number', range));
 
       if (wasm._anime_search_execute() !== 1) throw new Error(getEngineError());
       if (wasm._anime_search_sort(sortCode(request.sort.key), directionCode(request.sort.direction)) !== 1) {
@@ -216,16 +405,13 @@
         item.classList.toggle('selected', selected);
         item.setAttribute('aria-pressed', String(selected));
       });
-    });
-  });
-
-  document.querySelectorAll('.filter-chip').forEach((button) => {
-    button.addEventListener('click', () => {
-      const selected = button.getAttribute('aria-pressed') === 'true';
-      button.setAttribute('aria-pressed', String(!selected));
       renderActiveFilters();
     });
   });
+
+  addTextFilterButton?.addEventListener('click', () => addTextFilterRow());
+  addDateFilterButton?.addEventListener('click', () => addRangeFilterRow(dateFilterRows, DATE_TARGETS, 'date'));
+  addNumberFilterButton?.addEventListener('click', () => addRangeFilterRow(numberFilterRows, NUMBER_TARGETS, 'number'));
 
   const applySort = async () => {
     const detail = {
@@ -260,7 +446,9 @@
     clearButton.addEventListener('click', () => {
       renderGeneration += 1;
       if (searchInput) searchInput.value = '';
-      document.querySelectorAll('.filter-chip').forEach((button) => button.setAttribute('aria-pressed', 'false'));
+      textFilterRows?.replaceChildren();
+      dateFilterRows?.replaceChildren();
+      numberFilterRows?.replaceChildren();
       document.querySelectorAll('.segmented button').forEach((button, index) => {
         button.classList.toggle('selected', index === 0);
         button.setAttribute('aria-pressed', String(index === 0));
@@ -273,7 +461,7 @@
       renderActiveFilters();
       setMessage('info', '検索条件をクリアしました。');
       setResultMeta('検索条件を入力してください', '検索結果はここに表示されます');
-      setEmpty('探したい条件を入れてみよう', '自由検索でも、詳しい条件からでも検索できます。');
+      setEmpty('探したい条件を入れてみよう', '自由検索でも、詳しい条件だけでも検索できます。');
       searchInput?.focus();
     });
   }
@@ -291,7 +479,10 @@
     setEmpty,
     renderCards,
     appendCards,
-    executeSearch
+    executeSearch,
+    addTextFilterRow,
+    addDateFilterRow: (preset) => addRangeFilterRow(dateFilterRows, DATE_TARGETS, 'date', preset),
+    addNumberFilterRow: (preset) => addRangeFilterRow(numberFilterRows, NUMBER_TARGETS, 'number', preset)
   });
 
   const initialize = async () => {
@@ -324,5 +515,5 @@
   void initialize();
 
   // JSはHTTP取得・WASMへの生バイト転送・UI入力転送・DOM描画だけを担当する。
-  // 作品CSVの解析、正規化、検索一致判定、範囲判定、検索結果ソートはsearch.wasm側で行う。
+  // CSV解析・正規化・検索一致判定・AND/OR/NOT・範囲判定・検索結果ソートはsearch.wasm側で行う。
 })();
