@@ -17,6 +17,10 @@ assert.equal(normalizeUrl('https://EXAMPLE.com/a?utm_source=x&id=1#frag'), 'http
 assert.equal(normalizeUrl('javascript:alert(1)'), null);
 assert.equal(isPrivateIp('127.0.0.1'), true);
 assert.equal(isPrivateIp('10.0.0.2'), true);
+assert.equal(isPrivateIp('::1'), true);
+assert.equal(isPrivateIp('::ffff:127.0.0.1'), true);
+assert.equal(isPrivateIp('::ffff:7f00:1'), true);
+assert.equal(isPrivateIp('::ffff:8.8.8.8'), false);
 assert.equal(isPrivateIp('8.8.8.8'), false);
 
 const robots = parseRobotsTxt(`
@@ -63,11 +67,29 @@ const polite = new PoliteFetcher({
   resolveHost: async () => [{ address: '203.0.113.10', family: 4 }],
   waitImpl: async () => {}
 });
+assert.ok(polite.userAgent.includes('github.com/arunhistory/-anime-memory'));
 const fetched = await polite.fetchPage('https://example.test/page');
 assert.equal(fetched.ok, true);
 const blocked = await polite.fetchPage('https://example.test/blocked/x');
 assert.equal(blocked.ok, false);
 assert.equal(blocked.reason, 'robots-disallow');
+
+const controlled = new PoliteFetcher({
+  minDelayMs: 0,
+  allowedHosts: ['example.test'],
+  fetchImpl: async (url) => {
+    const response = mockResponses.get(String(url));
+    if (!response) return new Response('missing', { status: 404, headers: { 'content-type': 'text/plain' } });
+    return response.clone();
+  },
+  resolveHost: async () => [{ address: '203.0.113.10', family: 4 }],
+  waitImpl: async () => {}
+});
+assert.equal((await controlled.fetchPage('https://example.test/page')).ok, true);
+const hostBlocked = await controlled.fetchPage('https://outside.test/page');
+assert.equal(hostBlocked.ok, false);
+assert.equal(hostBlocked.skipped, true);
+assert.equal(hostBlocked.reason, 'host-not-allowed');
 
 const pages = new Map([
   ['https://seed.test/', `
@@ -165,6 +187,8 @@ console.log('conflict preservation: PASS');
 console.log('confirmed facts to common record: PASS');
 console.log('candidate evidence persistence: PASS');
 console.log('robots enforcement: PASS');
+console.log('controlled-host pilot mode: PASS');
+console.log('mapped IPv6 private-address rejection: PASS');
 console.log('raw HTML persistence: NONE');
 console.log('External search API: NONE');
 console.log('Gemini connection: NONE');
