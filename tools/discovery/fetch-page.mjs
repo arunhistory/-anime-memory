@@ -20,6 +20,15 @@ function clamp(value, min, max, fallback) {
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
 }
 
+function normalizeAllowedHosts(value) {
+  const values = Array.isArray(value)
+    ? value
+    : String(value || '').split(/[\s,]+/);
+  return new Set(values
+    .map((item) => String(item || '').trim().toLowerCase().replace(/\.$/, ''))
+    .filter(Boolean));
+}
+
 async function defaultResolveHost(hostname) {
   return dns.lookup(hostname, { all: true, verbatim: true });
 }
@@ -87,7 +96,7 @@ function isAcceptedContentType(contentType) {
 
 export class PoliteFetcher {
   constructor(options = {}) {
-    this.userAgent = options.userAgent || 'AnimeMemoryBot/1.0 (+GitHub repository crawler; respects robots.txt)';
+    this.userAgent = options.userAgent || 'AnimeMemoryBot/1.0 (+https://github.com/arunhistory/-anime-memory; respects robots.txt)';
     this.timeoutMs = clamp(options.timeoutMs, 1000, 30000, 12000);
     this.maxBytes = clamp(options.maxBytes, 32 * 1024, 4 * 1024 * 1024, 1024 * 1024);
     this.minDelayMs = clamp(options.minDelayMs, 0, 10000, 500);
@@ -95,12 +104,20 @@ export class PoliteFetcher {
     this.fetchImpl = options.fetchImpl || globalThis.fetch;
     this.resolveHost = options.resolveHost || defaultResolveHost;
     this.waitImpl = options.waitImpl || sleep;
+    this.allowedHosts = normalizeAllowedHosts(options.allowedHosts);
     this.robotsCache = new Map();
     this.nextRequestAt = new Map();
   }
 
+  isHostAllowed(url) {
+    if (this.allowedHosts.size === 0) return true;
+    const hostname = new URL(url).hostname.toLowerCase().replace(/\.$/, '');
+    return this.allowedHosts.has(hostname);
+  }
+
   async assertPublicHost(url) {
     const parsed = new URL(url);
+    if (!this.isHostAllowed(url)) throw new Error('host-not-allowed');
     if (isForbiddenHostname(parsed.hostname)) throw new Error('forbidden-host');
     const resolved = await this.resolveHost(parsed.hostname);
     if (!Array.isArray(resolved) || resolved.length === 0) throw new Error('dns-empty');
@@ -171,7 +188,12 @@ export class PoliteFetcher {
 
     for (let redirectCount = 0; redirectCount <= this.maxRedirects; redirectCount += 1) {
       const parsed = new URL(current);
-      await this.assertPublicHost(current);
+      if (!this.isHostAllowed(current)) return { ok: false, skipped: true, reason: 'host-not-allowed' };
+      try {
+        await this.assertPublicHost(current);
+      } catch (error) {
+        return { ok: false, skipped: true, reason: String(error?.message || 'host-check-failed') };
+      }
 
       const robots = await this.robotsFor(current);
       if (!robots.safe) return { ok: false, skipped: true, reason: robots.reason || 'robots-unavailable' };
@@ -190,6 +212,7 @@ export class PoliteFetcher {
         const location = response.headers.get('location');
         const next = normalizeUrl(location, current);
         if (!next) return { ok: false, skipped: true, reason: 'bad-redirect' };
+        if (!this.isHostAllowed(next)) return { ok: false, skipped: true, reason: 'host-not-allowed' };
         current = next;
         continue;
       }
