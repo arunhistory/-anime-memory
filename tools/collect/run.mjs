@@ -20,6 +20,7 @@ import {
 } from '../normalize/record.mjs';
 import { loadDiscoveryState } from '../discovery/state.mjs';
 import { readyDiscoveryRecords } from '../discovery/to-record.mjs';
+import { generateSynopses, GEMINI_SYNOPSIS_DEFAULT_MODEL } from '../gemini/synopsis.mjs';
 import { validateDataDirectory } from '../validate/data-validator.mjs';
 
 function parseArgs(argv) {
@@ -36,6 +37,13 @@ function parseArgs(argv) {
     }
   }
   return args;
+}
+
+function parseBoolean(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (value === true || value === 'true' || value === '1') return true;
+  if (value === false || value === 'false' || value === '0') return false;
+  throw new Error(`真偽値が不正です: ${value}`);
 }
 
 function parseConfig() {
@@ -206,6 +214,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const mode = String(args.mode || 'initial').toLowerCase();
   const inputMode = String(args.input || 'discovery').toLowerCase();
+  const geminiEnabled = parseBoolean(args.gemini, false);
   if (!['initial', 'quarterly'].includes(mode)) throw new Error('--mode は initial または quarterly です。');
   if (!['discovery', 'api-json'].includes(inputMode)) throw new Error('--input は discovery または api-json です。');
 
@@ -252,9 +261,39 @@ async function main() {
       selected: 0,
       discoverySkipped: input.discoverySkipped,
       safeStoppedSources: input.safeStoppedSources,
+      gemini: geminiEnabled ? 'enabled' : 'disabled',
       ...stats
     }));
     return;
+  }
+
+  let geminiStats = {
+    model: process.env.ANIME_GEMINI_MODEL || GEMINI_SYNOPSIS_DEFAULT_MODEL,
+    candidates: selected.length,
+    calls: 0,
+    generated: 0,
+    existingSynopsis: 0,
+    stoppedEarly: false,
+    stopReason: ''
+  };
+
+  if (geminiEnabled) {
+    const result = await generateSynopses(selected, {
+      apiKey: process.env.ANIME_GEMINI_API_KEY,
+      model: process.env.ANIME_GEMINI_MODEL || undefined,
+      requestDelayMs: process.env.ANIME_GEMINI_REQUEST_DELAY_MS,
+      timeoutMs: process.env.ANIME_GEMINI_TIMEOUT_MS,
+      maxCalls: 450
+    });
+    selected = result.records;
+    geminiStats = result.stats;
+    if (geminiStats.stoppedEarly) {
+      console.warn(`Gemini概要生成を安全停止しました。成功分のみCSV候補に残します: ${geminiStats.stopReason}`);
+    }
+    if (selected.length === 0) {
+      console.warn('Gemini概要生成の成功作品が0件のため、既存CSVは変更しません。');
+      return;
+    }
   }
 
   fs.mkdirSync(dataDir, { recursive: true });
@@ -294,7 +333,12 @@ async function main() {
   console.log(`safe-stopped API sources: ${input.safeStoppedSources}`);
   console.log(`existing exact duplicates skipped: ${stats.exactExisting}`);
   console.log(`uncertain duplicate candidates skipped: ${stats.candidateExisting + stats.candidateIncoming}`);
-  console.log('Gemini: DISCONNECTED');
+  console.log(`Gemini: ${geminiEnabled ? 'CONNECTED' : 'SKIPPED'}`);
+  console.log(`Gemini model: ${geminiStats.model}`);
+  console.log(`Gemini calls: ${geminiStats.calls}`);
+  console.log(`Gemini generated: ${geminiStats.generated}`);
+  console.log(`Gemini existing synopsis preserved: ${geminiStats.existingSynopsis}`);
+  if (geminiStats.stoppedEarly) console.log(`Gemini safe-stop: ${geminiStats.stopReason}`);
 }
 
 main().catch((error) => {
