@@ -6,9 +6,9 @@ const failures = [];
 
 const requiredFiles = [
   'index.html',
-  'search/index.html',
-  'all/index.html',
-  'detail/index.html',
+  'search.html',
+  'all.html',
+  'detail.html',
   'assets/css/common.css',
   'assets/css/top.css',
   'assets/css/search.css',
@@ -25,7 +25,13 @@ const requiredFiles = [
   'assets/wasm/all.wasm'
 ];
 
-const htmlFiles = ['index.html', 'search/index.html', 'all/index.html', 'detail/index.html'];
+const forbiddenDuplicatePages = [
+  'search/index.html',
+  'all/index.html',
+  'detail/index.html'
+];
+
+const htmlFiles = ['index.html', 'search.html', 'all.html', 'detail.html'];
 const jsFiles = [
   'assets/js/common.js',
   'assets/js/wasm-runtime.js',
@@ -35,14 +41,14 @@ const jsFiles = [
 ];
 
 const requiredIds = {
-  'search/index.html': [
+  'search.html': [
     'search-form', 'search-query', 'detail-toggle', 'detail-filters', 'active-filters',
     'clear-search-ui', 'add-text-filter', 'add-date-filter', 'add-number-filter',
     'text-filter-rows', 'date-filter-rows', 'number-filter-rows',
     'sort-key', 'sort-direction', 'search-ui-message', 'results-title', 'result-note', 'results'
   ],
-  'all/index.html': ['all-sort-key', 'all-sort-direction', 'all-status', 'all-results'],
-  'detail/index.html': [
+  'all.html': ['all-sort-key', 'all-sort-direction', 'all-status', 'all-results'],
+  'detail.html': [
     'detail-status', 'detail-id-badge', 'detail-title', 'detail-sub-title',
     'detail-synopsis', 'detail-tags', 'detail-sections'
   ]
@@ -65,6 +71,9 @@ function exists(relativePath) { return fs.existsSync(path.join(root, relativePat
 for (const file of requiredFiles) {
   if (!exists(file)) fail(`必須ファイルがありません: ${file}`);
 }
+for (const file of forbiddenDuplicatePages) {
+  if (exists(file)) fail(`旧重複ページが残っています: ${file}`);
+}
 
 for (const file of htmlFiles) {
   if (!exists(file)) continue;
@@ -85,9 +94,34 @@ for (const file of htmlFiles) {
   }
 }
 
-for (const file of ['search/index.html', 'all/index.html', 'detail/index.html']) {
+const pageContracts = {
+  'index.html': {
+    required: ['search.html', 'all.html', 'assets/js/common.js'],
+    forbidden: ['wasm-runtime.js', 'search-bridge.js', 'all-bridge.js', 'detail-bridge.js']
+  },
+  'search.html': {
+    required: ['assets/js/common.js', 'assets/js/wasm-runtime.js', 'assets/js/search-bridge.js', 'all.html'],
+    forbidden: ['all-bridge.js', 'detail-bridge.js']
+  },
+  'all.html': {
+    required: ['assets/js/common.js', 'assets/js/wasm-runtime.js', 'assets/js/all-bridge.js', 'search.html'],
+    forbidden: ['search-bridge.js', 'detail-bridge.js']
+  },
+  'detail.html': {
+    required: ['assets/js/common.js', 'assets/js/wasm-runtime.js', 'assets/js/detail-bridge.js', 'search.html', 'all.html'],
+    forbidden: ['all-bridge.js']
+  }
+};
+
+for (const [file, contract] of Object.entries(pageContracts)) {
   if (!exists(file)) continue;
-  if (!read(file).includes('assets/js/wasm-runtime.js')) fail(`WASMランタイム参照がありません: ${file}`);
+  const html = read(file);
+  for (const needle of contract.required) {
+    if (!html.includes(needle)) fail(`独立ページ必須参照がありません: ${file} -> ${needle}`);
+  }
+  for (const needle of contract.forbidden) {
+    if (html.includes(needle)) fail(`別ページの処理を読み込んでいます: ${file} -> ${needle}`);
+  }
 }
 
 for (const [file, ids] of Object.entries(requiredIds)) {
@@ -98,7 +132,7 @@ for (const [file, ids] of Object.entries(requiredIds)) {
   }
 }
 
-for (const file of ['search/index.html', 'all/index.html']) {
+for (const file of ['search.html', 'all.html']) {
   if (!exists(file)) continue;
   const html = read(file);
   for (const value of expectedSortValues) {
@@ -120,42 +154,39 @@ for (const file of jsFiles) {
   }
 }
 
+if (exists('assets/js/common.js')) {
+  const js = read('assets/js/common.js');
+  if (!js.includes('detail.html')) fail('作品カードが独立 detail.html へ遷移する保証がありません');
+  if (!js.includes("/^A\\d{8}$/")) fail('作品カード内部IDの形式検証がありません');
+}
+
 if (exists('assets/js/search-bridge.js')) {
   const js = read('assets/js/search-bridge.js');
-  const forbiddenSearchResponsibilities = [
+  for (const [needle, label] of [
     ['TextDecoder(', 'search-bridge でCSV等のバイト列を文字列化している可能性があります'],
     ['split(",")', 'search-bridge でCSV解析を行っている可能性があります'],
     ["split(',')", 'search-bridge でCSV解析を行っている可能性があります']
-  ];
-  for (const [needle, label] of forbiddenSearchResponsibilities) {
+  ]) {
     if (js.includes(needle)) fail(label);
   }
-
   for (const api of ['_anime_search_add_text_term', '_anime_search_add_date_range', '_anime_search_add_number_range']) {
     if (!js.includes(api)) fail(`検索WASM APIが接続されていません: ${api}`);
   }
-
   for (const column of searchableColumns) {
-    if (!js.includes(`'${column}'`) && !js.includes(`"${column}"`)) {
-      fail(`詳細検索UIに共通CSV項目がありません: ${column}`);
-    }
+    if (!js.includes(`'${column}'`) && !js.includes(`"${column}"`)) fail(`詳細検索UIに共通CSV項目がありません: ${column}`);
   }
-
   for (const virtualDate of ['streaming_start', 'streaming_end', 'episode_air_date']) {
-    if (!js.includes(`'${virtualDate}'`) && !js.includes(`"${virtualDate}"`)) {
-      fail(`構造化日付検索UIがありません: ${virtualDate}`);
-    }
+    if (!js.includes(`'${virtualDate}'`) && !js.includes(`"${virtualDate}"`)) fail(`構造化日付検索UIがありません: ${virtualDate}`);
   }
 }
 
 if (exists('assets/js/all-bridge.js')) {
   const js = read('assets/js/all-bridge.js');
-  const forbiddenAllResponsibilities = [
+  for (const [needle, label] of [
     ['TextDecoder(', 'all-bridge でCSV等のバイト列を文字列化している可能性があります'],
     ['split(",")', 'all-bridge でCSV解析を行っている可能性があります'],
     ["split(',')", 'all-bridge でCSV解析を行っている可能性があります']
-  ];
-  for (const [needle, label] of forbiddenAllResponsibilities) {
+  ]) {
     if (js.includes(needle)) fail(label);
   }
 }
@@ -167,7 +198,8 @@ if (failures.length) {
 }
 
 console.log('UI static validation: PASS');
-console.log(`checked files: ${requiredFiles.length}`);
-console.log('checked pages: TOP / SEARCH / ALL / DETAIL');
+console.log('checked physical pages: index.html / search.html / all.html / detail.html');
+console.log('checked cross-page script isolation: PASS');
+console.log('checked anime-card detail routing: PASS');
 console.log('checked common sorts: 6');
 console.log(`checked searchable CSV columns: ${searchableColumns.length}`);
