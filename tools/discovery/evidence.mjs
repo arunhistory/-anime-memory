@@ -11,6 +11,7 @@ import {
   ADDITIONAL_SCALAR_FIELDS,
   extractCommonFieldClaims
 } from './common-evidence.mjs';
+import { STRUCTURED_MULTI_FIELDS, extractStructuredFieldClaims } from './structured-evidence.mjs';
 import { classifyEvidenceSource, normalizeSourceClass } from './source-quality.mjs';
 
 const SCALAR_FIELDS = new Set([
@@ -30,10 +31,11 @@ const MULTI_VALUE_FIELDS = new Set([
   'character_design',
   'music',
   'sound_director',
-  ...ADDITIONAL_MULTI_FIELDS
+  ...ADDITIONAL_MULTI_FIELDS,
+  ...STRUCTURED_MULTI_FIELDS
 ]);
 
-const URL_FACT_FIELDS = new Set(['official_url', 'official_x', 'official_youtube']);
+const URL_FACT_FIELDS = new Set(['official_url', 'official_x', 'official_youtube', 'official_other']);
 const NUMBER_FACT_FIELDS = new Set(['episode_count', 'runtime_min', 'season_number']);
 const NON_JAPAN_COUNTRY = /(?:アメリカ合衆国|アメリカ|中国|中華人民共和国|韓国|大韓民国|フランス|カナダ|イギリス|英国|ドイツ|イタリア|スペイン|ロシア|オーストラリア|インド|ブラジル|メキシコ|台湾|香港|シンガポール|タイ|フィリピン|インドネシア|マレーシア|ベトナム|United States|USA|America|China|South Korea|Korea|France|Canada|United Kingdom|UK|Germany|Italy|Spain|Russia|Australia|India|Brazil|Mexico|Taiwan|Hong Kong)/i;
 
@@ -242,7 +244,8 @@ export function extractCandidateEvidence(document, candidate, observedAt = new D
     ...extractGenreClaims(document, context),
     ...extractEventDates(context),
     ...extractLabeledValues(context),
-    ...extractCommonFieldClaims(document, candidate, context, sourceClass)
+    ...extractCommonFieldClaims(document, candidate, context, sourceClass),
+    ...extractStructuredFieldClaims(document, candidate, context, sourceClass)
   ].filter(Boolean);
 
   const seen = new Set();
@@ -265,7 +268,7 @@ export function extractCandidateEvidence(document, candidate, observedAt = new D
     seen.add(key);
     output.push(item);
   }
-  return output.slice(0, 180);
+  return output.slice(0, 240);
 }
 
 export function mergeEvidence(existing = [], incoming = []) {
@@ -285,7 +288,7 @@ export function mergeEvidence(existing = [], incoming = []) {
     };
     map.set(evidenceKey(clean), clean);
   }
-  return [...map.values()].slice(-500);
+  return [...map.values()].slice(-700);
 }
 
 function alternativesFor(values) {
