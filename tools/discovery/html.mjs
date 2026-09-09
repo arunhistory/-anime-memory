@@ -162,6 +162,21 @@ export function extractAnimeTitleCandidates(document) {
   return [...found.entries()].map(([key, title]) => ({ key, title }));
 }
 
+export function isAggregateAnimePage(document) {
+  const heading = `${document?.ogTitle || ''}\n${document?.title || ''}`
+    .normalize('NFKC')
+    .toLocaleLowerCase('ja');
+  const url = String(document?.canonical || document?.url || '').toLocaleLowerCase('ja');
+
+  if (/\b(?:category|portal):/i.test(url)) return true;
+  if (/(?:アニメ|anime)\s*[（(].*(?:アニメーション|作品).*[）)]/.test(heading)) return true;
+  if (/(?:日本|世界|海外|国内)の(?:テレビ|劇場|web|配信)?\s*アニメ/.test(heading)) return true;
+  if (/(?:アニメ|anime|アニメーション|作品).*(?:一覧|まとめ|総覧|年表|歴史|産業|市場|文化|事情|解説|データベース|カタログ|ランキング|特集)/.test(heading)) return true;
+  if (/(?:一覧|まとめ|総覧|年表|ランキング|特集).*(?:アニメ|anime|アニメーション|作品)/.test(heading)) return true;
+  if (/(?:アニメ化|実写化)されたことがある.*一覧/.test(heading)) return true;
+  return false;
+}
+
 export function extractDocument(html, pageUrl) {
   const source = String(html || '');
   const titleMatch = source.match(/<title\b[^>]*>([\s\S]*?)<\/title\s*>/i);
@@ -209,6 +224,7 @@ export function extractDocument(html, pageUrl) {
     nofollow: /<meta\b[^>]*(?:name\s*=\s*["']robots["'][^>]*content\s*=\s*["'][^"']*nofollow|content\s*=\s*["'][^"']*nofollow[^"']*["'][^>]*name\s*=\s*["']robots["'])/i.test(source)
   };
   document.candidates = extractAnimeTitleCandidates(document);
+  document.discoveryOnly = isAggregateAnimePage(document);
   return document;
 }
 
