@@ -76,6 +76,35 @@ await assert.rejects(
   /env参照/
 );
 
+const originalFetch = globalThis.fetch;
+let mockedRequests = 0;
+globalThis.fetch = async () => {
+  mockedRequests += 1;
+  if (mockedRequests === 1) {
+    return new Response(JSON.stringify({ items: [{ id: 1, title: '成功分' }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  }
+  throw new Error('mock network stop');
+};
+try {
+  const partial = await collectSource({
+    name: 'safe-stop-fixture',
+    url: 'https://fixture.invalid/anime',
+    transport: 'api-json',
+    policy: approvedPolicy,
+    itemsPath: 'items',
+    pagination: { type: 'page', param: 'page', start: 1 },
+    maxRequests: 3
+  });
+  assert.equal(partial.items.length, 1);
+  assert.equal(partial.stoppedEarly, true);
+  assert.match(partial.stopReason, /mock network stop/);
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'anime-data-test-'));
 const dataDir = path.join(tempRoot, 'data');
 fs.mkdirSync(dataDir, { recursive: true });
@@ -114,4 +143,5 @@ for (const forbidden of ['GEMINI_API_KEY', 'generativelanguage.googleapis.com', 
 }
 
 console.log('Data collection self-test: PASS');
+console.log('safe-stop partial collection: PASS');
 console.log('Gemini connection: NONE');
