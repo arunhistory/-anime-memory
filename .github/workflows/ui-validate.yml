@@ -1,0 +1,50 @@
+name: UI Validate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "index.html"
+      - "search/**"
+      - "all/**"
+      - "detail/**"
+      - "assets/css/**"
+      - "assets/js/**"
+      - "tools/validate/**"
+      - ".github/workflows/ui-validate.yml"
+  pull_request:
+    paths:
+      - "index.html"
+      - "search/**"
+      - "all/**"
+      - "detail/**"
+      - "assets/css/**"
+      - "assets/js/**"
+      - "tools/validate/**"
+      - ".github/workflows/ui-validate.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  ui-static-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: JavaScript syntax check
+        run: |
+          node --check assets/js/common.js
+          node --check assets/js/search-bridge.js
+          node --check assets/js/all-bridge.js
+          node --check assets/js/detail-bridge.js
+
+      - name: UI static validation
+        run: node tools/validate/ui-static-check.mjs
