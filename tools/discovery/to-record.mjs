@@ -3,6 +3,8 @@ const FACT_TO_COLUMN = new Map([
   ['media_type', 'media_type'],
   ['release_start', 'release_start'],
   ['theatrical_release_date', 'theatrical_release_date'],
+  ['genres', 'genres'],
+  ['original_type', 'original_type'],
   ['animation_studio', 'animation_studio'],
   ['director', 'director'],
   ['series_composition', 'series_composition'],
