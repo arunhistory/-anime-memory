@@ -6,25 +6,38 @@ import {
   normalizeGenresFromText,
   sortGenres
 } from './taxonomy.mjs';
+import {
+  ADDITIONAL_MULTI_FIELDS,
+  ADDITIONAL_SCALAR_FIELDS,
+  extractCommonFieldClaims
+} from './common-evidence.mjs';
+import { classifyEvidenceSource, normalizeSourceClass } from './source-quality.mjs';
 
 const SCALAR_FIELDS = new Set([
   'media_type',
   'release_start',
   'theatrical_release_date',
   'original_type',
+  'origin_country',
+  ...ADDITIONAL_SCALAR_FIELDS
+]);
+
+const MULTI_VALUE_FIELDS = new Set([
+  'genres',
   'animation_studio',
   'director',
   'series_composition',
   'character_design',
   'music',
   'sound_director',
-  'origin_country'
+  ...ADDITIONAL_MULTI_FIELDS
 ]);
 
-const MULTI_VALUE_FIELDS = new Set(['genres']);
+const URL_FACT_FIELDS = new Set(['official_url', 'official_x', 'official_youtube']);
+const NUMBER_FACT_FIELDS = new Set(['episode_count', 'runtime_min', 'season_number']);
 const NON_JAPAN_COUNTRY = /(?:アメリカ合衆国|アメリカ|中国|中華人民共和国|韓国|大韓民国|フランス|カナダ|イギリス|英国|ドイツ|イタリア|スペイン|ロシア|オーストラリア|インド|ブラジル|メキシコ|台湾|香港|シンガポール|タイ|フィリピン|インドネシア|マレーシア|ベトナム|United States|USA|America|China|South Korea|Korea|France|Canada|United Kingdom|UK|Germany|Italy|Spain|Russia|Australia|India|Brazil|Mexico|Taiwan|Hong Kong)/i;
 
-function cleanValue(value, max = 120) {
+function cleanValue(value, max = 180) {
   return String(value || '')
     .replace(/[\t\r]+/g, ' ')
     .replace(/\s{2,}/g, ' ')
@@ -76,6 +89,7 @@ function extractEventDates(context) {
 
   for (const line of lines.slice(0, 2000)) {
     if (!/(放送|配信|公開|上映|ロードショー|開始|スタート)/.test(line)) continue;
+    if (/(?:終了|完結|最終放送)/.test(line)) continue;
     for (const match of line.matchAll(datePattern)) {
       const value = normalizeDate(match[1], match[2], match[3] || '');
       if (!value) continue;
@@ -146,9 +160,8 @@ function extractLabeledValues(context) {
   for (const [field, regex, rule] of rules) {
     let count = 0;
     for (const match of String(context || '').matchAll(regex)) {
-      const value = cleanValue(match[1]);
-      if (!value || value.length > 100) continue;
-      claims.push({ field, value, rule });
+      const values = String(match[1] || '').split(/\s*(?:、|,|，|;|；|\|)\s*/).map((value) => cleanValue(value)).filter(Boolean);
+      for (const value of values) claims.push({ field, value, rule });
       count += 1;
       if (count >= 5) break;
     }
@@ -188,9 +201,18 @@ function extractOriginalType(context) {
 }
 
 function normalizeEvidenceValue(field, value) {
-  let normalized = cleanValue(value, 160).normalize('NFKC');
+  if (URL_FACT_FIELDS.has(field)) {
+    const normalizedUrl = normalizeUrl(value);
+    return normalizedUrl ? normalizedUrl.slice(0, 1000) : '';
+  }
+
+  let normalized = cleanValue(value, 300).normalize('NFKC');
   if (field === 'media_type') normalized = normalized.toUpperCase();
   if (field === 'origin_country') normalized = normalized.toUpperCase();
+  if (NUMBER_FACT_FIELDS.has(field)) {
+    const number = Number(normalized);
+    return Number.isFinite(number) && number >= 0 ? String(number) : '';
+  }
   if (field === 'genres') {
     if (isAnimeGenre(normalized)) return normalized;
     const candidates = normalizeGenresFromText(normalized);
@@ -211,6 +233,7 @@ export function extractCandidateEvidence(document, candidate, observedAt = new D
   const sourceUrl = normalizeUrl(document.canonical || document.url);
   if (!sourceUrl || !candidate?.title) return [];
   const context = candidateContext(document, candidate.title);
+  const sourceClass = classifyEvidenceSource(document, candidate);
   const rawClaims = [
     { field: 'title_ja', value: candidate.title, rule: 'anime-title-candidate' },
     ...extractMediaTypes(context),
@@ -218,7 +241,8 @@ export function extractCandidateEvidence(document, candidate, observedAt = new D
     extractOriginalType(context),
     ...extractGenreClaims(document, context),
     ...extractEventDates(context),
-    ...extractLabeledValues(context)
+    ...extractLabeledValues(context),
+    ...extractCommonFieldClaims(document, candidate, context, sourceClass)
   ].filter(Boolean);
 
   const seen = new Set();
@@ -232,6 +256,7 @@ export function extractCandidateEvidence(document, candidate, observedAt = new D
       field,
       value,
       sourceUrl,
+      sourceClass,
       rule: String(claim.rule || 'unknown').slice(0, 80),
       observedAt: String(observedAt || '').slice(0, 40)
     };
@@ -240,7 +265,7 @@ export function extractCandidateEvidence(document, candidate, observedAt = new D
     seen.add(key);
     output.push(item);
   }
-  return output.slice(0, 100);
+  return output.slice(0, 180);
 }
 
 export function mergeEvidence(existing = [], incoming = []) {
@@ -254,12 +279,13 @@ export function mergeEvidence(existing = [], incoming = []) {
       field,
       value,
       sourceUrl,
+      sourceClass: normalizeSourceClass(item?.sourceClass),
       rule: String(item?.rule || '').slice(0, 80),
       observedAt: String(item?.observedAt || '').slice(0, 40)
     };
     map.set(evidenceKey(clean), clean);
   }
-  return [...map.values()].slice(-250);
+  return [...map.values()].slice(-500);
 }
 
 function alternativesFor(values) {
@@ -268,14 +294,19 @@ function alternativesFor(values) {
       value: entry.value,
       sourceCount: entry.sources.size,
       hostCount: entry.hosts.size,
+      primarySourceCount: entry.primarySources.size,
       evidenceCount: entry.evidenceCount
     }))
-    .sort((a, b) => b.hostCount - a.hostCount || b.sourceCount - a.sourceCount || b.evidenceCount - a.evidenceCount || a.value.localeCompare(b.value));
+    .sort((a, b) => b.primarySourceCount - a.primarySourceCount || b.hostCount - a.hostCount || b.sourceCount - a.sourceCount || b.evidenceCount - a.evidenceCount || a.value.localeCompare(b.value));
+}
+
+function isConfirmedAlternative(entry) {
+  return Boolean(entry) && (entry.primarySourceCount >= 1 || entry.hostCount >= 2);
 }
 
 function resolveMultiValueField(field, values) {
   const alternatives = alternativesFor(values);
-  const confirmed = alternatives.filter((entry) => entry.hostCount >= 2);
+  const confirmed = alternatives.filter(isConfirmedAlternative);
   const selected = confirmed.length ? confirmed : alternatives;
   const selectedValues = field === 'genres'
     ? sortGenres(selected.map((entry) => entry.value))
@@ -307,10 +338,19 @@ export function resolveEvidence(evidence = []) {
     if (!field || !value || !sourceUrl) continue;
     if (!byField.has(field)) byField.set(field, new Map());
     const values = byField.get(field);
-    if (!values.has(value)) values.set(value, { value, sources: new Set(), hosts: new Set(), evidenceCount: 0 });
+    if (!values.has(value)) {
+      values.set(value, {
+        value,
+        sources: new Set(),
+        hosts: new Set(),
+        primarySources: new Set(),
+        evidenceCount: 0
+      });
+    }
     const bucket = values.get(value);
     bucket.sources.add(sourceUrl);
     bucket.hosts.add(new URL(sourceUrl).hostname.toLowerCase());
+    if (normalizeSourceClass(item?.sourceClass) === 'primary') bucket.primarySources.add(sourceUrl);
     bucket.evidenceCount += 1;
   }
 
@@ -325,7 +365,7 @@ export function resolveEvidence(evidence = []) {
     if (alternatives.length === 1) {
       const top = alternatives[0];
       facts[field] = {
-        status: top.hostCount >= 2 ? 'confirmed' : 'observed',
+        status: isConfirmedAlternative(top) ? 'confirmed' : 'observed',
         value: top.value,
         sourceCount: top.sourceCount,
         hostCount: top.hostCount,
