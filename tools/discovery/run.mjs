@@ -82,6 +82,7 @@ async function main() {
   console.log(`fetched: ${result.stats.fetched}`);
   console.log(`relevant pages: ${result.stats.relevant}`);
   console.log(`new anime candidates: ${result.stats.candidatesFound}`);
+  console.log(`evidence claims: ${result.stats.evidenceClaims}`);
   console.log(`new links queued: ${result.stats.newLinks}`);
   console.log(`robots skipped: ${result.stats.robotsSkipped}`);
   console.log(`other skipped: ${result.stats.otherSkipped}`);
