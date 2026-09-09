@@ -23,7 +23,22 @@ const officialPage = extractDocument(`<!doctype html><html><head>
 <p>花の教室はテレビアニメ作品です。</p>
 </body></html>`, 'https://official.test/');
 assert.ok(officialPage.candidates.some((item) => item.title === '花の教室'), 'official unquoted page title should still resolve to the work subject');
+assert.equal(officialPage.subjectCandidate?.title, '花の教室', 'official work page subject must be identified');
 assert.equal(officialPage.discoveryOnly, false, 'single-work official page must remain evidence-eligible');
+
+const quotedHeadline = extractDocument(`<!doctype html><html><head>
+<title>ニュース：TVアニメ『星の旅』放送決定</title>
+</head><body>
+<p>TVアニメ『星の旅』は2027年4月3日放送開始。</p>
+</body></html>`, 'https://news.test/star-headline');
+assert.equal(quotedHeadline.subjectCandidate?.title, '星の旅', 'quoted anime title in page heading must become the page subject');
+
+const urlTitlePage = extractDocument(`<!doctype html><html><head>
+<title>作品紹介</title>
+</head><body>
+<p>TVアニメ「https://ja.wikipedia.org/w/index.php?title=海底少年マリン&oldid=110320280」放送情報。</p>
+</body></html>`, 'https://example.test/url-title');
+assert.equal(urlTitlePage.candidates.some((item) => /^https?:\/\//i.test(item.title)), false, 'URL must never become an anime title candidate');
 
 const filler = '無関係な説明。'.repeat(500);
 const multiWork = extractDocument(`<!doctype html><html><head>
@@ -79,8 +94,40 @@ assert.ok(aggregateDoc, 'aggregate page metadata may remain in the discovery ind
 assert.deepEqual(aggregateDoc.candidateTitles, [], 'aggregate document must not persist candidate titles');
 assert.equal(aggregateDoc.discoveryOnly, true);
 
+const subjectUrl = 'https://subject.test/star';
+const subjectPages = new Map([
+  [subjectUrl, `<!doctype html><html><head><title>星の旅 | TVアニメ公式サイト</title></head><body>
+    <p>TVアニメ「星の旅」は2027年4月3日放送開始。</p>
+    <p>アニメーション制作：Studio Star</p>
+    <p>関連作品としてTVアニメ「海の灯」は1999年8月9日放送開始。</p>
+    <p>アニメーション制作：Studio Sea</p>
+  </body></html>`]
+]);
+const subjectFetcher = {
+  async fetchPage(url) {
+    const text = subjectPages.get(url);
+    if (!text) return { ok: false, skipped: true, reason: 'fixture-miss' };
+    return { ok: true, url, text, contentType: 'text/html; charset=utf-8', sitemaps: [] };
+  }
+};
+const subjectState = emptyDiscoveryState();
+subjectState.frontier.push({ url: subjectUrl, priority: 100, depth: 0, discoveredFrom: '' });
+const subjectDiscovery = await runDiscovery({ state: subjectState, fetcher: subjectFetcher, maxPages: 1, maxDepth: 1, perHostLimit: 1, now: '2026-09-09T00:00:00.000Z' });
+const subjectStar = subjectDiscovery.state.candidates.find((item) => item.title === '星の旅');
+const secondarySea = subjectDiscovery.state.candidates.find((item) => item.title === '海の灯');
+assert.ok(subjectStar, 'page subject candidate must be persisted');
+assert.ok(secondarySea, 'secondary anime mention may be retained for future discovery');
+assert.ok(subjectStar.evidence.some((item) => item.field === 'release_start' && item.value === '2027-04-03'), 'subject must retain detailed evidence');
+assert.ok(subjectStar.evidence.some((item) => item.field === 'animation_studio' && item.value === 'Studio Star'), 'subject staff evidence must be retained');
+assert.deepEqual([...new Set(secondarySea.evidence.map((item) => item.field))], ['title_ja'], 'secondary mention must retain title evidence only');
+const subjectDoc = subjectDiscovery.state.documents.find((item) => item.url === subjectUrl);
+assert.deepEqual(subjectDoc?.candidateTitles, ['星の旅'], 'document index must expose only the page subject as a persisted candidate title');
+
 console.log('Discovery quality self-test: PASS');
 console.log('generic prose false positives: BLOCKED');
 console.log('aggregate/list pages: LINK-ONLY');
+console.log('URL title false positives: BLOCKED');
+console.log('page subject identification: PASS');
+console.log('secondary work evidence: TITLE-ONLY');
 console.log('single-work page evidence: PASS');
 console.log('cross-work evidence leakage: BLOCKED');
