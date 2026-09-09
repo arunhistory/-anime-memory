@@ -70,6 +70,15 @@ input::placeholder{color:#98a2b0}
 .sort-controls button{font-weight:800}
 
 .anime-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px}
+.anime-card{overflow:hidden;transition:transform .2s,box-shadow .2s,border-color .2s;min-width:0}
+.anime-card:hover{transform:translateY(-4px);box-shadow:var(--shadow-hover);border-color:#d8e9f3}
+.anime-card-link{display:flex;flex-direction:column;height:100%;min-width:0}
+.anime-card-visual{aspect-ratio:3/4;background:linear-gradient(145deg,#e7f6ff,#fff0f4);display:grid;place-items:center;color:#8aa2b2;font-size:.8rem;font-weight:900;letter-spacing:.16em;overflow:hidden;border-bottom:1px solid var(--line)}
+.anime-card-visual img{width:100%;height:100%;object-fit:cover;display:block}
+.anime-card-body{display:flex;flex-direction:column;gap:10px;flex:1;padding:15px}
+.anime-card-title{font-size:1.02rem;line-height:1.45;margin:0;overflow-wrap:anywhere}
+.anime-card-subtitle{margin:0;color:var(--muted);font-size:.86rem;line-height:1.55;overflow-wrap:anywhere}
+.anime-card-more{margin-top:auto;color:var(--main-dark);font-size:.84rem;font-weight:900;padding-top:4px}
 .empty-state{grid-column:1/-1;text-align:center;padding:56px 22px}
 .empty-icon{font-size:2.8rem;color:var(--main-dark);line-height:1}
 .empty-state h2{margin:.4em 0 .15em}
