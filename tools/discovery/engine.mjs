@@ -2,6 +2,7 @@ import { extractDocument, extractSitemapUrls, normalizeTitleKey } from './html.m
 import { scoreAnimeDocument, scoreDiscoveredLink, isRelevantDocument } from './score.mjs';
 import { extractCandidateEvidence, mergeEvidence, resolveEvidence } from './evidence.mjs';
 import { resolveCandidateEntities } from './entity-resolution.mjs';
+import { collapseSameFamilyEvidence } from './source-family.mjs';
 import { normalizeUrl, urlHash, hostKey } from './url.mjs';
 
 function popBest(frontier) {
@@ -31,7 +32,7 @@ function addCandidate(candidateMap, candidate, sourceUrl, now, evidence = []) {
   if (!Array.isArray(current.sources)) current.sources = [];
   if (!current.sources.includes(sourceUrl)) current.sources.push(sourceUrl);
   current.sources = current.sources.slice(0, 50);
-  current.evidence = mergeEvidence(current.evidence, evidence);
+  current.evidence = collapseSameFamilyEvidence(mergeEvidence(current.evidence, evidence));
   current.facts = resolveEvidence(current.evidence);
   current.lastSeen = now;
   candidateMap.set(key, current);
@@ -111,10 +112,11 @@ export async function runDiscovery(options) {
       stats.knownStateCandidatesPruned += 1;
       continue;
     }
+    const collapsedEvidence = collapseSameFamilyEvidence(mergeEvidence(candidate.evidence || []));
     candidateMap.set(normalizeTitleKey(candidate.title || candidate.key), {
       ...candidate,
-      evidence: mergeEvidence(candidate.evidence || []),
-      facts: resolveEvidence(candidate.evidence || [])
+      evidence: collapsedEvidence,
+      facts: resolveEvidence(collapsedEvidence)
     });
   }
 
