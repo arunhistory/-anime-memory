@@ -156,7 +156,9 @@
 
     setSectionItems('basic', values(record, [
       ['id', '内部ID'], ['aliases', '別名'], ['media_type', '媒体'], ['release_start', '開始日'], ['release_end', '終了日'],
-      ['episode_count', '話数'], ['runtime_min', '標準時間'], ['series_id', 'シリーズID'], ['season_number', 'シーズン番号'], ['updated_at', '最終確認日']
+      ['episode_count', '話数'], ['runtime_min', '標準時間'], ['series_id', 'シリーズID'], ['season_number', 'シーズン番号'],
+      ['genres', 'ジャンル'], ['tags', 'タグ'], ['target_demographic', '対象層'], ['setting', '舞台・設定'],
+      ['era', '時代'], ['themes', 'テーマ'], ['external_ids', '外部ID'], ['updated_at', '最終確認日']
     ]));
     setSectionItems('original', values(record, [
       ['original_type', '原作種別'], ['original_title', '原作名'], ['original_author', '原作者'], ['original_artist', '作画'],
