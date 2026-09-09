@@ -10,7 +10,7 @@
 <body data-page="top">
   <header class="site-header">
     <a class="brand" href="./" aria-label="日本アニメ総合検索 ホーム">
-      <span class="brand-mark">あ</span><span class="brand-text">日本アニメ総合検索</span>
+      <span class="brand-mark" aria-hidden="true">あ</span><span class="brand-text">日本アニメ総合検索</span>
     </a>
     <nav class="desktop-nav" aria-label="メインナビゲーション">
       <a href="./search/">検索</a>
@@ -20,8 +20,8 @@
 
   <main>
     <section class="hero section-shell">
-      <div class="hero-decor decor-a"></div>
-      <div class="hero-decor decor-b"></div>
+      <div class="hero-decor decor-a" aria-hidden="true"></div>
+      <div class="hero-decor decor-b" aria-hidden="true"></div>
       <div class="hero-copy">
         <span class="eyebrow">ANIME SEARCH</span>
         <h1>日本アニメを、<br><span>もっと探しやすく。</span></h1>
@@ -37,32 +37,32 @@
         </div>
       </form>
 
-      <div class="entry-grid">
+      <div class="entry-grid" aria-label="主要メニュー">
         <a class="entry-card blue" href="./search/">
-          <div class="entry-icon">⌕</div>
+          <div class="entry-icon" aria-hidden="true">⌕</div>
           <div><strong>アニメを検索</strong><span>条件を指定して探す</span></div>
-          <span class="entry-arrow">→</span>
+          <span class="entry-arrow" aria-hidden="true">→</span>
         </a>
         <a class="entry-card pink" href="./all/">
-          <div class="entry-icon">▦</div>
+          <div class="entry-icon" aria-hidden="true">▦</div>
           <div><strong>全作品を見る</strong><span>登録作品をまとめて見る</span></div>
-          <span class="entry-arrow">→</span>
+          <span class="entry-arrow" aria-hidden="true">→</span>
         </a>
       </div>
     </section>
 
     <section class="feature-strip section-shell" aria-label="サイトの特徴">
-      <article><span>◎</span><div><strong>いろいろ検索</strong><small>保存されている情報を横断して探せる</small></div></article>
-      <article><span>⇅</span><div><strong>見やすく並べ替え</strong><small>6種類の共通ソートに対応</small></div></article>
-      <article><span>♡</span><div><strong>見やすい詳細</strong><small>大量の情報もカテゴリごとに整理</small></div></article>
+      <article><span aria-hidden="true">◎</span><div><strong>いろいろ検索</strong><small>保存されている情報を横断して探せる</small></div></article>
+      <article><span aria-hidden="true">⇅</span><div><strong>見やすく並べ替え</strong><small>6種類の共通ソートに対応</small></div></article>
+      <article><span aria-hidden="true">♡</span><div><strong>見やすい詳細</strong><small>大量の情報もカテゴリごとに整理</small></div></article>
     </section>
   </main>
 
   <footer class="site-footer"><span>日本アニメ総合検索</span></footer>
   <nav class="mobile-nav" aria-label="モバイルナビゲーション">
-    <a class="active" href="./"><span>⌂</span>ホーム</a>
-    <a href="./search/"><span>⌕</span>検索</a>
-    <a href="./all/"><span>▦</span>全作品</a>
+    <a class="active" href="./" aria-current="page"><span aria-hidden="true">⌂</span>ホーム</a>
+    <a href="./search/"><span aria-hidden="true">⌕</span>検索</a>
+    <a href="./all/"><span aria-hidden="true">▦</span>全作品</a>
   </nav>
   <script src="./assets/js/common.js"></script>
 </body>
