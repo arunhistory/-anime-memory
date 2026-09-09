@@ -33,7 +33,7 @@ jobs:
           node tools/discovery/quality-self-test.mjs
 
       - name: Controlled live discovery in runner only
-        run: node tools/discovery/run.mjs --max-pages 10 --max-depth 3 --per-host-limit 10
+        run: node tools/discovery/run.mjs --max-pages 12 --max-depth 3 --per-host-limit 12
 
       - name: Inspect runner-only candidates
         run: |
