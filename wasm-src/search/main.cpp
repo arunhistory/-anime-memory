@@ -80,20 +80,44 @@ bool valid_date_bound(std::string_view value) noexcept {
   return true;
 }
 
-bool date_in_range(std::string_view value, std::string_view minimum, std::string_view maximum) noexcept {
+std::string date_lower(std::string_view value) {
+  value = trim_ascii(value);
+  if (value.empty()) return {};
+  std::string result(value);
+  if (value.size() == 4) result += "-01-01";
+  else if (value.size() == 7) result += "-01";
+  return result;
+}
+
+std::string date_upper(std::string_view value) {
+  value = trim_ascii(value);
+  if (value.empty()) return {};
+  std::string result(value);
+  if (value.size() == 4) result += "-12-31";
+  else if (value.size() == 7) result += "-31";
+  return result;
+}
+
+bool date_in_range(std::string_view value, std::string_view minimum, std::string_view maximum) {
   value = trim_ascii(value);
   minimum = trim_ascii(minimum);
   maximum = trim_ascii(maximum);
-  if (value.empty()) return false;
-  if (!minimum.empty() && value < minimum) return false;
-  if (!maximum.empty() && value > maximum) return false;
+  if (value.empty() || !valid_date_bound(value)) return false;
+
+  const std::string value_min = date_lower(value);
+  const std::string value_max = date_upper(value);
+  const std::string range_min = date_lower(minimum);
+  const std::string range_max = date_upper(maximum);
+
+  if (!range_min.empty() && value_max < range_min) return false;
+  if (!range_max.empty() && value_min > range_max) return false;
   return true;
 }
 
 bool structured_date_in_range(std::string_view value,
                               std::size_t target_field,
                               std::string_view minimum,
-                              std::string_view maximum) noexcept {
+                              std::string_view maximum) {
   std::size_t field_index = 0;
   std::size_t field_start = 0;
   bool escaped = false;
@@ -131,6 +155,48 @@ bool structured_date_in_range(std::string_view value,
     escaped = false;
   }
 
+  return false;
+}
+
+bool plain_text_match(std::string_view value, std::string_view needle, int match_mode) noexcept {
+  value = trim_ascii(value);
+  needle = trim_ascii(needle);
+  if (match_mode == 0) return anime::ascii_iequals(value, needle);
+  if (match_mode == 1) return anime::ascii_iprefix(value, needle);
+  return anime::ascii_icontains(value, needle);
+}
+
+bool text_match(std::string_view value, std::string_view needle, int match_mode) noexcept {
+  if (plain_text_match(value, needle, match_mode)) return true;
+  if (match_mode == 2) return false;
+
+  std::size_t token_start = 0;
+  bool escaped = false;
+  for (std::size_t i = 0; i <= value.size(); ++i) {
+    const bool at_end = i == value.size();
+    const char c = at_end ? '\0' : value[i];
+
+    if (!at_end && !escaped && c == '\\') {
+      escaped = true;
+      continue;
+    }
+
+    const bool element_separator = !at_end && !escaped && c == '|';
+    const bool inner_separator = !at_end && !escaped && c == ':' && i + 1 < value.size() && value[i + 1] == ':';
+    if (at_end || element_separator || inner_separator) {
+      if (i >= token_start && plain_text_match(value.substr(token_start, i - token_start), needle, match_mode)) return true;
+      if (inner_separator) {
+        i += 1;
+        token_start = i + 1;
+      } else {
+        token_start = i + 1;
+      }
+      escaped = false;
+      continue;
+    }
+
+    escaped = false;
+  }
   return false;
 }
 
@@ -253,8 +319,14 @@ class SearchRuntime {
       local_error_ = "Number range requires a minimum or maximum.";
       return 0;
     }
-    if ((!min_value.empty() && !parse_number(min_value)) || (!max_value.empty() && !parse_number(max_value))) {
+    const auto min_number = min_value.empty() ? std::optional<double>{} : parse_number(min_value);
+    const auto max_number = max_value.empty() ? std::optional<double>{} : parse_number(max_value);
+    if ((!min_value.empty() && !min_number) || (!max_value.empty() && !max_number)) {
       local_error_ = "Number range boundary is invalid.";
+      return 0;
+    }
+    if (min_number && max_number && *min_number > *max_number) {
+      local_error_ = "Number range minimum exceeds maximum.";
       return 0;
     }
 
@@ -287,6 +359,10 @@ class SearchRuntime {
     }
     if (!valid_date_bound(min_value) || !valid_date_bound(max_value)) {
       local_error_ = "Date range boundary is invalid.";
+      return 0;
+    }
+    if (!min_value.empty() && !max_value.empty() && date_lower(min_value) > date_upper(max_value)) {
+      local_error_ = "Date range minimum exceeds maximum.";
       return 0;
     }
 
@@ -418,11 +494,10 @@ class SearchRuntime {
     bool matched = false;
     if (term.kind == TermKind::Text) {
       for (const std::size_t column : term.columns) {
-        const std::string_view value = dataset_.field(record_index, column);
-        if (term.match_mode == 0) matched = anime::ascii_iequals(value, term.value);
-        else if (term.match_mode == 1) matched = anime::ascii_iprefix(value, term.value);
-        else matched = anime::ascii_icontains(value, term.value);
-        if (matched) break;
+        if (text_match(dataset_.field(record_index, column), term.value, term.match_mode)) {
+          matched = true;
+          break;
+        }
       }
     } else if (term.kind == TermKind::NumberRange) {
       matched = number_in_range(dataset_.field(record_index, term.columns.front()), term.minimum, term.maximum);
