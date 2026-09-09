@@ -91,9 +91,11 @@ async function main() {
   console.log(`attempted: ${result.stats.attempted}`);
   console.log(`fetched: ${result.stats.fetched}`);
   console.log(`relevant pages: ${result.stats.relevant}`);
+  console.log(`discovery-only pages: ${result.stats.discoveryOnlyPages}`);
   console.log(`new anime candidates: ${result.stats.candidatesFound}`);
   console.log(`evidence claims: ${result.stats.evidenceClaims}`);
   console.log(`new links queued: ${result.stats.newLinks}`);
+  console.log(`host-filtered deferred: ${result.stats.hostFiltered}`);
   console.log(`robots skipped: ${result.stats.robotsSkipped}`);
   console.log(`other skipped: ${result.stats.otherSkipped}`);
   console.log(`failed: ${result.stats.failed}`);
