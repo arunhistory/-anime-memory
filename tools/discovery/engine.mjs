@@ -1,5 +1,6 @@
 import { extractDocument, extractSitemapUrls, normalizeTitleKey } from './html.mjs';
 import { scoreAnimeDocument, scoreDiscoveredLink, isRelevantDocument } from './score.mjs';
+import { extractCandidateEvidence, mergeEvidence, resolveEvidence } from './evidence.mjs';
 import { normalizeUrl, urlHash, hostKey } from './url.mjs';
 
 function popBest(frontier) {
@@ -13,15 +14,27 @@ function popBest(frontier) {
   return frontier.splice(bestIndex, 1)[0];
 }
 
-function addCandidate(candidateMap, candidate, sourceUrl, now) {
+function addCandidate(candidateMap, candidate, sourceUrl, now, evidence = []) {
   const key = normalizeTitleKey(candidate.title || candidate.key);
-  if (!key) return;
-  const current = candidateMap.get(key) || { key, title: candidate.title, sources: [], lastSeen: now };
+  if (!key) return false;
+  const existed = candidateMap.has(key);
+  const current = candidateMap.get(key) || {
+    key,
+    title: candidate.title,
+    sources: [],
+    evidence: [],
+    facts: {},
+    lastSeen: now
+  };
   if (!current.title) current.title = candidate.title;
+  if (!Array.isArray(current.sources)) current.sources = [];
   if (!current.sources.includes(sourceUrl)) current.sources.push(sourceUrl);
   current.sources = current.sources.slice(0, 50);
+  current.evidence = mergeEvidence(current.evidence, evidence);
+  current.facts = resolveEvidence(current.evidence);
   current.lastSeen = now;
   candidateMap.set(key, current);
+  return !existed;
 }
 
 function addFrontier(frontier, queued, visited, entry) {
@@ -60,13 +73,17 @@ export async function runDiscovery(options) {
   const frontier = state.frontier;
   const visited = new Set(state.visited || []);
   const queued = new Set(frontier.map((entry) => normalizeUrl(entry.url)).filter(Boolean));
-  const candidateMap = new Map((state.candidates || []).map((candidate) => [normalizeTitleKey(candidate.title || candidate.key), { ...candidate }]));
+  const candidateMap = new Map((state.candidates || []).map((candidate) => [
+    normalizeTitleKey(candidate.title || candidate.key),
+    { ...candidate, evidence: mergeEvidence(candidate.evidence || []), facts: resolveEvidence(candidate.evidence || []) }
+  ]));
   const hostCounts = new Map();
   const stats = {
     attempted: 0,
     fetched: 0,
     relevant: 0,
     candidatesFound: 0,
+    evidenceClaims: 0,
     newLinks: 0,
     robotsSkipped: 0,
     otherSkipped: 0,
@@ -146,9 +163,10 @@ export async function runDiscovery(options) {
       });
 
       for (const candidate of document.candidates) {
-        const before = candidateMap.size;
-        addCandidate(candidateMap, candidate, document.canonical || document.url, now);
-        if (candidateMap.size > before) stats.candidatesFound += 1;
+        const sourceUrl = document.canonical || document.url;
+        const evidence = extractCandidateEvidence(document, candidate, now);
+        stats.evidenceClaims += evidence.length;
+        if (addCandidate(candidateMap, candidate, sourceUrl, now, evidence)) stats.candidatesFound += 1;
       }
     }
 
