@@ -1,4 +1,4 @@
-name: Discovery Admission Diagnostics Once
+name: Discovery Evidence Join Diagnostics Once
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   diagnose:
-    if: ${{ github.event.head_commit.message == 'Run discovery admission diagnostics once' }}
+    if: ${{ github.event.head_commit.message == 'Diagnose discovery evidence joins once' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -24,32 +24,50 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Summarize admission failures
+      - name: Diagnose evidence joins
         run: |
           node --input-type=module - <<'NODE'
           import fs from 'node:fs';
           import { discoveryCandidateReadiness } from './tools/discovery/to-record.mjs';
+
           const state = JSON.parse(fs.readFileSync('crawler/state.json', 'utf8'));
-          const counts = new Map();
-          const samples = new Map();
+          const hostOf = (url) => { try { return new URL(url).hostname.toLowerCase(); } catch { return ''; } };
+          const rows = [];
+          const sourceHostHistogram = {};
+          const originEvidenceHistogram = { none: 0, observedJP: 0, confirmedJP: 0, observedOther: 0, conflict: 0 };
+
           for (const candidate of state.candidates || []) {
-            const result = discoveryCandidateReadiness(candidate);
-            const reason = result.ready ? 'ready' : result.reason;
-            counts.set(reason, (counts.get(reason) || 0) + 1);
-            if (!samples.has(reason)) samples.set(reason, []);
-            if (samples.get(reason).length < 5) {
-              const f = candidate.facts || {};
-              samples.get(reason).push({
-                title: candidate.title || candidate.key || '',
-                origin: f.origin_country ? {status:f.origin_country.status,value:f.origin_country.value} : null,
-                media: f.media_type ? {status:f.media_type.status,value:f.media_type.value} : null,
-                release: f.release_start ? {status:f.release_start.status,value:f.release_start.value} : null,
-                theatrical: f.theatrical_release_date ? {status:f.theatrical_release_date.status,value:f.theatrical_release_date.value} : null,
-                studio: f.animation_studio ? {status:f.animation_studio.status,value:f.animation_studio.value} : null
-              });
-            }
+            const readiness = discoveryCandidateReadiness(candidate);
+            if (readiness.ready) continue;
+            const hosts = [...new Set((candidate.sources || []).map(hostOf).filter(Boolean))];
+            sourceHostHistogram[hosts.length] = (sourceHostHistogram[hosts.length] || 0) + 1;
+            const origin = candidate.facts?.origin_country;
+            if (!origin) originEvidenceHistogram.none += 1;
+            else if (origin.status === 'conflict') originEvidenceHistogram.conflict += 1;
+            else if (origin.value === 'JP' && origin.status === 'confirmed') originEvidenceHistogram.confirmedJP += 1;
+            else if (origin.value === 'JP') originEvidenceHistogram.observedJP += 1;
+            else originEvidenceHistogram.observedOther += 1;
+
+            const originEvidence = (candidate.evidence || [])
+              .filter((e) => e.field === 'origin_country')
+              .map((e) => ({ value:e.value, host:hostOf(e.sourceUrl), sourceClass:e.sourceClass, rule:e.rule }));
+            rows.push({
+              title: candidate.title,
+              reason: readiness.reason,
+              hostCount: hosts.length,
+              hosts: hosts.slice(0, 8),
+              sourceCount: (candidate.sources || []).length,
+              originFact: origin ? {status:origin.status,value:origin.value,hostCount:origin.hostCount,sourceCount:origin.sourceCount} : null,
+              originEvidence: originEvidence.slice(0, 8),
+              media: candidate.facts?.media_type ? {status:candidate.facts.media_type.status,value:candidate.facts.media_type.value} : null,
+              release: candidate.facts?.release_start ? {status:candidate.facts.release_start.status,value:candidate.facts.release_start.value} : null,
+              studio: candidate.facts?.animation_studio ? {status:candidate.facts.animation_studio.status,value:candidate.facts.animation_studio.value} : null
+            });
           }
-          console.log('candidate-count=' + (state.candidates || []).length);
-          console.log('reason-counts=' + JSON.stringify(Object.fromEntries([...counts.entries()].sort())));
-          for (const [reason, rows] of samples) console.log(`samples:${reason}=` + JSON.stringify(rows));
+
+          rows.sort((a,b) => b.hostCount - a.hostCount || a.title.localeCompare(b.title, 'ja'));
+          console.log('state=' + JSON.stringify({visited:state.visited.length,documents:state.documents.length,candidates:state.candidates.length,frontier:state.frontier.length}));
+          console.log('source-host-count-histogram=' + JSON.stringify(sourceHostHistogram));
+          console.log('origin-evidence-histogram=' + JSON.stringify(originEvidenceHistogram));
+          console.log('top-multihost-unready=' + JSON.stringify(rows.slice(0, 25)));
           NODE
