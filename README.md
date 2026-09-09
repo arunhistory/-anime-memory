@@ -32,7 +32,8 @@ GitHub・CSV・WASM統合型の日本アニメ総合検索サイト。
 - `search.wasm`: 検索・条件判定・検索結果ソート・内部ID完全一致詳細取得
 - `all.wasm`: 全件読込・全件出力・全件ソート
 - JavaScript: UI / HTTP取得 / WASMとの受け渡し / DOM描画
-- Gemini API: 取得済み事実を基にした概要生成
+- 自動収集Tools: 外部JSON API取得 / 正規化 / 重複候補判定 / CSV生成 / 公開前検証
+- Gemini API: 将来のサイト独自概要生成。**現在は未接続**
 
 ## JavaScriptで行わない処理
 
@@ -81,6 +82,36 @@ JavaScriptはUI入力を受け取り、CSV生バイト列と検索条件をWASM�
 
 昇順 / 降順を切り替えられる。監督・声優・製作委員会等はソートへ増やさず検索条件として扱う。
 
+## 自動収集
+
+Geminiを接続しない段階の自動収集パイプラインを実装済み。
+
+```text
+承認済み HTTPS JSON API
+  ↓
+GitHub Actions
+  ↓
+取得
+  ↓
+共通70列へ正規化
+  ↓
+外部ID完全一致 + 複合重複候補判定
+  ↓
+initial-NNN.csv / YYYY-QN.csv 生成
+  ↓
+全CSV検証
+  ↓
+検証成功時だけ Commit
+```
+
+情報源はまだ固定していない。採用情報源は API利用条件・商用利用・再配布・画像利用・取得制限を確認したうえで `ANIME_SOURCE_CONFIG_JSON` に設定する。HTMLスクレイピング経路は実装しない。
+
+`Anime Data Collect` は `workflow_dispatch` のみで、定期Cronは持たない。初期値は `dry_run=true`。初期導入は既存初期CSVへ追記せず、毎回新しい `initial-NNN.csv` を最大450作品で作る。
+
+Gemini API、Gemini APIキー、Google生成AI SDKは自動収集経路へ未接続。Gemini接続前は `synopsis` を空欄に固定する。
+
+詳細は `docs/DATA_COLLECTION.md` を参照。
+
 ## 現在の実装範囲
 
 実装済み:
@@ -102,18 +133,25 @@ JavaScriptはUI入力を受け取り、CSV生バイト列と検索条件をWASM�
 - 詳細ページの内部ID取得経路
 - 作品カードから内部ID別詳細ページへの一意遷移
 - manifestから作品CSVを取得してWASMへ生バイト転送するJavaScript境界
+- HTTPS JSON API専用の取得器
+- 共通70列への宣言的マッピング・正規化
+- 外部ID完全一致と複合条件による重複候補検出
+- 初期導入 `initial-NNN.csv` 新規生成・450件上限
+- 四半期 `YYYY-QN.csv` 追加経路
+- `manifest.csv` ファイル名専用生成
+- CSVスキーマ / UTF-8相当 / ID / media_type / 日付 / URL / relations / 重複候補 / 四半期所属の公開前検証
+- 失敗時Commit禁止・force push禁止・data競合時停止
+- 自動収集パイプラインの自己試験とActions検証
 - エラー / 状態表示の共通UI
 - C++ネイティブ試験 / ブラウザWASM ABIスモーク試験 / UI静的検証
 
 未接続・次工程:
 
-- 実作品CSV
-- 外部情報取得
-- 取得情報の正規化・重複判定
+- 正式な外部情報源の選定と `ANIME_SOURCE_CONFIG_JSON` 設定
+- 実作品CSVの初回収集
 - Gemini概要生成
-- 作品CSV生成・検証・更新Actions
-- 初期導入1日最大450作品の運用
-- 初期導入後の四半期更新運用
+- 初期導入1日最大450作品の実運用
+- 初期導入完了後の四半期更新実運用
 
 ## データ実装時の原則
 
