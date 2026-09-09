@@ -5,6 +5,7 @@ import path from 'node:path';
 import { normalizeUrl, isPrivateIp, urlHash } from './url.mjs';
 import { parseRobotsTxt, evaluateRobots } from './robots.mjs';
 import { extractDocument, extractAnimeTitleCandidates } from './html.mjs';
+import { extractCandidateEvidence, resolveEvidence } from './evidence.mjs';
 import { PoliteFetcher } from './fetch-page.mjs';
 import { runDiscovery } from './engine.mjs';
 import { emptyDiscoveryState, saveDiscoveryState, loadDiscoveryState, seedFrontier } from './state.mjs';
@@ -31,14 +32,20 @@ const unofficialHtml = `<!doctype html><html><head>
 <title>話題の新作アニメを紹介する個人記事</title>
 <meta property="og:title" content="ニュース：TVアニメ『星の旅』放送決定">
 </head><body>
-<p>筆者が見つけたTVアニメ『星の旅』について紹介します。キャストとスタッフの続報も出ています。</p>
+<p>筆者が見つけたTVアニメ『星の旅』について紹介します。2027年4月3日放送開始。</p>
+<p>アニメーション制作：Studio Star</p>
 <a href="https://other.test/info?utm_campaign=x">別のニュース記事</a>
 <a href="/privacy">プライバシーポリシー</a>
 </body></html>`;
 const parsedDoc = extractDocument(unofficialHtml, 'https://blog.test/post/1');
 const candidates = extractAnimeTitleCandidates(parsedDoc);
-assert.ok(candidates.some((item) => item.title === '星の旅'));
+const starCandidate = candidates.find((item) => item.title === '星の旅');
+assert.ok(starCandidate);
 assert.ok(parsedDoc.links.some((item) => item.url === 'https://other.test/info'));
+const oneSourceEvidence = extractCandidateEvidence(parsedDoc, starCandidate, '2026-09-09T00:00:00.000Z');
+assert.equal(resolveEvidence(oneSourceEvidence).media_type.status, 'observed');
+assert.equal(resolveEvidence(oneSourceEvidence).release_start.value, '2027-04-03');
+assert.equal(resolveEvidence(oneSourceEvidence).animation_studio.value, 'Studio Star');
 
 const mockResponses = new Map([
   ['https://example.test/robots.txt', new Response('User-agent: *\nDisallow: /blocked\n', { status: 200, headers: { 'content-type': 'text/plain' } })],
@@ -63,13 +70,13 @@ assert.equal(blocked.reason, 'robots-disallow');
 const pages = new Map([
   ['https://seed.test/', `
     <html><head><title>アニメ情報を書いているブログ</title></head><body>
-      <article>新作TVアニメ『星の旅』の制作が発表された。</article>
+      <article>新作TVアニメ『星の旅』は2027年4月3日放送開始。アニメーション制作：Studio Star</article>
       <a href="https://news.test/star">星の旅 キャスト続報</a>
       <a href="https://random.test/jobs">採用情報</a>
     </body></html>`],
   ['https://news.test/star', `
-    <html><head><title>「星の旅」アニメ キャスト・放送情報</title></head><body>
-      TVアニメ「星の旅」キャスト発表。放送開始について紹介。
+    <html><head><title>TVアニメ「星の旅」キャスト・放送情報</title></head><body>
+      TVアニメ「星の旅」は2027年4月3日放送開始。アニメーション制作：Studio Star
       <a href="https://third.test/review">読者レビュー</a>
     </body></html>`],
   ['https://third.test/review', '<html><title>星の旅 感想</title><body>アニメ 星の旅 第1話の感想。</body></html>']
@@ -83,10 +90,25 @@ const fakeFetcher = {
 const state = emptyDiscoveryState();
 seedFrontier(state, ['https://seed.test/']);
 const discovery = await runDiscovery({ state, fetcher: fakeFetcher, maxPages: 10, maxDepth: 4, perHostLimit: 10, now: '2026-09-09T00:00:00.000Z' });
-assert.ok(discovery.state.candidates.some((item) => item.title === '星の旅'));
+const discoveredCandidate = discovery.state.candidates.find((item) => item.title === '星の旅');
+assert.ok(discoveredCandidate);
+assert.equal(discoveredCandidate.facts.media_type.status, 'confirmed');
+assert.equal(discoveredCandidate.facts.media_type.value, 'TV');
+assert.equal(discoveredCandidate.facts.release_start.status, 'confirmed');
+assert.equal(discoveredCandidate.facts.release_start.value, '2027-04-03');
+assert.equal(discoveredCandidate.facts.animation_studio.status, 'confirmed');
+assert.equal(discoveredCandidate.facts.animation_studio.value, 'Studio Star');
 assert.ok(discovery.state.documents.some((item) => item.url === 'https://seed.test/'));
 assert.ok(discovery.state.documents.some((item) => item.url === 'https://news.test/star'));
 assert.ok(discovery.stats.newLinks >= 1);
+assert.ok(discovery.stats.evidenceClaims >= 6);
+
+const conflictEvidence = [
+  ...oneSourceEvidence,
+  { field: 'release_start', value: '2027-04-04', sourceUrl: 'https://conflict.test/article', rule: 'fixture', observedAt: '2026-09-09T00:00:00.000Z' }
+];
+assert.equal(resolveEvidence(conflictEvidence).release_start.status, 'conflict');
+assert.equal(resolveEvidence(conflictEvidence).release_start.value, '');
 
 const index = new DiscoveryIndex({ version: 1, documents: discovery.state.documents });
 assert.ok(index.search('星の旅').some((item) => item.url.includes('seed.test') || item.url.includes('news.test')));
@@ -95,17 +117,19 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'anime-discovery-'));
 const statePath = path.join(temp, 'crawler', 'state.json');
 saveDiscoveryState(statePath, discovery.state);
 const savedText = fs.readFileSync(statePath, 'utf8');
-assert.equal(savedText.includes('筆者が見つけた'), false, 'page body must not be persisted');
+assert.equal(savedText.includes('読者レビュー'), false, 'page body must not be persisted');
 assert.equal(savedText.includes('<html>'), false, 'raw HTML must not be persisted');
 const restored = loadDiscoveryState(statePath);
 assert.ok(restored.visited.includes(urlHash('https://seed.test/')));
 const restoredCandidate = restored.candidates.find((item) => item.title === '星の旅');
 assert.ok(restoredCandidate?.sources.includes('https://seed.test/'));
 assert.ok(restoredCandidate?.sources.includes('https://news.test/star'));
+assert.equal(restoredCandidate?.facts?.release_start?.status, 'confirmed');
+assert.ok(restoredCandidate?.evidence?.some((item) => item.field === 'animation_studio' && item.sourceUrl === 'https://news.test/star'));
 fs.rmSync(temp, { recursive: true, force: true });
 
 const sourceText = [
-  'run.mjs', 'engine.mjs', 'fetch-page.mjs', 'html.mjs', 'score.mjs', 'state.mjs', 'url.mjs'
+  'run.mjs', 'engine.mjs', 'fetch-page.mjs', 'html.mjs', 'evidence.mjs', 'score.mjs', 'state.mjs', 'url.mjs'
 ].map((file) => fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), file), 'utf8')).join('\n');
 for (const forbidden of ['GEMINI_API_KEY', 'BRAVE_SEARCH_API_KEY', 'SERPAPI', 'ANIME_SOURCE_CONFIG_JSON']) {
   assert.equal(sourceText.includes(forbidden), false, `external API coupling found: ${forbidden}`);
@@ -113,6 +137,8 @@ for (const forbidden of ['GEMINI_API_KEY', 'BRAVE_SEARCH_API_KEY', 'SERPAPI', 'A
 
 console.log('Web discovery self-test: PASS');
 console.log('non-official anime mention discovery: PASS');
+console.log('multi-source evidence resolution: PASS');
+console.log('conflict preservation: PASS');
 console.log('candidate evidence persistence: PASS');
 console.log('robots enforcement: PASS');
 console.log('raw HTML persistence: NONE');
