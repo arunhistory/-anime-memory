@@ -1,0 +1,106 @@
+name: Initial Discovery Bootstrap Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/initial-discovery-bootstrap-once.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: web-anime-discovery
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    if: ${{ github.event.head_commit.message == 'Run initial discovery bootstrap once' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DISCOVERY_ALLOWED_HOSTS: ja.wikipedia.org
+      DISCOVERY_MIN_DELAY_MS: '500'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Discovery preflight
+        run: |
+          node tools/discovery/known-work-wasm-self-test.mjs
+          node tools/discovery/known-work-skip-self-test.mjs
+          node tools/discovery/self-test.mjs
+          node tools/discovery/quality-self-test.mjs
+          node tools/discovery/common-evidence-self-test.mjs
+          node tools/discovery/structured-evidence-self-test.mjs
+          node tools/discovery/entity-resolution-self-test.mjs
+          node tools/discovery/taxonomy-self-test.mjs
+
+      - name: Run controlled bootstrap discovery
+        run: node tools/discovery/run.mjs --max-pages 40 --max-depth 3 --per-host-limit 40
+
+      - name: Inspect resulting state
+        run: |
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const state = JSON.parse(fs.readFileSync('crawler/state.json', 'utf8'));
+          const hosts = new Map();
+          for (const entry of state.frontier || []) {
+            try {
+              const host = new URL(entry.url).hostname.toLowerCase();
+              hosts.set(host, (hosts.get(host) || 0) + 1);
+            } catch {}
+          }
+          console.log(`visited=${state.visited.length}`);
+          console.log(`documents=${state.documents.length}`);
+          console.log(`candidates=${state.candidates.length}`);
+          console.log(`frontier=${state.frontier.length}`);
+          console.log('frontier-hosts=' + JSON.stringify([...hosts.entries()].sort((a,b) => b[1]-a[1]).slice(0,30)));
+          NODE
+
+      - name: Commit discovery state only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add crawler/state.json
+          if git diff --cached --quiet; then
+            echo 'No discovery state changes to commit.'
+            exit 0
+          fi
+          unexpected="$(git status --porcelain | awk '$2 != "crawler/state.json" {print}')"
+          if [[ -n "${unexpected}" ]]; then
+            echo 'Bootstrap modified files outside crawler/state.json; refusing commit.' >&2
+            echo "${unexpected}" >&2
+            exit 1
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Bootstrap web anime discovery state'
+
+          base_sha="${GITHUB_SHA}"
+          for attempt in 1 2 3; do
+            git fetch origin main
+            remote_head="$(git rev-parse origin/main)"
+            if [[ "${remote_head}" != "${base_sha}" ]]; then
+              if ! git diff --quiet "${base_sha}..${remote_head}" -- crawler/state.json; then
+                echo 'crawler/state.json advanced; refusing lost update.' >&2
+                exit 1
+              fi
+              git rebase origin/main
+              base_sha="${remote_head}"
+            fi
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+          done
+          echo 'Could not publish bootstrap state.' >&2
+          exit 1
