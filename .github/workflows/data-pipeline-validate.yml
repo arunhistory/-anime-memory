@@ -75,6 +75,7 @@ jobs:
           node --check tools/discovery/engine.mjs
           node --check tools/discovery/run.mjs
           node --check tools/discovery/self-test.mjs
+          node --check tools/discovery/quality-self-test.mjs
           node --check tools/gemini/synopsis.mjs
           node --check tools/gemini/quota.mjs
           node --check tools/gemini/quota-self-test.mjs
@@ -88,6 +89,9 @@ jobs:
 
       - name: Web discovery self-test
         run: node tools/discovery/self-test.mjs
+
+      - name: Discovery quality self-test
+        run: node tools/discovery/quality-self-test.mjs
 
       - name: Anime taxonomy self-test
         run: node tools/discovery/taxonomy-self-test.mjs
