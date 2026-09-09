@@ -9,62 +9,87 @@
 </head>
 <body data-page="search">
   <header class="site-header">
-    <a class="brand" href="../"><span class="brand-mark">あ</span><span class="brand-text">日本アニメ総合検索</span></a>
-    <nav class="desktop-nav"><a class="active" href="./">検索</a><a href="../all/">全作品</a></nav>
+    <a class="brand" href="../" aria-label="日本アニメ総合検索 ホーム">
+      <span class="brand-mark">あ</span><span class="brand-text">日本アニメ総合検索</span>
+    </a>
+    <nav class="desktop-nav" aria-label="メインナビゲーション">
+      <a class="active" href="./" aria-current="page">検索</a>
+      <a href="../all/">全作品</a>
+    </nav>
   </header>
 
   <main class="section-shell page-main">
     <div class="page-heading">
       <span class="eyebrow">SEARCH</span>
       <h1>アニメを検索</h1>
-      <p>作品名だけでなく、保存されている情報から幅広く探せます。</p>
+      <p>自由検索と詳しい条件を組み合わせて、保存されている情報を横断して探せる画面です。</p>
     </div>
 
-    <section class="search-panel card-surface">
-      <div class="search-box large">
-        <span class="search-icon">⌕</span>
-        <input id="search-query" type="search" placeholder="作品名・声優・制作会社・スタッフなど" autocomplete="off" />
-        <button id="search-button" type="button">検索</button>
-      </div>
+    <section class="search-panel card-surface" aria-labelledby="search-panel-title">
+      <h2 id="search-panel-title" class="sr-only">検索条件</h2>
 
-      <div id="active-filters" class="active-filters" aria-live="polite"></div>
+      <form id="search-form" novalidate>
+        <div class="search-box large">
+          <span class="search-icon" aria-hidden="true">⌕</span>
+          <label class="sr-only" for="search-query">検索語</label>
+          <input id="search-query" name="q" type="search" placeholder="作品名・声優・制作会社・スタッフなど" autocomplete="off" />
+          <button id="search-button" type="submit">検索</button>
+        </div>
 
-      <button class="detail-toggle" id="detail-toggle" type="button" aria-expanded="false" aria-controls="detail-filters">
-        <span>＋</span> 詳しい条件を指定
-      </button>
+        <div id="active-filters" class="active-filters" aria-live="polite"></div>
 
-      <div id="detail-filters" class="detail-filters" hidden>
-        <div class="filter-section">
-          <h2>条件の組み合わせ</h2>
-          <div class="segmented" role="group" aria-label="条件の組み合わせ">
-            <button type="button" class="selected" data-op="AND">AND</button>
-            <button type="button" data-op="OR">OR</button>
-            <button type="button" data-op="NOT">NOT</button>
+        <button class="detail-toggle" id="detail-toggle" type="button" aria-expanded="false" aria-controls="detail-filters">
+          <span aria-hidden="true">＋</span> 詳しい条件を指定
+        </button>
+
+        <div id="detail-filters" class="detail-filters" hidden>
+          <div class="filter-head">
+            <div>
+              <strong>詳しい条件</strong>
+              <small>必要な項目だけ選んで使えます。</small>
+            </div>
+            <button id="clear-search-ui" class="clear-button" type="button">条件をクリア</button>
+          </div>
+
+          <div class="filter-section">
+            <h3>条件の組み合わせ</h3>
+            <div class="segmented" role="group" aria-label="条件の組み合わせ">
+              <button type="button" class="selected" data-op="AND" aria-pressed="true">AND</button>
+              <button type="button" data-op="OR" aria-pressed="false">OR</button>
+              <button type="button" data-op="NOT" aria-pressed="false">NOT</button>
+            </div>
+          </div>
+
+          <div class="filter-section">
+            <h3>検索項目</h3>
+            <div class="filter-grid" aria-label="詳細検索カテゴリ">
+              <button type="button" class="filter-chip" data-filter="media" aria-pressed="false">媒体</button>
+              <button type="button" class="filter-chip" data-filter="date" aria-pressed="false">年代・期間</button>
+              <button type="button" class="filter-chip" data-filter="genre" aria-pressed="false">ジャンル</button>
+              <button type="button" class="filter-chip" data-filter="studio" aria-pressed="false">制作会社</button>
+              <button type="button" class="filter-chip" data-filter="staff" aria-pressed="false">スタッフ</button>
+              <button type="button" class="filter-chip" data-filter="cast" aria-pressed="false">声優</button>
+              <button type="button" class="filter-chip" data-filter="original" aria-pressed="false">原作</button>
+              <button type="button" class="filter-chip" data-filter="music" aria-pressed="false">音楽</button>
+              <button type="button" class="filter-chip" data-filter="broadcast" aria-pressed="false">放送</button>
+              <button type="button" class="filter-chip" data-filter="streaming" aria-pressed="false">配信</button>
+            </div>
+            <p class="filter-help">カテゴリを選択すると、現在の検索条件として画面上に表示されます。実際の条件値は検索エンジン接続工程で同じUIへ接続します。</p>
           </div>
         </div>
-        <div class="filter-section">
-          <h2>詳細条件</h2>
-          <div class="filter-grid">
-            <button type="button" class="filter-chip">媒体</button>
-            <button type="button" class="filter-chip">年代・期間</button>
-            <button type="button" class="filter-chip">ジャンル</button>
-            <button type="button" class="filter-chip">制作会社</button>
-            <button type="button" class="filter-chip">スタッフ</button>
-            <button type="button" class="filter-chip">声優</button>
-            <button type="button" class="filter-chip">原作</button>
-            <button type="button" class="filter-chip">音楽</button>
-            <button type="button" class="filter-chip">放送</button>
-            <button type="button" class="filter-chip">配信</button>
-          </div>
-        </div>
-      </div>
+      </form>
+
+      <div id="search-ui-message" class="ui-message info" hidden aria-live="polite"></div>
     </section>
 
-    <section class="results-section">
+    <section class="results-section" aria-labelledby="results-title">
       <div class="results-toolbar">
-        <div><strong id="result-count">検索条件を入力してください</strong><small id="result-note">検索結果はここに表示されます</small></div>
+        <div>
+          <strong id="results-title">検索条件を入力してください</strong>
+          <small id="result-note">検索結果はここに表示されます</small>
+        </div>
         <div class="sort-controls">
-          <label>並び替え
+          <label for="sort-key">並び替え
             <select id="sort-key">
               <option value="season">四季順</option>
               <option value="date">年代順</option>
@@ -74,13 +99,13 @@
               <option value="runtime">総時間順</option>
             </select>
           </label>
-          <button id="sort-direction" type="button" aria-label="昇順・降順切り替え">↑ 昇順</button>
+          <button id="sort-direction" type="button" data-dir="asc" aria-label="昇順・降順切り替え">↑ 昇順</button>
         </div>
       </div>
 
-      <div id="results" class="anime-grid">
+      <div id="results" class="anime-grid" aria-live="polite" aria-busy="false">
         <div class="empty-state card-surface">
-          <div class="empty-icon">⌕</div>
+          <div class="empty-icon" aria-hidden="true">⌕</div>
           <h2>探したい条件を入れてみよう</h2>
           <p>自由検索でも、詳しい条件からでも検索できます。</p>
         </div>
@@ -88,7 +113,12 @@
     </section>
   </main>
 
-  <nav class="mobile-nav"><a href="../"><span>⌂</span>ホーム</a><a class="active" href="./"><span>⌕</span>検索</a><a href="../all/"><span>▦</span>全作品</a></nav>
+  <footer class="site-footer"><span>日本アニメ総合検索</span></footer>
+  <nav class="mobile-nav" aria-label="モバイルナビゲーション">
+    <a href="../"><span aria-hidden="true">⌂</span>ホーム</a>
+    <a class="active" href="./" aria-current="page"><span aria-hidden="true">⌕</span>検索</a>
+    <a href="../all/"><span aria-hidden="true">▦</span>全作品</a>
+  </nav>
   <script src="../assets/js/common.js"></script>
   <script src="../assets/js/search-bridge.js"></script>
 </body>
