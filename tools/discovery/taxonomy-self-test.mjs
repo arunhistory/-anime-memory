@@ -29,6 +29,8 @@ for (const required of ['なろう系', 'ライトノベル系', 'Web小説系',
 assert.equal(detectOriginalType('小説家になろう発。書籍版はライトノベル。'), 'なろう系');
 assert.equal(detectOriginalType('ライトノベル原作のTVアニメ'), 'ライトノベル系');
 assert.equal(detectOriginalType('Web小説を原作とする作品'), 'Web小説系');
+assert.equal(detectOriginalType('原作タグ：ゲーム系'), 'ゲーム系');
+assert.equal(detectOriginalType('原作：漫画「分類検証」'), '漫画系');
 
 function fixtureDocument(url) {
   return {
@@ -63,6 +65,27 @@ for (const expected of ['学園', 'ほのぼの', '百合']) {
   assert.ok(facts.genres.value.split('|').includes(expected), `confirmed genres missing: ${expected}`);
 }
 assert.equal(facts.genres.value.includes('深夜アニメ'), false);
+
+const originalOnlyDocument = {
+  url: 'https://origin-only.test/anime',
+  canonical: null,
+  title: 'TVアニメ「原作分類」作品情報',
+  ogTitle: '',
+  description: '',
+  keywords: '',
+  text: [
+    'TVアニメ「原作分類」は2027年4月3日放送開始。',
+    '原作タグ：ゲーム系',
+    'アニメーション制作：Studio Origin'
+  ].join('\n')
+};
+const originalOnlyEvidence = extractCandidateEvidence(
+  originalOnlyDocument,
+  { key: '原作分類', title: '原作分類' },
+  '2026-09-09T00:00:00.000Z'
+);
+assert.ok(originalOnlyEvidence.some((item) => item.field === 'original_type' && item.value === 'ゲーム系'));
+assert.equal(originalOnlyEvidence.some((item) => item.field === 'genres' && item.value === 'ゲーム'), false);
 
 const columns = loadColumns(process.cwd());
 const commonRecord = candidateToCommonRecord({
@@ -99,5 +122,6 @@ assert.ok(validateRecords([{ fileName: 'initial-001.csv', record: timeAsGenre }]
 console.log('Anime taxonomy self-test: PASS');
 console.log('genre multi-select: PASS');
 console.log('original type single-select: PASS');
+console.log('original tags isolated from genres: PASS');
 console.log('broadcast-time labels excluded from genres: PASS');
 console.log('multi-source taxonomy evidence: PASS');
