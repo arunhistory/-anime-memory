@@ -53,7 +53,7 @@ export function saveDiscoveryState(filePath, state) {
     .map((candidate) => ({
       key: normalizeTitleKey(candidate.title || candidate.key),
       title: String(candidate.title || '').slice(0, 120),
-      sources: [...new Set((candidate.sources || []).map(normalizeUrl).filter(Boolean))].slice(0, 50),
+      sources: [...new Set((candidate.sources || []).map((value) => normalizeUrl(value)).filter(Boolean))].slice(0, 50),
       lastSeen: String(candidate.lastSeen || '')
     }))
     .filter((candidate) => candidate.key && candidate.title)
