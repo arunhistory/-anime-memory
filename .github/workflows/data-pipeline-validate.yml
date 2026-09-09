@@ -75,6 +75,8 @@ jobs:
           node --check tools/discovery/taxonomy.mjs
           node --check tools/discovery/taxonomy-self-test.mjs
           node --check tools/discovery/source-quality.mjs
+          node --check tools/discovery/source-family.mjs
+          node --check tools/discovery/source-family-self-test.mjs
           node --check tools/discovery/common-evidence.mjs
           node --check tools/discovery/structured-evidence.mjs
           node --check tools/discovery/evidence.mjs
@@ -118,6 +120,9 @@ jobs:
 
       - name: Discovery quality self-test
         run: node tools/discovery/quality-self-test.mjs
+
+      - name: Evidence source-family independence self-test
+        run: node tools/discovery/source-family-self-test.mjs
 
       - name: Common evidence self-test
         run: node tools/discovery/common-evidence-self-test.mjs
