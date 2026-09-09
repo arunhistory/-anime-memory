@@ -1,8 +1,23 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { collectConfiguredSources } from '../fetch/http-json.mjs';
-import { loadColumns, parseCsv, rowsToRecords, recordsToCsv, readDataRecords, writeManifest } from '../csv/csv.mjs';
-import { normalizeSourceItem, hasExactExternalId, isCompositeDuplicateCandidate, mergeOnlyBlank, splitEscaped } from '../normalize/record.mjs';
+import {
+  loadColumns,
+  parseCsv,
+  rowsToRecords,
+  recordsToCsv,
+  recordsToCsvRows,
+  readDataRecords,
+  readUtf8Strict,
+  writeManifest
+} from '../csv/csv.mjs';
+import {
+  normalizeSourceItem,
+  hasExactExternalId,
+  isCompositeDuplicateCandidate,
+  mergeOnlyBlank,
+  splitStructured
+} from '../normalize/record.mjs';
 import { validateDataDirectory } from '../validate/data-validator.mjs';
 
 function parseArgs(argv) {
@@ -63,8 +78,7 @@ function quarterForMonth(month) {
 
 function candidateStartDates(record) {
   const dates = [record.release_start, record.theatrical_release_date].filter(Boolean);
-  for (const entry of splitEscaped(record.streaming_services).filter(Boolean)) {
-    const fields = entry.split('::');
+  for (const fields of splitStructured(record.streaming_services)) {
     if (fields[3]) dates.push(fields[3]);
   }
   return dates;
@@ -79,7 +93,7 @@ function belongsToQuarter(record, year, quarter) {
 
 function readTargetRecords(targetPath, columns) {
   if (!fs.existsSync(targetPath)) return [];
-  return rowsToRecords(parseCsv(fs.readFileSync(targetPath, 'utf8')), columns);
+  return rowsToRecords(parseCsv(readUtf8Strict(targetPath)), columns);
 }
 
 function deduplicateIncoming(incoming, existing, columns) {
@@ -127,6 +141,26 @@ function validateSourceConfigShape(config, columns) {
   }
 }
 
+function restoreFile(filePath, originalBytes) {
+  if (originalBytes === null) {
+    if (fs.existsSync(filePath)) fs.rmSync(filePath);
+  } else {
+    fs.writeFileSync(filePath, originalBytes);
+  }
+}
+
+function writeTargetPreservingExisting(targetPath, selected, columns, mode) {
+  if (mode !== 'quarterly' || !fs.existsSync(targetPath)) {
+    fs.writeFileSync(targetPath, recordsToCsv(selected, columns), 'utf8');
+    return;
+  }
+
+  const existingText = readUtf8Strict(targetPath);
+  rowsToRecords(parseCsv(existingText), columns);
+  const separator = existingText.endsWith('\n') || existingText.endsWith('\r') ? '' : '\r\n';
+  fs.writeFileSync(targetPath, `${existingText}${separator}${recordsToCsvRows(selected, columns)}`, 'utf8');
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const mode = String(args.mode || 'initial').toLowerCase();
@@ -138,12 +172,24 @@ async function main() {
   const config = parseConfig();
   validateSourceConfigShape(config, columns);
 
+  if (fs.existsSync(dataDir)) {
+    const existingValidation = validateDataDirectory(dataDir);
+    if (existingValidation.failures.length) {
+      throw new Error(`既存CSVに問題があるため収集を開始しません:\n${existingValidation.failures.map((value) => `- ${value}`).join('\n')}`);
+    }
+  }
+
   const confirmedDate = new Date().toISOString().slice(0, 10);
   const existing = readDataRecords(dataDir, columns);
   const collectedGroups = await collectConfiguredSources(config);
   const normalized = [];
+  let safeStoppedSources = 0;
 
-  for (const { source, items } of collectedGroups) {
+  for (const { source, items, stoppedEarly, stopReason } of collectedGroups) {
+    if (stoppedEarly) {
+      safeStoppedSources += 1;
+      console.warn(`${source.name}: 取得途中で安全停止しました。取得成功分のみ検証対象にします: ${stopReason}`);
+    }
     for (const raw of items) {
       const record = normalizeSourceItem(raw, source, columns, confirmedDate);
       // Gemini未接続段階では、外部の概要文をサイト独自概要として保存しない。
@@ -173,7 +219,7 @@ async function main() {
 
   if (selected.length === 0) {
     console.log('新規登録対象は0件です。既存CSVは変更しません。');
-    console.log(JSON.stringify({ fetched: normalized.length, selected: 0, ...stats }));
+    console.log(JSON.stringify({ fetched: normalized.length, selected: 0, safeStoppedSources, ...stats }));
     return;
   }
 
@@ -181,20 +227,26 @@ async function main() {
   const targetPath = path.join(dataDir, targetName);
   if (mode === 'initial' && fs.existsSync(targetPath)) throw new Error(`${targetName} は既に存在します。初期CSVへ追記しません。`);
 
+  if (mode === 'quarterly') readTargetRecords(targetPath, columns);
+  const originalTarget = fs.existsSync(targetPath) ? fs.readFileSync(targetPath) : null;
+  const manifestPath = path.join(dataDir, 'manifest.csv');
+  const originalManifest = fs.existsSync(manifestPath) ? fs.readFileSync(manifestPath) : null;
+
   const nextId = nextInternalId(existing);
   for (const record of selected) record.id = nextId();
 
-  const existingTarget = mode === 'quarterly' ? readTargetRecords(targetPath, columns) : [];
-  const output = [...existingTarget, ...selected];
-  fs.writeFileSync(targetPath, recordsToCsv(output, columns), 'utf8');
-  writeManifest(dataDir);
+  try {
+    writeTargetPreservingExisting(targetPath, selected, columns, mode);
+    writeManifest(dataDir);
 
-  const validation = validateDataDirectory(dataDir);
-  if (validation.failures.length) {
-    try { fs.rmSync(targetPath); } catch {}
-    if (existingTarget.length) fs.writeFileSync(targetPath, recordsToCsv(existingTarget, columns), 'utf8');
-    if (fs.existsSync(dataDir)) writeManifest(dataDir);
-    throw new Error(`生成CSV検証に失敗しました:\n${validation.failures.map((value) => `- ${value}`).join('\n')}`);
+    const validation = validateDataDirectory(dataDir);
+    if (validation.failures.length) {
+      throw new Error(`生成CSV検証に失敗しました:\n${validation.failures.map((value) => `- ${value}`).join('\n')}`);
+    }
+  } catch (error) {
+    restoreFile(targetPath, originalTarget);
+    restoreFile(manifestPath, originalManifest);
+    throw error;
   }
 
   console.log('Anime collection pipeline: PASS');
@@ -202,6 +254,7 @@ async function main() {
   console.log(`target: data/${targetName}`);
   console.log(`fetched records: ${normalized.length}`);
   console.log(`new records: ${selected.length}`);
+  console.log(`safe-stopped sources: ${safeStoppedSources}`);
   console.log(`existing exact duplicates skipped: ${stats.exactExisting}`);
   console.log(`uncertain duplicate candidates skipped: ${stats.candidateExisting + stats.candidateIncoming}`);
   console.log('Gemini: DISCONNECTED');
