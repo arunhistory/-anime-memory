@@ -61,9 +61,9 @@ assert.match(collectWorkflow.slice(collectStep), /ANIME_GEMINI_API_KEY:\s*\$\{\{
 assert.match(collectWorkflow, /node tools\/collect\/initial-pending-self-test\.mjs/, 'initial pending-state preflight missing');
 assert.match(collectWorkflow, /node tools\/discovery\/structured-evidence-self-test\.mjs/, 'structured Evidence preflight missing');
 assert.match(discoveryWorkflow, /known-work-wasm-self-test\.mjs/, 'search.wasm registered-work preflight missing');
-assert.match(discoveryWorkflow, /known-work-skip-self-test\.mjs/, 'next-run registered-work skip preflight missing');
+assert.match(discoveryWorkflow, /known-work-skip-self-test\.mjs/, 'next-run registered-work enrichment preflight missing');
 
-assert.equal(INITIAL_CSV_RECORD_LIMIT, 450, 'initial CSV package size must remain 450');
+assert.equal(INITIAL_CSV_RECORD_LIMIT, 500, 'initial CSV package size must remain 500');
 assert.equal(GEMINI_DAILY_CALL_LIMIT, 450, 'Gemini daily call limit must remain 450');
 assert.match(productionWorkflow, /cycle\.mjs checkpoint/, '24-hour inactivity checkpoint missing');
 assert.match(productionWorkflow, /cycle_action=continue/, 'bounded workflow continuation missing');
@@ -71,13 +71,13 @@ assert.match(productionWorkflow, /actions:\s*write/, 'bounded workflow continuat
 assert.match(productionWorkflow, /--max-pages 100/, 'production batch must remain bounded to 100 pages');
 assert.equal(/while true/.test(productionWorkflow), false, 'unbounded production loop returned');
 assert.equal(/stop\s+--reason\s+package-complete/.test(productionWorkflow), false, 'one CSV package must not terminate the research cycle');
+assert.equal(/cycle_final\.outputs\.active == 'true'\s*&&\s*steps\.collect\.outputs\.csv_created != 'true'/.test(productionWorkflow), false, 'CSV creation must not suppress the next research batch');
 assert.match(productionWorkflow, /if grep -Eq '[^']+' \/tmp\/manifest\.csv; then/, 'Pages manifest retry must not fail on a stale successful response');
 
 const validator = read('tools/validate/data-validator.mjs');
 assert.match(validator, /'Web 最速'/, 'streaming mode Web 最速 spacing drifted');
 assert.match(validator, /relations targetが存在しない/, 'relation target existence validation missing');
 assert.match(validator, /original_type は原作タグ1つのみ指定可能/, 'single original_type enforcement missing');
-assert.match(validator, /isKnownLegacyInitial001/, 'known legacy 500-record package compatibility guard missing');
 
 const knownWorkWasm = read('tools/discovery/known-work-wasm.mjs');
 assert.match(knownWorkWasm, /assets[^\n]+wasm[^\n]+search\.js/, 'registered-work lookup must reuse assets/wasm/search.js');
@@ -86,10 +86,21 @@ assert.match(knownWorkWasm, /_anime_search_add_text_term/, 'registered-work look
 assert.match(knownWorkWasm, /'title'/, 'registered-work lookup must search the WASM title group');
 const discoveryRun = read('tools/discovery/run.mjs');
 const discoveryEngine = read('tools/discovery/engine.mjs');
+const seriesLearning = read('tools/discovery/series-learning.mjs');
+const wikidataBootstrap = read('tools/discovery/wikidata-bootstrap.mjs');
+const collector = read('tools/collect/run.mjs');
 assert.match(discoveryRun, /loadKnownWorkWasmSearch/, 'discovery runner must load registered works through search.wasm');
 assert.match(discoveryRun, /knownWorkSearch/, 'discovery runner must pass search.wasm lookup into the engine');
-assert.match(discoveryEngine, /hasExactTitle/, 'discovery engine must query search.wasm before collecting known-work evidence');
-assert.match(discoveryEngine, /knownStateCandidatesPruned/, 'registered candidates already in discovery state must be pruned after CSV registration');
+assert.match(discoveryEngine, /hasExactTitle/, 'discovery engine must query search.wasm for registered works');
+assert.match(discoveryEngine, /knownStateCandidatesRetained/, 'registered candidates must stay researchable after CSV registration');
+assert.match(discoveryEngine, /knownWorkEvidenceReused/, 'registered-work evidence must be reused for enrichment');
+assert.match(discoveryEngine, /seriesPriorityBoost/, 'series-first link prioritization must be connected');
+assert.match(seriesLearning, /relatedSeriesHints/, 'series learner must expose related work hints');
+assert.match(wikidataBootstrap, /wdt:P179/, 'Wikidata bootstrap must learn series membership');
+assert.match(wikidataBootstrap, /wdt:P155/, 'Wikidata bootstrap must learn previous works');
+assert.match(wikidataBootstrap, /wdt:P156/, 'Wikidata bootstrap must learn next works');
+assert.match(collector, /prepareEnrichmentWrites/, 'collector must stage registered-work blank-field enrichment');
+assert.match(collector, /restoreSnapshots/, 'collector enrichment must have rollback');
 
 const discoveryDir = path.join(root, 'tools', 'discovery');
 const discoverySource = fs.readdirSync(discoveryDir)
@@ -140,12 +151,13 @@ console.log('manual discovery/collection cron: NONE');
 console.log('quarterly production activation: PRESENT');
 console.log('Gemini default: OFF');
 console.log('Gemini secret scope: OPT-IN COLLECTION STEP ONLY');
-console.log('initial CSV package size: 450');
+console.log('initial CSV package size: 500');
 console.log('Gemini daily call limit: 450 / opt-in only');
 console.log('24-hour confirmed-work inactivity stop: PRESENT');
 console.log('single CSV package cycle-stop: BLOCKED');
 console.log('Pages stale-manifest retry: PRESENT');
-console.log('registered-work next-run lookup: search.wasm');
+console.log('registered-work next-run lookup: search.wasm + enrichment retained');
+console.log('series-first research: PRESENT');
 console.log('streaming/original/relation validation: PASS');
 console.log('external search API coupling: NONE');
 console.log('public secret exposure markers: NONE');
