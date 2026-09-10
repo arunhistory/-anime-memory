@@ -10,6 +10,10 @@ import {
   seriesPriorityBoost
 } from './series-learning.mjs';
 import {
+  informationPriorityBoost,
+  recordCandidateResearch
+} from './research-completion.mjs';
+import {
   buildResearchStrategyModel,
   emptyResearchStrategyState,
   learnSourceTrustFromKnownRecord,
@@ -73,6 +77,7 @@ function addCandidate(candidateMap, candidate, sourceUrl, now, evidence, trustMo
     evidence: [],
     facts: {},
     series: {},
+    research: {},
     lastSeen: now
   };
   if (!current.title) current.title = candidate.title;
@@ -82,6 +87,13 @@ function addCandidate(candidateMap, candidate, sourceUrl, now, evidence, trustMo
   current.evidence = collapseSameFamilyEvidence(mergeEvidence(current.evidence, evidence || []));
   current.facts = resolveEvidenceWithTrust(current.evidence, trustModel);
   current.series = mergeSeriesKnowledge(current.series, candidate.series);
+  if (sourceUrl) {
+    current.research = recordCandidateResearch(current.research, {
+      url: sourceUrl,
+      evidence: evidence || [],
+      observedAt: now
+    });
+  }
   current.lastSeen = now;
   candidateMap.set(key, current);
   return !existed;
@@ -134,6 +146,19 @@ function seriesHintsFromEntry(candidateMap, subjectKey, entryHints) {
     if (candidate) values.push(...relatedSeriesHints(candidate, candidates));
   }
   return normalizeCandidateHints(values);
+}
+
+function informationCandidatesFromContext(candidateMap, subjectHint, entryHints, verificationHints) {
+  const candidates = [];
+  const seen = new Set();
+  for (const title of normalizeCandidateHints([subjectHint, ...(entryHints || []), ...(verificationHints || [])])) {
+    const key = normalizeTitleKey(title);
+    const candidate = candidateMap.get(key);
+    if (!candidate || seen.has(key)) continue;
+    seen.add(key);
+    candidates.push(candidate);
+  }
+  return candidates;
 }
 
 export async function runDiscovery(options) {
@@ -194,6 +219,7 @@ export async function runDiscovery(options) {
     coldStartConflictedFieldsSkipped: 0,
     researchStrategyBoostedLinks: 0,
     seriesPriorityLinks: 0,
+    informationPriorityLinks: 0,
     seriesShellCandidates: 0,
     newLinks: 0,
     robotsSkipped: 0,
@@ -398,11 +424,12 @@ export async function runDiscovery(options) {
             series: existingCandidate.series
           };
           const evidence = extractCandidateEvidence(document, verificationCandidate, now);
-          if (!evidence.length) continue;
           stats.verificationPages += 1;
-          stats.verificationEvidenceClaims += evidence.length;
-          stats.evidenceClaims += evidence.length;
-          pageEvidenceClaims += evidence.length;
+          if (evidence.length) {
+            stats.verificationEvidenceClaims += evidence.length;
+            stats.evidenceClaims += evidence.length;
+            pageEvidenceClaims += evidence.length;
+          }
           addCandidate(candidateMap, verificationCandidate, sourceUrl, now, evidence, trustModel);
           acceptedVerificationHints.push(verificationCandidate.title);
         }
@@ -431,6 +458,12 @@ export async function runDiscovery(options) {
       subjectHint,
       ...acceptedVerificationHints
     ]);
+    const informationCandidates = informationCandidatesFromContext(
+      candidateMap,
+      subjectHint,
+      entry.candidateHints,
+      acceptedVerificationHints
+    );
     const rankedLinks = [];
     for (const link of document.links) {
       const linkUrl = normalizeUrl(link.url, document.url);
@@ -439,8 +472,13 @@ export async function runDiscovery(options) {
       const rawLinkScore = scoreDiscoveredLink(link, pageScore, titleBoostSet);
       const seriesBoost = seriesPriorityBoost(link, seriesHints);
       if (seriesBoost > 0) stats.seriesPriorityLinks += 1;
+      const informationBoost = informationCandidates.reduce(
+        (best, candidate) => Math.max(best, informationPriorityBoost({ url: linkUrl, anchor: link.anchor }, candidate)),
+        0
+      );
+      if (informationBoost > 0) stats.informationPriorityLinks += 1;
       const sameSite = linkOrigin === sameOrigin;
-      const discoveryScore = rawLinkScore + seriesBoost;
+      const discoveryScore = rawLinkScore + seriesBoost + informationBoost;
 
       const minScore = relevant ? (sameSite ? 0 : 18) : (sameSite ? 25 : 55);
       if (discoveryScore < minScore) continue;
