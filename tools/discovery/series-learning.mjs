@@ -158,10 +158,11 @@ export function ensureSeriesMemberShells(candidateMap, candidate, now = new Date
     candidateMap.set(key, {
       key,
       title: member.title,
-      sources: member.url ? [member.url] : [],
+      sources: [],
       evidence: [],
       facts: {},
       series: mergeSeriesKnowledge(knowledge, { members: [{ ...member }] }),
+      research: {},
       lastSeen: now
     });
     added += 1;
