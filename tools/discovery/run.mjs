@@ -107,6 +107,9 @@ async function main() {
   console.log(`registered candidates pruned from saved state: ${result.stats.knownStateCandidatesPruned}`);
   console.log(`entity merges: ${result.stats.entityMerges}`);
   console.log(`evidence claims: ${result.stats.evidenceClaims}`);
+  console.log(`candidate verification pages: ${result.stats.verificationPages}`);
+  console.log(`candidate verification evidence claims: ${result.stats.verificationEvidenceClaims}`);
+  console.log(`candidate verification links promoted: ${result.stats.verificationLinksPromoted}`);
   console.log(`new links queued: ${result.stats.newLinks}`);
   console.log(`host-filtered deferred: ${result.stats.hostFiltered}`);
   console.log(`robots skipped: ${result.stats.robotsSkipped}`);
