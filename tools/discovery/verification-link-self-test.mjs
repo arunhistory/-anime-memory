@@ -1,0 +1,63 @@
+import assert from 'node:assert/strict';
+import { runDiscovery } from './engine.mjs';
+import { emptyDiscoveryState, seedFrontier } from './state.mjs';
+
+const pages = new Map([
+  ['https://seed.test/', `
+    <html><head><title>TVアニメ「星の旅」作品紹介</title></head><body>
+      <article>日本のTVアニメ「星の旅」は2027年4月3日放送開始。アニメーション制作：Studio Star</article>
+      <a href="https://news.test/interview">制作インタビュー</a>
+    </body></html>`],
+  ['https://news.test/interview', `
+    <html><head>
+      <title>制作の舞台裏：星の旅の放送が始まるまで</title>
+      <meta name="description" content="星の旅 制作インタビュー">
+    </head><body>
+      <article>日本のTVアニメ「星の旅」は2027年4月3日放送開始。アニメーション制作：Studio Star</article>
+    </body></html>`]
+]);
+
+const fakeFetcher = {
+  async fetchPage(url) {
+    if (!pages.has(url)) return { ok: false, skipped: true, reason: 'fixture-missing' };
+    return {
+      ok: true,
+      url,
+      contentType: 'text/html; charset=utf-8',
+      text: pages.get(url),
+      sitemaps: []
+    };
+  }
+};
+
+const state = emptyDiscoveryState();
+seedFrontier(state, ['https://seed.test/']);
+const discovery = await runDiscovery({
+  state,
+  fetcher: fakeFetcher,
+  maxPages: 10,
+  maxDepth: 3,
+  perHostLimit: 10,
+  now: '2026-09-09T00:00:00.000Z'
+});
+
+const candidate = discovery.state.candidates.find((item) => item.title === '星の旅');
+assert.ok(candidate, 'seed subject candidate must be discovered');
+assert.ok(candidate.sources.includes('https://seed.test/'));
+assert.ok(candidate.sources.includes('https://news.test/interview'), 'related page must join the existing candidate');
+assert.equal(candidate.facts.origin_country.status, 'confirmed');
+assert.equal(candidate.facts.origin_country.value, 'JP');
+assert.equal(candidate.facts.media_type.status, 'confirmed');
+assert.equal(candidate.facts.media_type.value, 'TV');
+assert.equal(candidate.facts.release_start.status, 'confirmed');
+assert.equal(candidate.facts.release_start.value, '2027-04-03');
+assert.equal(candidate.facts.animation_studio.status, 'confirmed');
+assert.equal(candidate.facts.animation_studio.value, 'Studio Star');
+assert.ok(discovery.stats.verificationPages >= 1, 'related focused page must be processed as verification evidence');
+assert.ok(discovery.stats.verificationEvidenceClaims >= 4, 'verification page must contribute field evidence');
+assert.ok(discovery.stats.verificationLinksPromoted >= 1, 'candidate-scoped verification link must be promoted');
+
+console.log('Candidate-scoped verification self-test: PASS');
+console.log('related-page field evidence join: PASS');
+console.log('cross-host corroboration through verification hint: PASS');
+console.log('unfocused body-only pages: not promoted to verification evidence by this test path');
