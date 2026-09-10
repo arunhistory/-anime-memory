@@ -16,6 +16,34 @@ function popBest(frontier) {
   return frontier.splice(bestIndex, 1)[0];
 }
 
+function normalizeCandidateHints(values) {
+  const source = Array.isArray(values) ? values : [];
+  const output = [];
+  const seen = new Set();
+  for (const value of source) {
+    const title = String(value || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+    const key = normalizeTitleKey(title);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    output.push(title);
+    if (output.length >= 4) break;
+  }
+  return output;
+}
+
+function pageFocusesCandidate(document, title) {
+  const candidate = String(title || '').normalize('NFKC').replace(/\s+/g, ' ').trim();
+  if (!candidate) return false;
+  const headline = `${document.title || ''}\n${document.ogTitle || ''}\n${document.description || ''}`
+    .normalize('NFKC')
+    .replace(/\s+/g, ' ');
+  if (headline.includes(candidate)) return true;
+
+  const key = normalizeTitleKey(candidate);
+  if (key.length < 4) return false;
+  return normalizeTitleKey(headline).includes(key);
+}
+
 function addCandidate(candidateMap, candidate, sourceUrl, now, evidence = []) {
   const key = normalizeTitleKey(candidate.title || candidate.key);
   if (!key) return false;
@@ -43,14 +71,29 @@ function addFrontier(frontier, queued, visited, entry) {
   const url = normalizeUrl(entry.url);
   if (!url) return false;
   const hash = urlHash(url);
-  if (visited.has(hash) || queued.has(url)) return false;
-  frontier.push({
+  if (visited.has(hash)) return false;
+
+  const priority = Math.max(-100, Math.min(1000, Number(entry.priority || 0)));
+  const candidateHints = normalizeCandidateHints(entry.candidateHints);
+  const existing = queued.get(url);
+  if (existing) {
+    existing.priority = Math.max(Number(existing.priority || 0), priority);
+    existing.candidateHints = normalizeCandidateHints([
+      ...(existing.candidateHints || []),
+      ...candidateHints
+    ]);
+    return false;
+  }
+
+  const item = {
     url,
-    priority: Math.max(-100, Math.min(1000, Number(entry.priority || 0))),
+    priority,
     depth: Math.max(0, Number(entry.depth || 0)),
-    discoveredFrom: normalizeUrl(entry.discoveredFrom) || ''
-  });
-  queued.add(url);
+    discoveredFrom: normalizeUrl(entry.discoveredFrom) || '',
+    candidateHints
+  };
+  frontier.push(item);
+  queued.set(url, item);
   return true;
 }
 
@@ -85,7 +128,13 @@ export async function runDiscovery(options) {
 
   const frontier = state.frontier;
   const visited = new Set(state.visited || []);
-  const queued = new Set(frontier.map((entry) => normalizeUrl(entry.url)).filter(Boolean));
+  const queued = new Map();
+  for (const entry of frontier) {
+    const url = normalizeUrl(entry?.url);
+    if (!url) continue;
+    queued.set(url, entry);
+    entry.candidateHints = normalizeCandidateHints(entry.candidateHints);
+  }
   const hostCounts = new Map();
   const deferredBlocked = [];
   const stats = {
@@ -96,6 +145,9 @@ export async function runDiscovery(options) {
     candidatesFound: 0,
     entityMerges: 0,
     evidenceClaims: 0,
+    verificationPages: 0,
+    verificationEvidenceClaims: 0,
+    verificationLinksPromoted: 0,
     newLinks: 0,
     robotsSkipped: 0,
     otherSkipped: 0,
@@ -176,7 +228,8 @@ export async function runDiscovery(options) {
           url,
           priority: Math.max(35, Number(entry.priority || 0) - 10),
           depth: entry.depth + 1,
-          discoveredFrom: result.url
+          discoveredFrom: result.url,
+          candidateHints: entry.candidateHints || []
         })) stats.sitemapLinks += 1;
       }
       continue;
@@ -198,6 +251,7 @@ export async function runDiscovery(options) {
     if (relevant) stats.relevant += 1;
     if (relevant && document.discoveryOnly) stats.discoveryOnlyPages += 1;
 
+    const acceptedVerificationHints = [];
     if (relevant) {
       mergeDocument(state.documents, {
         url: document.canonical || document.url,
@@ -223,6 +277,33 @@ export async function runDiscovery(options) {
           stats.evidenceClaims += evidence.length;
           if (addCandidate(candidateMap, candidate, sourceUrl, now, evidence)) stats.candidatesFound += 1;
         }
+
+        const verificationHints = normalizeCandidateHints(entry.candidateHints);
+        for (const hint of verificationHints) {
+          const hintKey = normalizeTitleKey(hint);
+          if (!hintKey || isKnownTitle(hint)) continue;
+          const existingCandidate = candidateMap.get(hintKey);
+          if (!existingCandidate) continue;
+
+          if (subjectKey === hintKey) {
+            acceptedVerificationHints.push(existingCandidate.title || hint);
+            continue;
+          }
+          if (!pageFocusesCandidate(document, existingCandidate.title || hint)) continue;
+
+          const sourceUrl = document.canonical || document.url;
+          const verificationCandidate = {
+            key: hintKey,
+            title: existingCandidate.title || hint
+          };
+          const evidence = extractCandidateEvidence(document, verificationCandidate, now);
+          if (!evidence.length) continue;
+          stats.verificationPages += 1;
+          stats.verificationEvidenceClaims += evidence.length;
+          stats.evidenceClaims += evidence.length;
+          addCandidate(candidateMap, verificationCandidate, sourceUrl, now, evidence);
+          acceptedVerificationHints.push(verificationCandidate.title);
+        }
       }
     }
 
@@ -231,29 +312,41 @@ export async function runDiscovery(options) {
     const existingCandidateTitles = [...candidateMap.values()].slice(-200).map((item) => item.title);
     const titleBoostSet = [...new Set([...detectedTitles, ...existingCandidateTitles])].slice(0, 250);
     const sameOrigin = new URL(document.url).origin;
+    const subjectHint = relevant && !document.discoveryOnly && document.subjectCandidate && !subjectKnown
+      ? document.subjectCandidate.title
+      : '';
+    const verificationHintsForLinks = normalizeCandidateHints([
+      subjectHint,
+      ...acceptedVerificationHints
+    ]);
     const rankedLinks = [];
     for (const link of document.links) {
       const linkUrl = normalizeUrl(link.url, document.url);
       if (!linkUrl) continue;
       const linkOrigin = new URL(linkUrl).origin;
-      const linkScore = scoreDiscoveredLink(link, pageScore, titleBoostSet);
+      const rawLinkScore = scoreDiscoveredLink(link, pageScore, titleBoostSet);
       const sameSite = linkOrigin === sameOrigin;
 
       const minScore = relevant ? (sameSite ? 0 : 18) : (sameSite ? 25 : 55);
-      if (linkScore < minScore) continue;
-      rankedLinks.push({ linkUrl, linkScore, sameSite });
+      if (rawLinkScore < minScore) continue;
+      const verificationBoost = verificationHintsForLinks.length ? (sameSite ? 25 : 45) : 0;
+      const linkScore = Math.min(500, rawLinkScore + verificationBoost);
+      rankedLinks.push({ linkUrl, linkScore, sameSite, candidateHints: verificationHintsForLinks });
     }
 
     rankedLinks.sort((a, b) => b.linkScore - a.linkScore);
     let externalAdded = 0;
     for (const item of rankedLinks.slice(0, 200)) {
       if (!item.sameSite && externalAdded >= 30) continue;
-      if (addFrontier(frontier, queued, visited, {
+      const added = addFrontier(frontier, queued, visited, {
         url: item.linkUrl,
         priority: Number(entry.priority || 0) * 0.35 + item.linkScore,
         depth: entry.depth + 1,
-        discoveredFrom: document.url
-      })) {
+        discoveredFrom: document.url,
+        candidateHints: item.candidateHints
+      });
+      if (item.candidateHints.length) stats.verificationLinksPromoted += 1;
+      if (added) {
         stats.newLinks += 1;
         if (!item.sameSite) externalAdded += 1;
       }
@@ -264,7 +357,8 @@ export async function runDiscovery(options) {
         url: sitemap,
         priority: Math.max(50, Number(entry.priority || 0)),
         depth: Math.min(entry.depth + 1, maxDepth),
-        discoveredFrom: document.url
+        discoveredFrom: document.url,
+        candidateHints: acceptedVerificationHints
       })) stats.sitemapLinks += 1;
     }
   }
