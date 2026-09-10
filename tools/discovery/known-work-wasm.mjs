@@ -84,6 +84,28 @@ export class KnownWorkWasmSearch {
   hasExactTitle(title) {
     return this.findExactTitle(title, 1).length > 0;
   }
+
+  getRecordById(id) {
+    const value = String(id || '').trim();
+    if (!this.available || !/^A\d{8}$/.test(value)) return null;
+    const module = this.module;
+    if (!module?._anime_search_record_json_by_id) throw new Error('search.wasm record lookup API is unavailable.');
+    return withCString(module, value, (pointer) => {
+      const resultPointer = module._anime_search_record_json_by_id(pointer);
+      if (!resultPointer) return null;
+      const text = module.UTF8ToString(resultPointer);
+      if (!text || text === 'null') return null;
+      const parsed = JSON.parse(text);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+    });
+  }
+
+  findUniqueExactRecord(title) {
+    const matches = this.findExactTitle(title, 3);
+    const ids = [...new Set(matches.map((item) => String(item?.id || '')).filter((id) => /^A\d{8}$/.test(id)))];
+    if (ids.length !== 1) return null;
+    return this.getRecordById(ids[0]);
+  }
 }
 
 export async function loadKnownWorkWasmSearch(options = {}) {
