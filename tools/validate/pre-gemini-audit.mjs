@@ -63,18 +63,21 @@ assert.match(collectWorkflow, /node tools\/discovery\/structured-evidence-self-t
 assert.match(discoveryWorkflow, /known-work-wasm-self-test\.mjs/, 'search.wasm registered-work preflight missing');
 assert.match(discoveryWorkflow, /known-work-skip-self-test\.mjs/, 'next-run registered-work skip preflight missing');
 
-assert.equal(INITIAL_CSV_RECORD_LIMIT, 500, 'initial CSV package size must remain 500');
+assert.equal(INITIAL_CSV_RECORD_LIMIT, 450, 'initial CSV package size must remain 450');
 assert.equal(GEMINI_DAILY_CALL_LIMIT, 450, 'Gemini daily call limit must remain 450');
 assert.match(productionWorkflow, /cycle\.mjs checkpoint/, '24-hour inactivity checkpoint missing');
 assert.match(productionWorkflow, /cycle_action=continue/, 'bounded workflow continuation missing');
 assert.match(productionWorkflow, /actions:\s*write/, 'bounded workflow continuation permission missing');
 assert.match(productionWorkflow, /--max-pages 100/, 'production batch must remain bounded to 100 pages');
 assert.equal(/while true/.test(productionWorkflow), false, 'unbounded production loop returned');
+assert.equal(/stop\s+--reason\s+package-complete/.test(productionWorkflow), false, 'one CSV package must not terminate the research cycle');
+assert.match(productionWorkflow, /if grep -Eq '[^']+' \/tmp\/manifest\.csv; then/, 'Pages manifest retry must not fail on a stale successful response');
 
 const validator = read('tools/validate/data-validator.mjs');
 assert.match(validator, /'Web 最速'/, 'streaming mode Web 最速 spacing drifted');
 assert.match(validator, /relations targetが存在しない/, 'relation target existence validation missing');
 assert.match(validator, /original_type は原作タグ1つのみ指定可能/, 'single original_type enforcement missing');
+assert.match(validator, /isKnownLegacyInitial001/, 'known legacy 500-record package compatibility guard missing');
 
 const knownWorkWasm = read('tools/discovery/known-work-wasm.mjs');
 assert.match(knownWorkWasm, /assets[^\n]+wasm[^\n]+search\.js/, 'registered-work lookup must reuse assets/wasm/search.js');
@@ -137,9 +140,11 @@ console.log('manual discovery/collection cron: NONE');
 console.log('quarterly production activation: PRESENT');
 console.log('Gemini default: OFF');
 console.log('Gemini secret scope: OPT-IN COLLECTION STEP ONLY');
-console.log('initial CSV package size: 500');
+console.log('initial CSV package size: 450');
 console.log('Gemini daily call limit: 450 / opt-in only');
 console.log('24-hour confirmed-work inactivity stop: PRESENT');
+console.log('single CSV package cycle-stop: BLOCKED');
+console.log('Pages stale-manifest retry: PRESENT');
 console.log('registered-work next-run lookup: search.wasm');
 console.log('streaming/original/relation validation: PASS');
 console.log('external search API coupling: NONE');
