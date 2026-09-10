@@ -3,6 +3,7 @@ import path from 'node:path';
 import { normalizeUrl, urlHash } from './url.mjs';
 import { normalizeTitleKey } from './html.mjs';
 import { mergeEvidence, resolveEvidence } from './evidence.mjs';
+import { collapseSameFamilyEvidence } from './source-family.mjs';
 
 export function emptyDiscoveryState() {
   return {
@@ -55,11 +56,33 @@ function sanitizeFacts(facts) {
   return output;
 }
 
+function sanitizeCandidateHints(values) {
+  const source = Array.isArray(values) ? values : [];
+  const output = [];
+  const seen = new Set();
+  for (const value of source) {
+    const title = String(value || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+    const key = normalizeTitleKey(title);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    output.push(title);
+    if (output.length >= 4) break;
+  }
+  return output;
+}
+
 export function saveDiscoveryState(filePath, state) {
   const clean = sanitizeState(state);
   clean.updatedAt = new Date().toISOString();
   clean.frontier = clean.frontier
-    .filter((entry) => normalizeUrl(entry.url))
+    .map((entry) => ({
+      url: normalizeUrl(entry?.url),
+      priority: Math.max(-100, Math.min(1000, Number(entry?.priority || 0))),
+      depth: Math.max(0, Number(entry?.depth || 0)),
+      discoveredFrom: normalizeUrl(entry?.discoveredFrom) || '',
+      candidateHints: sanitizeCandidateHints(entry?.candidateHints)
+    }))
+    .filter((entry) => entry.url)
     .sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0))
     .slice(0, 50000);
   clean.visited = [...new Set(clean.visited.map(String))].slice(-250000);
@@ -77,7 +100,7 @@ export function saveDiscoveryState(filePath, state) {
     .slice(0, 20000);
   clean.candidates = clean.candidates
     .map((candidate) => {
-      const evidence = mergeEvidence(candidate.evidence || []);
+      const evidence = collapseSameFamilyEvidence(mergeEvidence(candidate.evidence || []));
       const resolved = resolveEvidence(evidence);
       return {
         key: normalizeTitleKey(candidate.title || candidate.key),
@@ -103,7 +126,7 @@ export function seedFrontier(state, urls, priority = 100) {
   for (const raw of urls) {
     const url = normalizeUrl(raw);
     if (!url || seen.has(url) || visited.has(urlHash(url))) continue;
-    state.frontier.push({ url, priority, depth: 0, discoveredFrom: '' });
+    state.frontier.push({ url, priority, depth: 0, discoveredFrom: '', candidateHints: [] });
     seen.add(url);
   }
 }
