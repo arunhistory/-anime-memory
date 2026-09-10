@@ -41,7 +41,8 @@ export function scoreDiscoveredLink(link, parentScore, candidateTitles = []) {
   const positive = [
     ['anime', 25], ['アニメ', 25], ['works', 12], ['作品', 15], ['news', 8], ['ニュース', 8],
     ['cast', 18], ['キャスト', 18], ['staff', 18], ['スタッフ', 18], ['onair', 18], ['放送', 18],
-    ['stream', 18], ['配信', 18], ['movie', 12], ['劇場', 12], ['pv', 12], ['原作', 10]
+    ['stream', 18], ['配信', 18], ['movie', 12], ['劇場', 12], ['pv', 12], ['原作', 10],
+    ['official', 45], ['公式サイト', 45], ['公式', 30]
   ];
   const negative = [
     ['privacy', -45], ['policy', -35], ['terms', -35], ['contact', -40], ['recruit', -50],
