@@ -121,11 +121,21 @@ export function discoveryCandidateReadiness(candidate) {
   return { ready: true, reason: '' };
 }
 
-export function publishableDiscoveryReadiness(candidate) {
+function seriesExpansionReadiness(candidate, expandedSeriesRefs = []) {
+  const ref = String(candidate?.series?.ref || '').trim();
+  if (!ref) return { ready: true, reason: '' };
+  const expanded = new Set((Array.isArray(expandedSeriesRefs) ? expandedSeriesRefs : []).map((value) => String(value || '').trim()).filter(Boolean));
+  if (!expanded.has(ref)) return { ready: false, reason: 'series-not-expanded' };
+  return { ready: true, reason: '' };
+}
+
+export function publishableDiscoveryReadiness(candidate, { expandedSeriesRefs = [] } = {}) {
   const identity = discoveryCandidateReadiness(candidate);
   if (!identity.ready) return identity;
+  const series = seriesExpansionReadiness(candidate, expandedSeriesRefs);
+  if (!series.ready) return { ...series, identityReady: true };
   const information = candidateInformationReadiness(candidate);
-  if (!information.ready) return { ...information, identityReady: true };
+  if (!information.ready) return { ...information, identityReady: true, seriesReady: true };
   return { ...identity, information, ready: true, reason: '' };
 }
 
@@ -161,8 +171,9 @@ export function candidateToCommonRecord(candidate, columns, confirmedDate) {
 export function readyDiscoveryRecords(state, columns, confirmedDate) {
   const records = [];
   const skipped = [];
+  const expandedSeriesRefs = state?.wikidataSeriesExpansion?.expandedRefs || [];
   for (const candidate of state?.candidates || []) {
-    const readiness = publishableDiscoveryReadiness(candidate);
+    const readiness = publishableDiscoveryReadiness(candidate, { expandedSeriesRefs });
     if (!readiness.ready) {
       skipped.push({ key: candidate?.key || '', title: candidate?.title || '', reason: readiness.reason });
       continue;
