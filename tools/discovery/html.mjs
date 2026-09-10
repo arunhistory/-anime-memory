@@ -100,6 +100,24 @@ function cleanCandidateTitle(value) {
   return text;
 }
 
+function isGenericPageSubject(value) {
+  const text = String(value || '').normalize('NFKC').replace(/\s+/g, ' ').trim();
+  if (!text) return true;
+  if (/^[「『“][^」』”]*$/.test(text)) return true;
+  if (/(?:芸能)?ニュース(?:一覧|検索)?$/i.test(text)) return true;
+  if (/^(?:アニメ|anime)?\s*(?:番組|作品)?\s*(?:検索|一覧|データベース|カタログ)$/i.test(text)) return true;
+  if (/(?:アニメ|anime|番組|作品).*(?:検索|一覧|データベース|カタログ|ランキング|特集)$/i.test(text)) return true;
+  if (/(?:検索|一覧|データベース|カタログ|ランキング|特集).*(?:アニメ|anime|番組|作品)$/i.test(text)) return true;
+  if ((text.match(/[|｜]/g) || []).length >= 2 && /(?:アニメ|anime|作品|公式|official|ニュース|サイト)/i.test(text)) return true;
+  if (/。[「『“]/.test(text) && /[」』”]$/.test(text)) return true;
+  return false;
+}
+
+export function isPlausibleAnimeTitle(value) {
+  const title = cleanCandidateTitle(value);
+  return Boolean(title && !isGenericPageSubject(title));
+}
+
 export function normalizeTitleKey(value) {
   return String(value || '')
     .normalize('NFKC')
@@ -139,7 +157,7 @@ function subjectCandidateFromPage(document) {
 
   const firstHeading = rawHeadings[0] || '';
   const subject = cleanCandidateTitle(firstHeading.replace(/\s+(?:[-–—|｜])\s+[^\n]{1,80}$/, ''));
-  if (!subject || subject.length > 80) return null;
+  if (!subject || subject.length > 80 || isGenericPageSubject(subject)) return null;
   if (/^(?:アニメ|anime)(?:\s|$|[（(])/i.test(subject)) return null;
   if (/(?:アニメ|アニメーション).*(?:一覧|歴史|産業|市場|文化|事情|解説)$/i.test(subject)) return null;
   const body = String(document.text || '').slice(0, 12000);
