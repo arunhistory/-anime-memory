@@ -19,6 +19,19 @@ const GROUP_FIELDS = new Map([
   ['recognition', ['awards']]
 ]);
 
+const ROUTE_GROUPS = new Map([
+  ['staff', ['staff']],
+  ['character', ['cast']],
+  ['streaming', ['distribution']],
+  ['broadcast', ['distribution', 'release']],
+  ['music', ['music']],
+  ['original', ['original']],
+  ['episode', ['episodes', 'release']],
+  ['production', ['production']],
+  ['official', ['official']],
+  ['works', ['classification', 'release', 'official']]
+]);
+
 const IDENTITY_FIELDS = new Set(['title_ja', 'media_type', 'origin_country']);
 
 function cleanList(values, max = MAX_TRACKED_VALUES) {
@@ -153,4 +166,20 @@ export function candidateInformationReadiness(candidate) {
     routes,
     sourceFamilies
   };
+}
+
+export function informationPriorityBoost(link, candidate) {
+  if (!candidate || candidateInformationReadiness(candidate).ready) return 0;
+  const url = normalizeUrl(link?.url);
+  if (!url) return 0;
+  const route = researchRouteKind(url, link?.anchor || '');
+  const targetGroups = ROUTE_GROUPS.get(route) || [];
+  const covered = new Set(confirmedInformationGroups(candidate));
+  let boost = targetGroups.some((group) => !covered.has(group)) ? 85 : 0;
+
+  const research = sanitizeCandidateResearch(candidate?.research);
+  const family = sourceFamilyKey(url);
+  if (family && !research.sourceFamilies.includes(family)) boost += 25;
+  if (research.pageUrls.includes(url)) return 0;
+  return Math.min(110, boost);
 }
