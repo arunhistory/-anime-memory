@@ -1,5 +1,6 @@
 import { normalizeTitleKey } from './html.mjs';
 import { mergeEvidence, resolveEvidence } from './evidence.mjs';
+import { mergeSeriesKnowledge } from './series-learning.mjs';
 
 function fact(candidate, field) {
   const value = candidate?.facts?.[field];
@@ -96,6 +97,7 @@ function mergePair(left, right, resolveFacts) {
     sources,
     evidence,
     facts: resolveFacts(evidence),
+    series: mergeSeriesKnowledge(primary.series, secondary.series),
     lastSeen: [primary.lastSeen, secondary.lastSeen].filter(Boolean).sort().at(-1) || ''
   };
 }
@@ -107,7 +109,8 @@ export function resolveCandidateEntities(candidates = [], resolveFacts = resolve
     return {
       ...candidate,
       evidence,
-      facts: resolver(evidence)
+      facts: resolver(evidence),
+      series: mergeSeriesKnowledge({}, candidate.series)
     };
   });
   let merges = 0;
