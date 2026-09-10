@@ -1,7 +1,7 @@
-import crypto from 'node:crypto';
 import { normalizeText, splitEscapedRaw } from '../normalize/record.mjs';
 import { sourceFamilyKey } from './source-family.mjs';
 import { candidateInformationReadiness } from './research-completion.mjs';
+import { discoveryExternalIdForKey, seriesIdForRef } from './series-record.mjs';
 
 const IDENTITY_CORROBORATORS = ['release_start', 'theatrical_release_date', 'animation_studio'];
 const PROTECTED_COLUMNS = new Set(['id', 'synopsis', 'updated_at']);
@@ -11,12 +11,6 @@ const LEARNED_CORE_MIN_DIRECTNESS = 90;
 
 function emptyRecord(columns) {
   return Object.fromEntries(columns.map((column) => [column, '']));
-}
-
-function discoveryExternalId(candidate) {
-  const key = String(candidate?.key || '').normalize('NFKC').trim();
-  if (!key) return '';
-  return `discovery-key::${crypto.createHash('sha256').update(key).digest('hex')}`;
 }
 
 function valueMatchesFact(evidenceValue, factValue) {
@@ -162,7 +156,8 @@ export function candidateToCommonRecord(candidate, columns, confirmedDate) {
     if ((fact?.status === 'confirmed' || acceptedCore) && fact.value) record[field] = String(fact.value);
   }
 
-  if (columns.includes('external_ids')) record.external_ids = mergeExternalIds(record.external_ids, discoveryExternalId(candidate));
+  if (columns.includes('series_id') && candidate?.series?.ref) record.series_id = seriesIdForRef(candidate.series.ref);
+  if (columns.includes('external_ids')) record.external_ids = mergeExternalIds(record.external_ids, discoveryExternalIdForKey(candidate?.key));
   if (columns.includes('synopsis')) record.synopsis = '';
   if (columns.includes('updated_at')) record.updated_at = String(confirmedDate || '').slice(0, 10);
   return record;
