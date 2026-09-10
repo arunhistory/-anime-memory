@@ -41,6 +41,10 @@ assert.equal(state.candidates[0].title, 'Dr.STONE SCIENCE FUTURE');
 assert.equal(state.candidates[0].series.title, 'Dr.STONE');
 assert.ok(state.candidates[0].series.members.some((item) => item.title === 'Dr.STONE NEW WORLD' && item.kind === 'PREQUEL'));
 assert.ok(state.candidates[0].series.members.some((item) => item.title === 'Dr.STONE SCIENCE FUTURE Part 2' && item.kind === 'SEQUEL'));
+assert.ok(state.candidates[0].series.relations.some((item) => item.sourceTitle === 'Dr.STONE SCIENCE FUTURE' && item.targetTitle === 'Dr.STONE NEW WORLD' && item.kind === 'PREQUEL'));
+assert.ok(state.candidates[0].series.relations.some((item) => item.sourceTitle === 'Dr.STONE NEW WORLD' && item.targetTitle === 'Dr.STONE SCIENCE FUTURE' && item.kind === 'SEQUEL'));
+assert.ok(state.candidates[0].series.relations.some((item) => item.sourceTitle === 'Dr.STONE SCIENCE FUTURE' && item.targetTitle === 'Dr.STONE SCIENCE FUTURE Part 2' && item.kind === 'SEQUEL'));
+assert.ok(state.candidates[0].series.relations.some((item) => item.sourceTitle === 'Dr.STONE SCIENCE FUTURE Part 2' && item.targetTitle === 'Dr.STONE SCIENCE FUTURE' && item.kind === 'PREQUEL'));
 assert.ok(state.candidates[0].evidence.some((item) => item.field === 'origin_country' && item.value === 'JP'));
 assert.ok(state.candidates[0].evidence.some((item) => item.field === 'media_type' && item.value === 'TV'));
 assert.ok(state.candidates[0].evidence.some((item) => item.field === 'release_start' && item.value === '2025-01-09'));
@@ -53,5 +57,6 @@ assert.equal(second.completed, true);
 
 console.log('Wikidata structured bootstrap: PASS');
 console.log('country-of-origin Japan gate: PASS');
+console.log('reciprocal prequel/sequel graph: PASS');
 console.log('series-first relation expansion: PASS');
 console.log('bounded cursor completion: PASS');
