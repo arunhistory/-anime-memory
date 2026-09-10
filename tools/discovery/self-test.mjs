@@ -12,6 +12,7 @@ import { PoliteFetcher } from './fetch-page.mjs';
 import { runDiscovery } from './engine.mjs';
 import { emptyDiscoveryState, saveDiscoveryState, loadDiscoveryState, seedFrontier } from './state.mjs';
 import { DiscoveryIndex } from './index.mjs';
+import { recordSourceTrustOutcome } from './research-strategy.mjs';
 
 assert.equal(normalizeUrl('https://EXAMPLE.com/a?utm_source=x&id=1#frag'), 'https://example.com/a?id=1');
 assert.equal(normalizeUrl('javascript:alert(1)'), null);
@@ -124,6 +125,19 @@ const fakeFetcher = {
   }
 };
 const state = emptyDiscoveryState();
+for (const sourceUrl of ['https://seed.test/', 'https://news.test/star']) {
+  for (const field of ['title_ja', 'origin_country', 'media_type', 'release_start', 'animation_studio']) {
+    for (let i = 0; i < 4; i += 1) {
+      recordSourceTrustOutcome(state.researchStrategy, {
+        sourceUrl,
+        field,
+        outcome: 'match',
+        strength: 'strong',
+        observedAt: '2026-09-08T00:00:00.000Z'
+      });
+    }
+  }
+}
 seedFrontier(state, ['https://seed.test/']);
 const discovery = await runDiscovery({ state, fetcher: fakeFetcher, maxPages: 10, maxDepth: 4, perHostLimit: 10, now: '2026-09-09T00:00:00.000Z' });
 const discoveredCandidate = discovery.state.candidates.find((item) => item.title === '星の旅');
@@ -205,6 +219,7 @@ assert.ok(restoredCandidate?.sources.includes('https://news.test/star'));
 assert.equal(restoredCandidate?.facts?.origin_country?.status, 'confirmed');
 assert.equal(restoredCandidate?.facts?.release_start?.status, 'confirmed');
 assert.ok(restoredCandidate?.evidence?.some((item) => item.field === 'animation_studio' && item.sourceUrl === 'https://news.test/star'));
+assert.ok(Object.keys(restored.researchStrategy?.trust || {}).length > 0, 'learned site trust must persist with discovery state');
 fs.rmSync(temp, { recursive: true, force: true });
 
 const sourceText = [
@@ -216,12 +231,14 @@ for (const forbidden of ['GEMINI_API_KEY', 'BRAVE_SEARCH_API_KEY', 'SERPAPI', 'A
 
 console.log('Web discovery self-test: PASS');
 console.log('non-official anime mention discovery: PASS');
+console.log('learned source credibility gate: PASS');
 console.log('Japanese-origin admission gate: PASS');
 console.log('non-Japanese/unknown origin CSV admission: BLOCKED');
 console.log('multi-source evidence resolution: PASS');
 console.log('conflict preservation: PASS');
 console.log('confirmed facts to common record: PASS');
 console.log('candidate evidence persistence: PASS');
+console.log('site trust persistence: PASS');
 console.log('robots enforcement: PASS');
 console.log('controlled-host pilot mode: PASS');
 console.log('mapped IPv6 private-address rejection: PASS');
