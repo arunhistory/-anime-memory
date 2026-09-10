@@ -67,6 +67,8 @@ jobs:
           node --check tools/collect/run.mjs
           node --check tools/collect/self-test.mjs
           node --check tools/collect/enrichment-self-test.mjs
+          node --check tools/collect/series-enrichment.mjs
+          node --check tools/collect/series-enrichment-self-test.mjs
           node --check tools/collect/deduplicate.mjs
           node --check tools/collect/initial-pending.mjs
           node --check tools/collect/initial-pending-self-test.mjs
@@ -99,6 +101,8 @@ jobs:
           node --check tools/discovery/wikidata-series-expansion-self-test.mjs
           node --check tools/discovery/series-learning.mjs
           node --check tools/discovery/series-learning-self-test.mjs
+          node --check tools/discovery/series-record.mjs
+          node --check tools/discovery/series-record-self-test.mjs
           node --check tools/discovery/publishable-readiness-self-test.mjs
           node --check tools/discovery/common-evidence.mjs
           node --check tools/discovery/structured-evidence.mjs
@@ -128,6 +132,7 @@ jobs:
         run: |
           node tools/collect/self-test.mjs
           node tools/collect/enrichment-self-test.mjs
+          node tools/collect/series-enrichment-self-test.mjs
 
       - name: Initial 500-work package and pending-state self-test
         run: |
@@ -166,6 +171,9 @@ jobs:
 
       - name: Series-first learning self-test
         run: node tools/discovery/series-learning-self-test.mjs
+
+      - name: Series ID and relation CSV bridge self-test
+        run: node tools/discovery/series-record-self-test.mjs
 
       - name: Series and information publication gate self-test
         run: node tools/discovery/publishable-readiness-self-test.mjs
