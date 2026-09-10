@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { normalizeText, splitEscapedRaw } from '../normalize/record.mjs';
 import { sourceFamilyKey } from './source-family.mjs';
+import { candidateInformationReadiness } from './research-completion.mjs';
 
 const IDENTITY_CORROBORATORS = ['release_start', 'theatrical_release_date', 'animation_studio'];
 const PROTECTED_COLUMNS = new Set(['id', 'synopsis', 'updated_at']);
@@ -120,6 +121,14 @@ export function discoveryCandidateReadiness(candidate) {
   return { ready: true, reason: '' };
 }
 
+export function publishableDiscoveryReadiness(candidate) {
+  const identity = discoveryCandidateReadiness(candidate);
+  if (!identity.ready) return identity;
+  const information = candidateInformationReadiness(candidate);
+  if (!information.ready) return { ...information, identityReady: true };
+  return { ...identity, information, ready: true, reason: '' };
+}
+
 function mergeExternalIds(current, discoveryId) {
   const values = [];
   const seen = new Set();
@@ -153,7 +162,7 @@ export function readyDiscoveryRecords(state, columns, confirmedDate) {
   const records = [];
   const skipped = [];
   for (const candidate of state?.candidates || []) {
-    const readiness = discoveryCandidateReadiness(candidate);
+    const readiness = publishableDiscoveryReadiness(candidate);
     if (!readiness.ready) {
       skipped.push({ key: candidate?.key || '', title: candidate?.title || '', reason: readiness.reason });
       continue;
