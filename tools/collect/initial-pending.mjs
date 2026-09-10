@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const INITIAL_CSV_RECORD_LIMIT = 450;
+export const INITIAL_CSV_RECORD_LIMIT = 500;
 export const INITIAL_PENDING_RECORD_LIMIT = 20000;
 
 function cleanRecord(input, columns) {
