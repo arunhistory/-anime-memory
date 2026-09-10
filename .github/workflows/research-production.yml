@@ -47,6 +47,7 @@ jobs:
           set -euo pipefail
           node tools/collect/self-test.mjs
           node tools/collect/enrichment-self-test.mjs
+          node tools/collect/series-enrichment-self-test.mjs
           node tools/collect/initial-pending-self-test.mjs
           node tools/collect/package-integration-self-test.mjs
           node tools/discovery/cycle-self-test.mjs
@@ -56,9 +57,11 @@ jobs:
           node tools/discovery/research-completion-self-test.mjs
           node tools/discovery/trust-calibration-self-test.mjs
           node tools/discovery/learned-source-self-test.mjs
+          node tools/discovery/cold-start-self-test.mjs
           node tools/discovery/wikidata-bootstrap-self-test.mjs
           node tools/discovery/wikidata-series-expansion-self-test.mjs
           node tools/discovery/series-learning-self-test.mjs
+          node tools/discovery/series-record-self-test.mjs
           node tools/discovery/publishable-readiness-self-test.mjs
           node tools/discovery/self-test.mjs
           node tools/discovery/candidate-title-self-test.mjs
