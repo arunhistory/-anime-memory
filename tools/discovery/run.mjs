@@ -64,7 +64,15 @@ async function main() {
   const allowedHosts = readAllowedHosts();
 
   const state = loadDiscoveryState(statePath);
-  let wikidata = { fetched: 0, candidatesAdded: 0, evidenceAdded: 0, officialFrontierAdded: 0, completed: Boolean(state.wikidataBootstrap?.completed), offset: state.wikidataBootstrap?.offset || 0 };
+  let wikidata = {
+    fetched: 0,
+    candidatesAdded: 0,
+    evidenceAdded: 0,
+    officialFrontierAdded: 0,
+    seriesFrontierAdded: 0,
+    completed: Boolean(state.wikidataBootstrap?.completed),
+    offset: state.wikidataBootstrap?.offset || 0
+  };
   if (String(process.env.WIKIDATA_BOOTSTRAP_DISABLED || '').toLowerCase() !== 'true') {
     try {
       wikidata = await bootstrapFromWikidata(state, {
@@ -113,6 +121,7 @@ async function main() {
   console.log(`Wikidata bootstrap candidates added: ${wikidata.candidatesAdded}`);
   console.log(`Wikidata bootstrap evidence added: ${wikidata.evidenceAdded}`);
   console.log(`Wikidata official verification URLs added: ${wikidata.officialFrontierAdded}`);
+  console.log(`Wikidata series verification URLs added: ${wikidata.seriesFrontierAdded || 0}`);
   console.log(`Wikidata bootstrap offset: ${wikidata.offset}`);
   console.log(`Wikidata bootstrap completed: ${wikidata.completed}`);
   console.log(`attempted: ${result.stats.attempted}`);
@@ -120,8 +129,11 @@ async function main() {
   console.log(`relevant pages: ${result.stats.relevant}`);
   console.log(`discovery-only pages: ${result.stats.discoveryOnlyPages}`);
   console.log(`new anime candidates: ${result.stats.candidatesFound}`);
-  console.log(`registered-work candidates skipped: ${result.stats.knownWorkCandidatesSkipped}`);
-  console.log(`registered candidates pruned from saved state: ${result.stats.knownStateCandidatesPruned}`);
+  console.log(`registered-work candidates seen: ${result.stats.knownWorkCandidatesSeen}`);
+  console.log(`registered-work evidence reused: ${result.stats.knownWorkEvidenceReused}`);
+  console.log(`registered candidates retained for enrichment: ${result.stats.knownStateCandidatesRetained}`);
+  console.log(`series member shells added: ${result.stats.seriesShellCandidates}`);
+  console.log(`series-priority links detected: ${result.stats.seriesPriorityLinks}`);
   console.log(`entity merges: ${result.stats.entityMerges}`);
   console.log(`evidence claims: ${result.stats.evidenceClaims}`);
   console.log(`candidate verification pages: ${result.stats.verificationPages}`);
@@ -135,7 +147,8 @@ async function main() {
   console.log(`frontier remaining: ${result.state.frontier.length}`);
   console.log(`known candidates: ${result.state.candidates.length}`);
   console.log(`changed: ${changed}`);
-  console.log('Existing-work lookup: search.wasm');
+  console.log('Existing-work lookup: search.wasm + enrichment reuse');
+  console.log('Series-first research: ENABLED');
   console.log('External search API: NONE');
   console.log('Gemini: DISCONNECTED');
 }
