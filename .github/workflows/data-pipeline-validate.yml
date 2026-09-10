@@ -72,6 +72,7 @@ jobs:
           node --check tools/discovery/robots.mjs
           node --check tools/discovery/fetch-page.mjs
           node --check tools/discovery/html.mjs
+          node --check tools/discovery/candidate-title-self-test.mjs
           node --check tools/discovery/taxonomy.mjs
           node --check tools/discovery/taxonomy-self-test.mjs
           node --check tools/discovery/source-quality.mjs
@@ -118,6 +119,9 @@ jobs:
 
       - name: Web discovery self-test
         run: node tools/discovery/self-test.mjs
+
+      - name: Anime candidate heading quality self-test
+        run: node tools/discovery/candidate-title-self-test.mjs
 
       - name: Candidate-scoped verification link self-test
         run: node tools/discovery/verification-link-self-test.mjs
