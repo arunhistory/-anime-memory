@@ -85,7 +85,7 @@ function alternateTitleEvidence(primary, secondary) {
   });
 }
 
-function mergePair(left, right) {
+function mergePair(left, right, resolveFacts) {
   const primary = titlePreference(left) >= titlePreference(right) ? left : right;
   const secondary = primary === left ? right : left;
   const evidence = mergeEvidence(primary.evidence || [], alternateTitleEvidence(primary, secondary));
@@ -95,17 +95,21 @@ function mergePair(left, right) {
     title: primary.title,
     sources,
     evidence,
-    facts: resolveEvidence(evidence),
+    facts: resolveFacts(evidence),
     lastSeen: [primary.lastSeen, secondary.lastSeen].filter(Boolean).sort().at(-1) || ''
   };
 }
 
-export function resolveCandidateEntities(candidates = []) {
-  const working = candidates.map((candidate) => ({
-    ...candidate,
-    evidence: mergeEvidence(candidate.evidence || []),
-    facts: resolveEvidence(candidate.evidence || [])
-  }));
+export function resolveCandidateEntities(candidates = [], resolveFacts = resolveEvidence) {
+  const resolver = typeof resolveFacts === 'function' ? resolveFacts : resolveEvidence;
+  const working = candidates.map((candidate) => {
+    const evidence = mergeEvidence(candidate.evidence || []);
+    return {
+      ...candidate,
+      evidence,
+      facts: resolver(evidence)
+    };
+  });
   let merges = 0;
   let changed = true;
 
@@ -114,7 +118,7 @@ export function resolveCandidateEntities(candidates = []) {
     outer: for (let i = 0; i < working.length; i += 1) {
       for (let j = i + 1; j < working.length; j += 1) {
         if (!areCandidatesMergeable(working[i], working[j])) continue;
-        const merged = mergePair(working[i], working[j]);
+        const merged = mergePair(working[i], working[j], resolver);
         working.splice(j, 1);
         working.splice(i, 1, merged);
         merges += 1;
