@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { normalizeTitleKey } from './html.mjs';
 
 const MAX_PRIORITY_HINTS = 64;
@@ -94,6 +95,13 @@ export function sanitizeSeriesKnowledge(value) {
   result.members = members;
   result.relations = relations;
   return result;
+}
+
+export function stableSeriesId(value) {
+  const series = sanitizeSeriesKnowledge(value);
+  const identity = series.ref || normalizeTitleKey(series.title || series.inferredStem);
+  if (!identity) return '';
+  return `S${crypto.createHash('sha256').update(identity).digest('hex').slice(0, 20)}`;
 }
 
 export function mergeSeriesKnowledge(current, incoming) {
