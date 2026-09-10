@@ -152,4 +152,6 @@ GitHubへの確定時はforce pushを使用しない。処理開始後に `data/
 
 初回0件時は登録済みCSVを教師にできないため、未学習ソースでも同じfield/valueが独立した2つのsource familyで一致した場合に限りfieldを確定できる。自己申告の公式ページ1件だけでは確定しない。製作国ラベルの直接記載は国判定に使用できるが、Record化にはタイトル・媒体種別・識別補助項目を含む重要Evidence全体で2系列以上を必須とする。frontier保存時は1ホスト5,000件を上限とし、単一サイトが5万件枠を占有して照合先を押し出さない。
 
+初回台帳はWikidata Query Serviceから1実行最大200行ずつ取得する。対象はanimeの下位classで、`country of origin (P495) = Japan (Q17)` が明示されたItemに限定し、Item label、媒体class、publication dateをEvidenceとして保存する。WikidataとWikipediaは同じ `wikimedia-family` なので相互に2票とは数えず、公開Web上の別系列Evidenceと一致した作品だけをRecord化する。offsetと完了状態は `crawler/state.json` に保存し、同じ範囲を無限取得しない。
+
 実作品CSVの本番Commitはまだ行っていない。Geminiは接続経路までは確認済みだが、実生成はGoogle側429解消待ちである。

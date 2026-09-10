@@ -88,6 +88,8 @@ jobs:
           node --check tools/discovery/trust-calibration-self-test.mjs
           node --check tools/discovery/trust-resolution.mjs
           node --check tools/discovery/cold-start-self-test.mjs
+          node --check tools/discovery/wikidata-bootstrap.mjs
+          node --check tools/discovery/wikidata-bootstrap-self-test.mjs
           node --check tools/discovery/common-evidence.mjs
           node --check tools/discovery/structured-evidence.mjs
           node --check tools/discovery/evidence.mjs
@@ -137,6 +139,9 @@ jobs:
 
       - name: Cold-start confirmation and source-independence self-test
         run: node tools/discovery/cold-start-self-test.mjs
+
+      - name: Wikidata structured bootstrap self-test
+        run: node tools/discovery/wikidata-bootstrap-self-test.mjs
 
       - name: Web discovery self-test
         run: node tools/discovery/self-test.mjs

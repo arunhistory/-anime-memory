@@ -5,6 +5,7 @@ import { runDiscovery } from './engine.mjs';
 import { loadDiscoveryState, saveDiscoveryState, seedFrontier } from './state.mjs';
 import { loadKnownWorkWasmSearch } from './known-work-wasm.mjs';
 import { normalizeUrl } from './url.mjs';
+import { bootstrapFromWikidata } from './wikidata-bootstrap.mjs';
 
 function parseArgs(argv) {
   const args = {};
@@ -63,6 +64,16 @@ async function main() {
   const allowedHosts = readAllowedHosts();
 
   const state = loadDiscoveryState(statePath);
+  let wikidata = { fetched: 0, candidatesAdded: 0, evidenceAdded: 0, completed: Boolean(state.wikidataBootstrap?.completed), offset: state.wikidataBootstrap?.offset || 0 };
+  if (String(process.env.WIKIDATA_BOOTSTRAP_DISABLED || '').toLowerCase() !== 'true') {
+    try {
+      wikidata = await bootstrapFromWikidata(state, {
+        limit: validateNumber(process.env.WIKIDATA_BOOTSTRAP_LIMIT, 'WIKIDATA_BOOTSTRAP_LIMIT', 1, 500, 200)
+      });
+    } catch (error) {
+      console.warn(`Wikidata bootstrap deferred: ${error.message}`);
+    }
+  }
   const rawSeeds = [...readSeedFile(seedPath), ...readInputSeeds()];
   const seeds = [...new Set(rawSeeds.map((value) => normalizeUrl(value)).filter(Boolean))];
   seedFrontier(state, seeds, 100);
@@ -98,6 +109,11 @@ async function main() {
   console.log(`seed URLs: ${seeds.length}`);
   console.log(`allowed hosts: ${allowedHosts.length ? allowedHosts.join(',') : 'unrestricted-public-web'}`);
   console.log(`registered CSV files loaded into search.wasm: ${knownWorkSearch.fileCount}`);
+  console.log(`Wikidata bootstrap rows: ${wikidata.fetched}`);
+  console.log(`Wikidata bootstrap candidates added: ${wikidata.candidatesAdded}`);
+  console.log(`Wikidata bootstrap evidence added: ${wikidata.evidenceAdded}`);
+  console.log(`Wikidata bootstrap offset: ${wikidata.offset}`);
+  console.log(`Wikidata bootstrap completed: ${wikidata.completed}`);
   console.log(`attempted: ${result.stats.attempted}`);
   console.log(`fetched: ${result.stats.fetched}`);
   console.log(`relevant pages: ${result.stats.relevant}`);

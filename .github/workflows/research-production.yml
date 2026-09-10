@@ -53,6 +53,7 @@ jobs:
           node tools/discovery/known-work-skip-self-test.mjs
           node tools/discovery/research-strategy-self-test.mjs
           node tools/discovery/trust-calibration-self-test.mjs
+          node tools/discovery/wikidata-bootstrap-self-test.mjs
           node tools/discovery/self-test.mjs
           node tools/discovery/candidate-title-self-test.mjs
           node tools/discovery/verification-link-self-test.mjs

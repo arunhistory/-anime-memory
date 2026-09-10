@@ -149,6 +149,8 @@ Web探索で確定した事実は `tools/discovery/to-record.mjs` で共通70列
 
 空データからの初回確認では、未学習でも独立した2つのsource familyが同じ事実に一致すれば確定候補にできる。ただし自己申告の公式ページ1件だけでは確定せず、CSV登録には重要Evidence全体で2系列以上を必須とする。探索frontierも1ホスト5,000件までに制限し、単一サイトへの偏りで独立照合が止まらないようにしている。
 
+初回台帳はWikidataの `anime` 下位classかつ `country of origin = Japan` のItemを1実行最大200行で追加し、既存のWeb探索Evidenceと照合する。WikidataとWikipediaは同じsource familyとして扱うため、この2サービスだけで自己確定はしない。
+
 Gemini処理コードは探索・事実確定から分離してある。GitHub Actions SecretからGemini APIへ到達することはライブ試験で確認済みだが、InteractionsとGenerateContentの双方がGoogle側のHTTP 429 `RESOURCE_EXHAUSTED` で停止したため、`Anime Data Collect` の `gemini` 入力は既定 `false` のままとする。quota/billingが利用可能になるまで同じ失敗を根拠なく再試行しない。
 
 既存CSV後段の詳細は `docs/DATA_COLLECTION.md` を参照。

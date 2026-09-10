@@ -10,6 +10,7 @@ import {
   sanitizeResearchStrategyState
 } from './research-strategy.mjs';
 import { resolveEvidenceWithTrust } from './trust-resolution.mjs';
+import { sanitizeWikidataBootstrapState } from './wikidata-bootstrap.mjs';
 
 const MAX_FRONTIER = 50000;
 const MAX_FRONTIER_PER_HOST = 5000;
@@ -23,6 +24,7 @@ export function emptyDiscoveryState() {
     candidates: [],
     researchStrategy: emptyResearchStrategyState(),
     calibrationSeen: [],
+    wikidataBootstrap: sanitizeWikidataBootstrapState(),
     updatedAt: ''
   };
 }
@@ -43,6 +45,7 @@ function sanitizeState(input) {
   state.candidates = Array.isArray(input.candidates) ? input.candidates : [];
   state.researchStrategy = sanitizeResearchStrategyState(input.researchStrategy);
   state.calibrationSeen = sanitizeCalibrationSeen(input.calibrationSeen);
+  state.wikidataBootstrap = sanitizeWikidataBootstrapState(input.wikidataBootstrap);
   state.updatedAt = typeof input.updatedAt === 'string' ? input.updatedAt : '';
   return state;
 }
@@ -102,6 +105,7 @@ export function saveDiscoveryState(filePath, state) {
   clean.updatedAt = new Date().toISOString();
   clean.researchStrategy = sanitizeResearchStrategyState(clean.researchStrategy);
   clean.calibrationSeen = sanitizeCalibrationSeen(clean.calibrationSeen);
+  clean.wikidataBootstrap = sanitizeWikidataBootstrapState(clean.wikidataBootstrap);
   const trustModel = buildResearchStrategyModel(clean);
 
   const frontierHostCounts = new Map();
