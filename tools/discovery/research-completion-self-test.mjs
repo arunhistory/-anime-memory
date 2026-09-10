@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import {
   candidateInformationReadiness,
-  informationPriorityBoost,
   recordCandidateResearch
 } from './research-completion.mjs';
+import { scoreDiscoveredLink } from './score.mjs';
 
 function confirmed(value) {
   return { status: 'confirmed', value, sourceCount: 2, hostCount: 2, confidence: 90 };
@@ -84,11 +84,12 @@ const scarceStatus = candidateInformationReadiness(scarce);
 assert.equal(scarceStatus.ready, true, 'scarce historical works may publish after broad research is demonstrably exhausted');
 assert.equal(scarceStatus.mode, 'researched-to-exhaustion');
 
-assert.ok(informationPriorityBoost({ url: 'https://dr-stone.jp/music/', anchor: 'MUSIC' }, sparse) >= 80, 'missing information routes must be prioritized');
-assert.equal(informationPriorityBoost({ url: 'https://dr-stone.jp/contact/', anchor: 'お問い合わせ' }, rich), 0);
+const detailScore = scoreDiscoveredLink({ url: 'https://dr-stone.jp/music/', anchor: 'MUSIC / 主題歌' }, 40, ['Dr.STONE']);
+const contactScore = scoreDiscoveredLink({ url: 'https://dr-stone.jp/contact/', anchor: 'お問い合わせ' }, 40, ['Dr.STONE']);
+assert.ok(detailScore > contactScore, 'information-rich detail routes must outrank irrelevant utility pages');
 
 console.log('Information research completion self-test: PASS');
 console.log('name-only publication: BLOCKED');
 console.log('information-rich publication: PASS');
 console.log('researched-to-exhaustion fallback: PASS');
-console.log('missing-category route priority: PASS');
+console.log('detailed information route priority: PASS');
