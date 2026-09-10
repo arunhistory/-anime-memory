@@ -19,8 +19,16 @@ export function emptyDiscoveryState() {
     documents: [],
     candidates: [],
     researchStrategy: emptyResearchStrategyState(),
+    calibrationSeen: [],
     updatedAt: ''
   };
+}
+
+function sanitizeCalibrationSeen(values) {
+  return [...new Set((Array.isArray(values) ? values : [])
+    .map((value) => String(value || '').trim())
+    .filter((value) => /^[a-f0-9]{32}$/.test(value)))]
+    .slice(-100000);
 }
 
 function sanitizeState(input) {
@@ -31,6 +39,7 @@ function sanitizeState(input) {
   state.documents = Array.isArray(input.documents) ? input.documents : [];
   state.candidates = Array.isArray(input.candidates) ? input.candidates : [];
   state.researchStrategy = sanitizeResearchStrategyState(input.researchStrategy);
+  state.calibrationSeen = sanitizeCalibrationSeen(input.calibrationSeen);
   state.updatedAt = typeof input.updatedAt === 'string' ? input.updatedAt : '';
   return state;
 }
@@ -89,6 +98,7 @@ export function saveDiscoveryState(filePath, state) {
   const clean = sanitizeState(state);
   clean.updatedAt = new Date().toISOString();
   clean.researchStrategy = sanitizeResearchStrategyState(clean.researchStrategy);
+  clean.calibrationSeen = sanitizeCalibrationSeen(clean.calibrationSeen);
   const trustModel = buildResearchStrategyModel(clean);
 
   clean.frontier = clean.frontier
