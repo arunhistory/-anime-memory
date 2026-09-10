@@ -34,11 +34,10 @@ function evidenceDirectness(item) {
 
 function legacyRuleDirectness(item) {
   const stored = evidenceDirectness(item);
-  if (stored > 0 && Number.isFinite(Number(item?.directness))) return stored;
   const rule = String(item?.rule || '');
-  if (/^origin-country-labeled-/.test(rule)) return 92;
-  if (/^event-date-/.test(rule)) return 84;
-  if (/^label-/.test(rule)) return 88;
+  if (/^origin-country-labeled-/.test(rule)) return Math.max(stored, 92);
+  if (/^event-date-/.test(rule)) return Math.max(stored, 84);
+  if (/^label-/.test(rule)) return Math.max(stored, 88);
   return stored;
 }
 
