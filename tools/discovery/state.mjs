@@ -5,6 +5,7 @@ import { normalizeTitleKey } from './html.mjs';
 import { mergeEvidence } from './evidence.mjs';
 import { collapseSameFamilyEvidence } from './source-family.mjs';
 import { sanitizeSeriesKnowledge } from './series-learning.mjs';
+import { sanitizeCandidateResearch } from './research-completion.mjs';
 import {
   buildResearchStrategyModel,
   emptyResearchStrategyState,
@@ -156,6 +157,7 @@ export function saveDiscoveryState(filePath, state) {
         evidence,
         facts: sanitizeFacts(resolved),
         series: sanitizeSeriesKnowledge(candidate.series),
+        research: sanitizeCandidateResearch(candidate.research),
         lastSeen: String(candidate.lastSeen || '')
       };
     })
