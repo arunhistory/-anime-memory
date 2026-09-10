@@ -15,7 +15,7 @@ fs.mkdirSync(path.join(tempRoot, 'crawler'), { recursive: true });
 fs.copyFileSync(path.join(root, 'wasm-src', 'shared', 'schema.hpp'), path.join(tempRoot, 'wasm-src', 'shared', 'schema.hpp'));
 fs.writeFileSync(path.join(tempRoot, 'crawler', 'state.json'), `${JSON.stringify(emptyDiscoveryState(), null, 2)}\n`, 'utf8');
 
-const records = Array.from({ length: 451 }, (_, index) => ({
+const records = Array.from({ length: 501 }, (_, index) => ({
   ...Object.fromEntries(columns.map((column) => [column, ''])),
   title_ja: `統合試験作品${index + 1}`,
   media_type: 'TV',
@@ -37,7 +37,7 @@ const first = runCollector();
 assert.equal(first.status, 0, first.stderr || first.stdout);
 const csvPath = path.join(tempRoot, 'data', 'initial-001.csv');
 const csvRecords = rowsToRecords(parseCsv(readUtf8Strict(csvPath)), columns);
-assert.equal(csvRecords.length, 450);
+assert.equal(csvRecords.length, 500);
 assert.equal(loadInitialPending(path.join(tempRoot, 'crawler', 'pending-initial.json'), columns).records.length, 1);
 assert.equal(readUtf8Strict(path.join(tempRoot, 'data', 'manifest.csv')), 'file_name\r\ninitial-001.csv\r\n');
 
@@ -47,5 +47,5 @@ assert.equal(fs.existsSync(path.join(tempRoot, 'data', 'initial-002.csv')), fals
 
 fs.rmSync(tempRoot, { recursive: true, force: true });
 console.log('Initial package integration self-test: PASS');
-console.log('451 pending -> 450 CSV + 1 pending: PASS');
+console.log('501 pending -> 500 CSV + 1 pending: PASS');
 console.log('manifest connection: PASS');
