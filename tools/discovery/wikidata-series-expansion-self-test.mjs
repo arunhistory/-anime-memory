@@ -1,0 +1,84 @@
+import assert from 'node:assert/strict';
+import { emptyDiscoveryState } from './state.mjs';
+import { expandSeriesFromWikidata } from './wikidata-series-expansion.mjs';
+
+const state = emptyDiscoveryState();
+state.candidates.push({
+  key: 'drstonesciencefuture',
+  title: 'Dr.STONE SCIENCE FUTURE',
+  sources: [],
+  evidence: [],
+  facts: {},
+  series: {
+    ref: 'https://www.wikidata.org/entity/Q456',
+    title: 'Dr.STONE',
+    inferredStem: 'Dr.STONE',
+    members: [{ title: 'Dr.STONE SCIENCE FUTURE', url: 'https://www.wikidata.org/entity/Q5', kind: 'OTHER' }]
+  },
+  lastSeen: '2026-09-11T00:00:00.000Z'
+});
+
+const titles = [
+  ['Q1', 'Dr.STONE', 'anime television series', '2019-07-05T00:00:00Z', 'https://dr-stone.jp/1st/'],
+  ['Q2', 'Dr.STONE STONE WARS', 'anime television series', '2021-01-14T00:00:00Z', 'https://dr-stone.jp/2nd/'],
+  ['Q3', 'Dr.STONE 龍水', 'anime special', '2022-07-10T00:00:00Z', 'https://dr-stone.jp/ryusui/'],
+  ['Q4', 'Dr.STONE NEW WORLD', 'anime television series', '2023-04-06T00:00:00Z', 'https://dr-stone.jp/3rd/'],
+  ['Q5', 'Dr.STONE SCIENCE FUTURE', 'anime television series', '2025-01-09T00:00:00Z', 'https://dr-stone.jp/4th/']
+];
+let calls = 0;
+const fetchImpl = async (url, options) => {
+  calls += 1;
+  assert.equal(new URL(url).hostname, 'query.wikidata.org');
+  assert.match(String(options?.headers?.['user-agent']), /AnimeMemoryBot/);
+  const query = new URL(url).searchParams.get('query') || '';
+  assert.match(query, /VALUES \?series \{ wd:Q456 \}/);
+  assert.match(query, /\?item wdt:P179 \?series/);
+  assert.match(query, /\?item wdt:P495 wd:Q17/);
+  const bindings = titles.map(([qid, title, classLabel, date, official]) => ({
+    series: { value: 'https://www.wikidata.org/entity/Q456' },
+    seriesLabel: { value: 'Dr.STONE' },
+    item: { value: `https://www.wikidata.org/entity/${qid}` },
+    itemLabel: { value: title },
+    classLabel: { value: classLabel },
+    date: { value: date },
+    official: { value: official }
+  }));
+  return new Response(JSON.stringify({ results: { bindings } }), {
+    status: 200,
+    headers: { 'content-type': 'application/sparql-results+json' }
+  });
+};
+
+const result = await expandSeriesFromWikidata(state, {
+  fetchImpl,
+  limit: 12,
+  observedAt: '2026-09-11T00:00:00.000Z'
+});
+assert.equal(calls, 1);
+assert.equal(result.seriesRequested, 1);
+assert.equal(result.seriesExpanded, 1);
+assert.equal(result.memberCount, 5);
+assert.equal(state.candidates.length, 5);
+assert.equal(state.wikidataSeriesExpansion.expandedRefs.includes('https://www.wikidata.org/entity/Q456'), true);
+
+for (const title of titles.map((item) => item[1])) {
+  const candidate = state.candidates.find((item) => item.title === title);
+  assert.ok(candidate, `series member candidate missing: ${title}`);
+  assert.equal(candidate.series.title, 'Dr.STONE');
+  assert.equal(candidate.series.members.length, 5, `full series knowledge missing on ${title}`);
+  assert.ok(candidate.evidence.some((item) => item.field === 'origin_country' && item.value === 'JP'));
+  assert.ok(candidate.evidence.some((item) => item.field === 'media_type'));
+}
+assert.equal(state.candidates.find((item) => item.title === 'Dr.STONE 龍水').evidence.some((item) => item.field === 'media_type' && item.value === 'SPECIAL'), true);
+assert.ok(state.frontier.some((item) => item.url === 'https://dr-stone.jp/1st/' && item.candidateHints.includes('Dr.STONE')));
+assert.ok(state.frontier.some((item) => item.url === 'https://dr-stone.jp/ryusui/' && item.candidateHints.includes('Dr.STONE 龍水')));
+
+const second = await expandSeriesFromWikidata(state, {
+  fetchImpl: async () => { throw new Error('already-expanded-series-must-not-fetch'); }
+});
+assert.equal(second.seriesRequested, 0);
+assert.equal(second.seriesExpanded, 0);
+
+console.log('Wikidata full-series expansion self-test: PASS');
+console.log('DR.STONE five-title expansion: PASS');
+console.log('expanded-series repeat suppression: PASS');
