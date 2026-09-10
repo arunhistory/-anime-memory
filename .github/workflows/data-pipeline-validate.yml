@@ -80,6 +80,8 @@ jobs:
           node --check tools/discovery/source-family-self-test.mjs
           node --check tools/discovery/research-strategy.mjs
           node --check tools/discovery/research-strategy-self-test.mjs
+          node --check tools/discovery/trust-calibration.mjs
+          node --check tools/discovery/trust-calibration-self-test.mjs
           node --check tools/discovery/trust-resolution.mjs
           node --check tools/discovery/common-evidence.mjs
           node --check tools/discovery/structured-evidence.mjs
@@ -122,6 +124,9 @@ jobs:
 
       - name: Research strategy and site credibility self-test
         run: node tools/discovery/research-strategy-self-test.mjs
+
+      - name: Cold-start trust calibration self-test
+        run: node tools/discovery/trust-calibration-self-test.mjs
 
       - name: Web discovery self-test
         run: node tools/discovery/self-test.mjs
