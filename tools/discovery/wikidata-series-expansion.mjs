@@ -5,7 +5,6 @@ import { normalizeUrl, urlHash } from './url.mjs';
 
 const ENDPOINT = 'https://query.wikidata.org/sparql';
 const DEFAULT_SERIES_LIMIT = 12;
-const MAX_EXPANDED_SERIES = 20000;
 
 function cleanTitle(value) {
   const title = String(value || '').normalize('NFKC').replace(/\s+/g, ' ').trim().slice(0, 120);
@@ -50,26 +49,26 @@ export function sanitizeWikidataSeriesExpansionState(value) {
     const qid = qidFromRef(raw);
     if (!qid) continue;
     seen.add(refFromQid(qid));
-    if (seen.size >= MAX_EXPANDED_SERIES) break;
   }
   state.expandedRefs = [...seen];
   state.lastRunAt = String(value.lastRunAt || '').slice(0, 40);
   return state;
 }
 
-function pendingSeriesRefs(state, limit) {
-  const progress = sanitizeWikidataSeriesExpansionState(state.wikidataSeriesExpansion);
+export function pendingWikidataSeriesRefs(state, limit = Number.POSITIVE_INFINITY) {
+  const progress = sanitizeWikidataSeriesExpansionState(state?.wikidataSeriesExpansion);
   const expanded = new Set(progress.expandedRefs);
   const refs = [];
   const seen = new Set();
-  for (const candidate of Array.isArray(state.candidates) ? state.candidates : []) {
+  const bounded = Number.isFinite(Number(limit)) ? Math.max(0, Math.trunc(Number(limit))) : Number.POSITIVE_INFINITY;
+  for (const candidate of Array.isArray(state?.candidates) ? state.candidates : []) {
     const qid = qidFromRef(candidate?.series?.ref);
     if (!qid) continue;
     const ref = refFromQid(qid);
     if (expanded.has(ref) || seen.has(ref)) continue;
     seen.add(ref);
     refs.push(ref);
-    if (refs.length >= limit) break;
+    if (refs.length >= bounded) break;
   }
   return refs;
 }
@@ -93,12 +92,23 @@ function seriesQuery(refs) {
 ORDER BY ?series ?item`;
 }
 
-function relationKind(binding, itemRef) {
-  const follows = normalizeUrl(binding?.follows?.value);
-  const followedBy = normalizeUrl(binding?.followedBy?.value);
-  if (followedBy && followedBy === itemRef) return 'PREQUEL';
-  if (follows && follows === itemRef) return 'SEQUEL';
-  return 'OTHER';
+function relationEdges(binding, currentTitle) {
+  const edges = [];
+  const followsTitle = cleanTitle(binding?.followsLabel?.value);
+  const followedByTitle = cleanTitle(binding?.followedByLabel?.value);
+  if (followsTitle && normalizeTitleKey(followsTitle) !== normalizeTitleKey(currentTitle)) {
+    edges.push(
+      { sourceTitle: currentTitle, targetTitle: followsTitle, kind: 'PREQUEL' },
+      { sourceTitle: followsTitle, targetTitle: currentTitle, kind: 'SEQUEL' }
+    );
+  }
+  if (followedByTitle && normalizeTitleKey(followedByTitle) !== normalizeTitleKey(currentTitle)) {
+    edges.push(
+      { sourceTitle: currentTitle, targetTitle: followedByTitle, kind: 'SEQUEL' },
+      { sourceTitle: followedByTitle, targetTitle: currentTitle, kind: 'PREQUEL' }
+    );
+  }
+  return edges;
 }
 
 function addFrontierUrl(state, frontierSeen, visited, { url, discoveredFrom, candidateHints }) {
@@ -129,7 +139,7 @@ export async function expandSeriesFromWikidata(state, {
   const progress = sanitizeWikidataSeriesExpansionState(state.wikidataSeriesExpansion);
   state.wikidataSeriesExpansion = progress;
   const boundedLimit = Math.max(1, Math.min(50, Math.trunc(Number(limit) || DEFAULT_SERIES_LIMIT)));
-  const refs = pendingSeriesRefs(state, boundedLimit);
+  const refs = pendingWikidataSeriesRefs(state, boundedLimit);
   if (!refs.length) {
     return { seriesRequested: 0, rows: 0, seriesExpanded: 0, candidatesAdded: 0, evidenceAdded: 0, officialFrontierAdded: 0, memberCount: 0 };
   }
@@ -177,14 +187,11 @@ export async function expandSeriesFromWikidata(state, {
     const seriesTitle = cleanTitle(binding?.seriesLabel?.value);
     const date = normalizedDate(binding?.date?.value);
     const officialUrl = normalizeUrl(binding?.official?.value);
-    const member = {
-      title,
-      url: officialUrl || itemRef,
-      kind: relationKind(binding, itemRef)
-    };
-    const group = groups.get(canonicalSeriesRef) || { ref: canonicalSeriesRef, title: seriesTitle, members: [] };
+    const member = { title, url: officialUrl || itemRef, kind: 'OTHER' };
+    const group = groups.get(canonicalSeriesRef) || { ref: canonicalSeriesRef, title: seriesTitle, members: [], relations: [] };
     if (!group.title && seriesTitle) group.title = seriesTitle;
     if (!group.members.some((item) => normalizeTitleKey(item.title) === key)) group.members.push(member);
+    group.relations.push(...relationEdges(binding, title));
     groups.set(canonicalSeriesRef, group);
 
     const incoming = [
@@ -221,7 +228,7 @@ export async function expandSeriesFromWikidata(state, {
   state.candidates = [...candidateMap.values()];
   const expanded = new Set(progress.expandedRefs);
   for (const ref of refs) expanded.add(ref);
-  progress.expandedRefs = [...expanded].slice(-MAX_EXPANDED_SERIES);
+  progress.expandedRefs = [...expanded];
   progress.lastRunAt = observedAt;
   state.wikidataSeriesExpansion = progress;
   const memberCount = [...groups.values()].reduce((sum, group) => sum + group.members.length, 0);
