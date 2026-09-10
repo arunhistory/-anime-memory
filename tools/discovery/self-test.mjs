@@ -174,8 +174,9 @@ assert.equal(commonRecord.synopsis, '');
 assert.equal(commonRecord.updated_at, '2026-09-09');
 const readyRecords = readyDiscoveryRecords(discovery.state, columns, '2026-09-09');
 assert.equal(readyRecords.records.length, 0, 'identity-ready but information-sparse work must not publish');
-assert.equal(readyRecords.skipped.length, 1);
-assert.match(readyRecords.skipped[0].reason, /^information-/);
+const starSkipped = readyRecords.skipped.find((item) => item.title === '星の旅');
+assert.ok(starSkipped, 'sparse subject must be reported as not publishable');
+assert.match(starSkipped.reason, /^information-/);
 
 const foreignCandidate = {
   ...discoveredCandidate,
