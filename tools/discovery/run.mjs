@@ -53,6 +53,40 @@ function validateNumber(value, name, min, max, fallback) {
   return parsed;
 }
 
+function emptyDiscoveryStats() {
+  return {
+    attempted: 0,
+    fetched: 0,
+    relevant: 0,
+    discoveryOnlyPages: 0,
+    candidatesFound: 0,
+    entityMerges: 0,
+    evidenceClaims: 0,
+    verificationPages: 0,
+    verificationEvidenceClaims: 0,
+    verificationLinksPromoted: 0,
+    sourceTrustTrainingClaims: 0,
+    coldStartTrustTrainingClaims: 0,
+    coldStartConsensusFields: 0,
+    coldStartConflictedFieldsSkipped: 0,
+    researchStrategyBoostedLinks: 0,
+    informationPriorityLinks: 0,
+    seriesPriorityLinks: 0,
+    seriesShellCandidates: 0,
+    newLinks: 0,
+    robotsSkipped: 0,
+    otherSkipped: 0,
+    hostFiltered: 0,
+    failed: 0,
+    sitemapLinks: 0,
+    knownWorkCandidatesSeen: 0,
+    knownWorkEvidenceReused: 0,
+    knownStateCandidatesRetained: 0,
+    knownWorkCandidatesSkipped: 0,
+    knownStateCandidatesPruned: 0
+  };
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const root = process.cwd();
@@ -65,6 +99,7 @@ async function main() {
   const allowedHosts = readAllowedHosts();
 
   const state = loadDiscoveryState(statePath);
+  const before = JSON.stringify(state);
   let wikidata = {
     fetched: 0,
     candidatesAdded: 0,
@@ -107,27 +142,26 @@ async function main() {
   const seeds = [...new Set(rawSeeds.map((value) => normalizeUrl(value)).filter(Boolean))];
   seedFrontier(state, seeds, 100);
 
-  if (state.frontier.length === 0) {
-    throw new Error('探索開始URLがありません。crawler/seeds.txt または DISCOVERY_SEED_URLS に最低1件の公開Web URLが必要です。');
+  let knownWorkSearch = { fileCount: 0 };
+  let result = { state, stats: emptyDiscoveryStats() };
+  if (state.frontier.length > 0) {
+    knownWorkSearch = await loadKnownWorkWasmSearch({ root });
+    const fetcher = new PoliteFetcher({
+      timeoutMs: process.env.DISCOVERY_TIMEOUT_MS || 12000,
+      maxBytes: process.env.DISCOVERY_MAX_BYTES || 1048576,
+      minDelayMs: process.env.DISCOVERY_MIN_DELAY_MS || 500,
+      allowedHosts
+    });
+
+    result = await runDiscovery({
+      state,
+      fetcher,
+      knownWorkSearch,
+      maxPages,
+      maxDepth,
+      perHostLimit
+    });
   }
-
-  const knownWorkSearch = await loadKnownWorkWasmSearch({ root });
-  const fetcher = new PoliteFetcher({
-    timeoutMs: process.env.DISCOVERY_TIMEOUT_MS || 12000,
-    maxBytes: process.env.DISCOVERY_MAX_BYTES || 1048576,
-    minDelayMs: process.env.DISCOVERY_MIN_DELAY_MS || 500,
-    allowedHosts
-  });
-
-  const before = JSON.stringify(state);
-  const result = await runDiscovery({
-    state,
-    fetcher,
-    knownWorkSearch,
-    maxPages,
-    maxDepth,
-    perHostLimit
-  });
 
   if (!dryRun) saveDiscoveryState(statePath, result.state);
   const changed = before !== JSON.stringify(result.state);
@@ -161,6 +195,7 @@ async function main() {
   console.log(`registered candidates retained for enrichment: ${result.stats.knownStateCandidatesRetained}`);
   console.log(`series member shells added: ${result.stats.seriesShellCandidates}`);
   console.log(`series-priority links detected: ${result.stats.seriesPriorityLinks}`);
+  console.log(`missing-information priority links: ${result.stats.informationPriorityLinks}`);
   console.log(`entity merges: ${result.stats.entityMerges}`);
   console.log(`evidence claims: ${result.stats.evidenceClaims}`);
   console.log(`candidate verification pages: ${result.stats.verificationPages}`);
@@ -174,6 +209,7 @@ async function main() {
   console.log(`frontier remaining: ${result.state.frontier.length}`);
   console.log(`known candidates: ${result.state.candidates.length}`);
   console.log(`changed: ${changed}`);
+  if (result.stats.attempted === 0) console.log('Web frontier empty: bootstrap/series progress persisted without treating this batch as an error');
   console.log('Existing-work lookup: search.wasm + enrichment reuse');
   console.log('Series-first research: FULL-SERIES PRE-EXPANSION ENABLED');
   console.log('External search API: NONE');
