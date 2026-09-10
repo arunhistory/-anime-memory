@@ -3,8 +3,16 @@
   "active": true,
   "cycleId": "20260910T090831337Z",
   "startedAt": "2026-09-10T09:08:31.337Z",
-  "lastNewDiscoveryAt": "2026-09-10T09:08:31.337Z",
+  "lastNewDiscoveryAt": "2026-09-10T10:55:14.616Z",
   "stoppedAt": "",
   "stopReason": "",
-  "seenEligible": []
+  "seenEligible": [
+    "6d92df6343146a70984f1899562812d5376fed0d256f5150add375e37bd97397",
+    "569ad36668acfd18c238f271f2b4fd0f6b0b186bdfab758d7306e20a3aafa91f",
+    "9000e2479578aafaf388a9f4c3b55396b6a0aa4b35f8e5dfecf0d743ea011859",
+    "95f02057de5042f685be7f3dfb013173b91bd5d428aec7f0fa74db6d2de87b8c",
+    "a73eb115cf01eb38092b8b40534ff49e8a46df6d3f162b192d137ba14959c9df",
+    "49b64a774e20c582ebc5126e43a279217eb14dac89201185df4f12836d880a8f",
+    "950820a9570b683698cb4625ed48d058993ae342ebf744b20d990eb17b356f3e"
+  ]
 }
