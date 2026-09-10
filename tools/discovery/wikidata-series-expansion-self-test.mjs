@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { emptyDiscoveryState } from './state.mjs';
-import { expandSeriesFromWikidata } from './wikidata-series-expansion.mjs';
+import {
+  expandSeriesFromWikidata,
+  sanitizeWikidataSeriesExpansionState
+} from './wikidata-series-expansion.mjs';
 
 const state = emptyDiscoveryState();
 state.candidates.push({
@@ -13,7 +16,8 @@ state.candidates.push({
     ref: 'https://www.wikidata.org/entity/Q456',
     title: 'Dr.STONE',
     inferredStem: 'Dr.STONE',
-    members: [{ title: 'Dr.STONE SCIENCE FUTURE', url: 'https://www.wikidata.org/entity/Q5', kind: 'OTHER' }]
+    members: [{ title: 'Dr.STONE SCIENCE FUTURE', url: 'https://www.wikidata.org/entity/Q5', kind: 'OTHER' }],
+    relations: []
   },
   lastSeen: '2026-09-11T00:00:00.000Z'
 });
@@ -34,14 +38,22 @@ const fetchImpl = async (url, options) => {
   assert.match(query, /VALUES \?series \{ wd:Q456 \}/);
   assert.match(query, /\?item wdt:P179 \?series/);
   assert.match(query, /\?item wdt:P495 wd:Q17/);
-  const bindings = titles.map(([qid, title, classLabel, date, official]) => ({
+  const bindings = titles.map(([qid, title, classLabel, date, official], index) => ({
     series: { value: 'https://www.wikidata.org/entity/Q456' },
     seriesLabel: { value: 'Dr.STONE' },
     item: { value: `https://www.wikidata.org/entity/${qid}` },
     itemLabel: { value: title },
     classLabel: { value: classLabel },
     date: { value: date },
-    official: { value: official }
+    official: { value: official },
+    ...(index > 0 ? {
+      follows: { value: `https://www.wikidata.org/entity/${titles[index - 1][0]}` },
+      followsLabel: { value: titles[index - 1][1] }
+    } : {}),
+    ...(index < titles.length - 1 ? {
+      followedBy: { value: `https://www.wikidata.org/entity/${titles[index + 1][0]}` },
+      followedByLabel: { value: titles[index + 1][1] }
+    } : {})
   }));
   return new Response(JSON.stringify({ results: { bindings } }), {
     status: 200,
@@ -66,9 +78,13 @@ for (const title of titles.map((item) => item[1])) {
   assert.ok(candidate, `series member candidate missing: ${title}`);
   assert.equal(candidate.series.title, 'Dr.STONE');
   assert.equal(candidate.series.members.length, 5, `full series knowledge missing on ${title}`);
+  assert.ok(candidate.series.relations.length >= 8, `series relation graph missing on ${title}`);
   assert.ok(candidate.evidence.some((item) => item.field === 'origin_country' && item.value === 'JP'));
   assert.ok(candidate.evidence.some((item) => item.field === 'media_type'));
 }
+const stoneWars = state.candidates.find((item) => item.title === 'Dr.STONE STONE WARS');
+assert.ok(stoneWars.series.relations.some((item) => item.sourceTitle === 'Dr.STONE STONE WARS' && item.targetTitle === 'Dr.STONE' && item.kind === 'PREQUEL'));
+assert.ok(stoneWars.series.relations.some((item) => item.sourceTitle === 'Dr.STONE' && item.targetTitle === 'Dr.STONE STONE WARS' && item.kind === 'SEQUEL'));
 assert.equal(state.candidates.find((item) => item.title === 'Dr.STONE 龍水').evidence.some((item) => item.field === 'media_type' && item.value === 'SPECIAL'), true);
 assert.ok(state.frontier.some((item) => item.url === 'https://dr-stone.jp/1st/' && item.candidateHints.includes('Dr.STONE')));
 assert.ok(state.frontier.some((item) => item.url === 'https://dr-stone.jp/ryusui/' && item.candidateHints.includes('Dr.STONE 龍水')));
@@ -79,6 +95,12 @@ const second = await expandSeriesFromWikidata(state, {
 assert.equal(second.seriesRequested, 0);
 assert.equal(second.seriesExpanded, 0);
 
+const manyRefs = Array.from({ length: 20001 }, (_, index) => `https://www.wikidata.org/entity/Q${index + 1}`);
+const preservedProgress = sanitizeWikidataSeriesExpansionState({ version: 1, expandedRefs: manyRefs, lastRunAt: '2026-09-11T00:00:00.000Z' });
+assert.equal(preservedProgress.expandedRefs.length, 20001, 'expanded series progress must not silently truncate at 20,000');
+
 console.log('Wikidata full-series expansion self-test: PASS');
 console.log('DR.STONE five-title expansion: PASS');
+console.log('reciprocal prequel/sequel graph: PASS');
 console.log('expanded-series repeat suppression: PASS');
+console.log('expanded-series progress over 20k: PRESERVED');
