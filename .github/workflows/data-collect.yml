@@ -83,8 +83,13 @@ jobs:
           node tools/collect/self-test.mjs
           node tools/collect/initial-budget-self-test.mjs
           node tools/correct/self-test.mjs
+          node tools/discovery/known-work-wasm-self-test.mjs
+          node tools/discovery/known-work-skip-self-test.mjs
           node tools/discovery/self-test.mjs
+          node tools/discovery/candidate-title-self-test.mjs
+          node tools/discovery/verification-link-self-test.mjs
           node tools/discovery/quality-self-test.mjs
+          node tools/discovery/source-family-self-test.mjs
           node tools/discovery/common-evidence-self-test.mjs
           node tools/discovery/structured-evidence-self-test.mjs
           node tools/discovery/entity-resolution-self-test.mjs
