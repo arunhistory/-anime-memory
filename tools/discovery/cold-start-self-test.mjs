@@ -25,6 +25,20 @@ const coreOnlyEvidence = evidence.filter((item) => item.field !== 'release_start
 const coreOnlyFacts = resolveEvidenceWithTrust(coreOnlyEvidence);
 assert.equal(discoveryCandidateReadiness({ title: '星の旅', evidence: coreOnlyEvidence, facts: coreOnlyFacts }).ready, true, 'independent title and media agreement may identify a work without exporting an unconfirmed date');
 
+const recordLevelEvidence = [
+  { field: 'title_ja', value: '星の旅', sourceUrl: 'https://www.wikidata.org/wiki/Q123', sourceClass: 'secondary', directness: 96, rule: 'wikidata-item-label', observedAt: at },
+  { field: 'origin_country', value: 'JP', sourceUrl: 'https://www.wikidata.org/wiki/Q123', sourceClass: 'secondary', directness: 98, rule: 'origin-country-labeled-japan', observedAt: at },
+  { field: 'media_type', value: 'TV', sourceUrl: 'https://www.wikidata.org/wiki/Q123', sourceClass: 'secondary', directness: 96, rule: 'wikidata-instance-class', observedAt: at },
+  { field: 'title_ja', value: '星の旅', sourceUrl: 'https://news.example.net/anime/1', sourceClass: 'secondary', directness: 88, rule: 'anime-title-candidate', observedAt: at }
+];
+const recordLevelFacts = resolveEvidenceWithTrust(recordLevelEvidence);
+const recordLevelResult = discoveryCandidateReadiness({ key: '星の旅', title: '星の旅', evidence: recordLevelEvidence, facts: recordLevelFacts });
+assert.equal(recordLevelResult.ready, true, 'two independent title sources plus direct structured origin/media may admit the work');
+assert.equal(recordLevelResult.recordLevelCore, true);
+
+const searchOnlyEvidence = recordLevelEvidence.map((item) => item.sourceUrl.includes('news.example.net') ? { ...item, sourceUrl: 'https://google.com/search?q=hoshi' } : item);
+assert.equal(discoveryCandidateReadiness({ key: '星の旅', title: '星の旅', evidence: searchOnlyEvidence, facts: resolveEvidenceWithTrust(searchOnlyEvidence) }).ready, false, 'search result pages must not count as an independent confirming family');
+
 const oneFamily = evidence.filter((item) => item.sourceUrl.includes('catalog.example.jp'));
 assert.equal(discoveryCandidateReadiness({ title: '星の旅', evidence: oneFamily, facts }).reason, 'independent-source-family-not-confirmed');
 

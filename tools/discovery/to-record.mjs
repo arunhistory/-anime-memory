@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { normalizeText } from '../normalize/record.mjs';
 import { sourceFamilyKey } from './source-family.mjs';
 
 const IDENTITY_CORROBORATORS = ['release_start', 'theatrical_release_date', 'animation_studio'];
@@ -17,6 +18,39 @@ function discoveryExternalId(candidate) {
 function valueMatchesFact(evidenceValue, factValue) {
   const target = String(evidenceValue || '').normalize('NFKC').trim();
   return String(factValue || '').split('|').some((value) => value.normalize('NFKC').trim() === target);
+}
+
+function titleMatchesFact(evidenceValue, factValue) {
+  const target = normalizeText(evidenceValue);
+  return Boolean(target) && String(factValue || '').split('|').some((value) => normalizeText(value) === target);
+}
+
+function usableIdentityFamily(sourceUrl) {
+  const family = sourceFamilyKey(sourceUrl);
+  if (!family || ['google.com', 'google.co.jp', 'bing.com'].includes(family)) return '';
+  return family;
+}
+
+function matchingEvidence(candidate, field, fact) {
+  return (candidate?.evidence || []).filter((item) => item?.field === field
+    && (field === 'title_ja' ? titleMatchesFact(item.value, fact?.value) : valueMatchesFact(item.value, fact?.value)));
+}
+
+function independentlyIdentifiedCore(candidate) {
+  const origin = candidate?.facts?.origin_country;
+  const title = candidate?.facts?.title_ja;
+  const media = candidate?.facts?.media_type;
+  if (!origin || origin.status === 'conflict' || origin.value !== 'JP') return false;
+  if (!title || title.status === 'conflict' || !title.value) return false;
+  if (!media || media.status === 'conflict' || !media.value) return false;
+
+  const originEvidence = matchingEvidence(candidate, 'origin_country', origin);
+  const titleEvidence = matchingEvidence(candidate, 'title_ja', title);
+  const mediaEvidence = matchingEvidence(candidate, 'media_type', media);
+  const titleFamilies = new Set(titleEvidence.map((item) => usableIdentityFamily(item.sourceUrl)).filter(Boolean));
+  const directJapaneseOrigin = originEvidence.some((item) => Number(item.directness || 0) >= 95 && item.rule === 'origin-country-labeled-japan');
+  const directMediaType = mediaEvidence.some((item) => Number(item.directness || 0) >= 90);
+  return directJapaneseOrigin && directMediaType && titleFamilies.size >= 2;
 }
 
 function criticalEvidenceFamilies(candidate, corroboratorField = '') {
@@ -39,6 +73,7 @@ export function discoveryCandidateReadiness(candidate) {
   const origin = candidate.facts?.origin_country;
   if (origin?.status === 'conflict') return { ready: false, reason: 'origin-country-conflict' };
   if (origin?.value === 'OTHER') return { ready: false, reason: 'non-japanese-origin' };
+  if (independentlyIdentifiedCore(candidate)) return { ready: true, reason: '', recordLevelCore: true };
   if (origin?.status !== 'confirmed' || origin.value !== 'JP') {
     return { ready: false, reason: 'japanese-origin-not-confirmed' };
   }
@@ -69,7 +104,8 @@ export function candidateToCommonRecord(candidate, columns, confirmedDate) {
 
   for (const [field, fact] of Object.entries(candidate.facts || {})) {
     if (!columns.includes(field) || PROTECTED_COLUMNS.has(field)) continue;
-    if (fact?.status === 'confirmed' && fact.value) record[field] = String(fact.value);
+    const acceptedCore = readiness.recordLevelCore && ['title_ja', 'media_type'].includes(field);
+    if ((fact?.status === 'confirmed' || acceptedCore) && fact.value) record[field] = String(fact.value);
   }
 
   if (columns.includes('external_ids')) record.external_ids = discoveryExternalId(candidate);

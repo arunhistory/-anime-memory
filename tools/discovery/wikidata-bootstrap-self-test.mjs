@@ -11,7 +11,8 @@ const fetchImpl = async (url, options) => {
       item: { value: 'https://www.wikidata.org/entity/Q123' },
       itemLabel: { value: '星の旅' },
       classLabel: { value: 'anime television series' },
-      date: { value: '2027-04-03T00:00:00Z' }
+      date: { value: '2027-04-03T00:00:00Z' },
+      official: { value: 'https://anime.example.jp/works/hoshi' }
     }
   ] } }), { status: 200, headers: { 'content-type': 'application/sparql-results+json' } });
 };
@@ -19,12 +20,15 @@ const fetchImpl = async (url, options) => {
 const result = await bootstrapFromWikidata(state, { fetchImpl, limit: 2, observedAt: '2026-09-10T00:00:00.000Z' });
 assert.equal(result.fetched, 1);
 assert.equal(result.candidatesAdded, 1);
+assert.equal(result.officialFrontierAdded, 1);
 assert.equal(result.completed, true);
 assert.equal(state.wikidataBootstrap.offset, 1);
 assert.equal(state.candidates[0].title, '星の旅');
 assert.ok(state.candidates[0].evidence.some((item) => item.field === 'origin_country' && item.value === 'JP'));
 assert.ok(state.candidates[0].evidence.some((item) => item.field === 'media_type' && item.value === 'TV'));
 assert.ok(state.candidates[0].evidence.some((item) => item.field === 'release_start' && item.value === '2027-04-03'));
+assert.equal(state.frontier[0].url, 'https://anime.example.jp/works/hoshi');
+assert.deepEqual(state.frontier[0].candidateHints, ['星の旅']);
 
 const second = await bootstrapFromWikidata(state, { fetchImpl: async () => { throw new Error('must-not-fetch'); } });
 assert.equal(second.completed, true);

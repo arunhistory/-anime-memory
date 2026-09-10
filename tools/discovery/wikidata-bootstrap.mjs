@@ -1,6 +1,6 @@
 import { mergeEvidence } from './evidence.mjs';
 import { normalizeTitleKey } from './html.mjs';
-import { normalizeUrl } from './url.mjs';
+import { normalizeUrl, urlHash } from './url.mjs';
 
 const ENDPOINT = 'https://query.wikidata.org/sparql';
 const DEFAULT_LIMIT = 200;
@@ -21,11 +21,12 @@ function normalizedDate(value) {
 }
 
 function query(limit, offset) {
-  return `SELECT DISTINCT ?item ?itemLabel ?classLabel ?date WHERE {
+  return `SELECT DISTINCT ?item ?itemLabel ?classLabel ?date ?official WHERE {
   ?item wdt:P31 ?class .
   ?class wdt:P279* wd:Q1107 .
   ?item wdt:P495 wd:Q17 .
   OPTIONAL { ?item wdt:P577 ?date . }
+  OPTIONAL { ?item wdt:P856 ?official . }
   SERVICE wikibase:label { bd:serviceParam wikibase:language "ja,en". }
 }
 ORDER BY ?item
@@ -55,7 +56,7 @@ export async function bootstrapFromWikidata(state, {
   if (!state || !Array.isArray(state.candidates)) throw new Error('discovery state is required');
   const progress = cleanBootstrapState(state.wikidataBootstrap);
   state.wikidataBootstrap = progress;
-  if (progress.completed) return { fetched: 0, candidatesAdded: 0, evidenceAdded: 0, completed: true, offset: progress.offset };
+  if (progress.completed) return { fetched: 0, candidatesAdded: 0, evidenceAdded: 0, officialFrontierAdded: 0, completed: true, offset: progress.offset };
 
   const batchSize = Math.max(1, Math.min(500, Math.trunc(Number(limit) || DEFAULT_LIMIT)));
   const url = new URL(ENDPOINT);
@@ -81,6 +82,9 @@ export async function bootstrapFromWikidata(state, {
   const candidateMap = new Map(state.candidates.map((candidate) => [normalizeTitleKey(candidate.title || candidate.key), candidate]));
   let candidatesAdded = 0;
   let evidenceAdded = 0;
+  let officialFrontierAdded = 0;
+  const frontierSeen = new Set((state.frontier || []).map((entry) => normalizeUrl(entry?.url)).filter(Boolean));
+  const visited = new Set(state.visited || []);
 
   for (const binding of bindings) {
     const sourceUrl = normalizeUrl(binding?.item?.value);
@@ -89,6 +93,7 @@ export async function bootstrapFromWikidata(state, {
     const mediaType = mediaTypeFromLabel(binding?.classLabel?.value);
     if (!sourceUrl || !key || /^Q\d+$/i.test(title) || !mediaType) continue;
     const date = normalizedDate(binding?.date?.value);
+    const officialUrl = normalizeUrl(binding?.official?.value);
     const incoming = [
       { field: 'title_ja', value: title, sourceUrl, sourceClass: 'secondary', directness: 96, rule: 'wikidata-item-label', observedAt },
       { field: 'origin_country', value: 'JP', sourceUrl, sourceClass: 'secondary', directness: 98, rule: 'origin-country-labeled-japan', observedAt },
@@ -103,11 +108,20 @@ export async function bootstrapFromWikidata(state, {
     evidenceAdded += Math.max(0, current.evidence.length - before);
     if (!candidateMap.has(key)) candidatesAdded += 1;
     candidateMap.set(key, current);
+
+    if (officialUrl && !frontierSeen.has(officialUrl) && !visited.has(urlHash(officialUrl))) {
+      const host = new URL(officialUrl).hostname.toLowerCase();
+      if (!host.endsWith('wikidata.org') && !host.endsWith('wikipedia.org')) {
+        state.frontier.push({ url: officialUrl, priority: 900, depth: 0, discoveredFrom: sourceUrl, candidateHints: [title] });
+        frontierSeen.add(officialUrl);
+        officialFrontierAdded += 1;
+      }
+    }
   }
 
   state.candidates = [...candidateMap.values()];
   progress.offset += bindings.length;
   progress.completed = bindings.length < batchSize;
   progress.lastRunAt = observedAt;
-  return { fetched: bindings.length, candidatesAdded, evidenceAdded, completed: progress.completed, offset: progress.offset };
+  return { fetched: bindings.length, candidatesAdded, evidenceAdded, officialFrontierAdded, completed: progress.completed, offset: progress.offset };
 }

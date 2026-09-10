@@ -64,7 +64,7 @@ async function main() {
   const allowedHosts = readAllowedHosts();
 
   const state = loadDiscoveryState(statePath);
-  let wikidata = { fetched: 0, candidatesAdded: 0, evidenceAdded: 0, completed: Boolean(state.wikidataBootstrap?.completed), offset: state.wikidataBootstrap?.offset || 0 };
+  let wikidata = { fetched: 0, candidatesAdded: 0, evidenceAdded: 0, officialFrontierAdded: 0, completed: Boolean(state.wikidataBootstrap?.completed), offset: state.wikidataBootstrap?.offset || 0 };
   if (String(process.env.WIKIDATA_BOOTSTRAP_DISABLED || '').toLowerCase() !== 'true') {
     try {
       wikidata = await bootstrapFromWikidata(state, {
@@ -112,6 +112,7 @@ async function main() {
   console.log(`Wikidata bootstrap rows: ${wikidata.fetched}`);
   console.log(`Wikidata bootstrap candidates added: ${wikidata.candidatesAdded}`);
   console.log(`Wikidata bootstrap evidence added: ${wikidata.evidenceAdded}`);
+  console.log(`Wikidata official verification URLs added: ${wikidata.officialFrontierAdded}`);
   console.log(`Wikidata bootstrap offset: ${wikidata.offset}`);
   console.log(`Wikidata bootstrap completed: ${wikidata.completed}`);
   console.log(`attempted: ${result.stats.attempted}`);
