@@ -1,0 +1,182 @@
+import { ADDITIONAL_MULTI_FIELDS } from './common-evidence.mjs';
+import { STRUCTURED_MULTI_FIELDS } from './structured-evidence.mjs';
+import { normalizeSourceClass } from './source-quality.mjs';
+import { sourceFamilyKey } from './source-family.mjs';
+import { scoreSourceCredibility } from './research-strategy.mjs';
+
+const MULTI_VALUE_FIELDS = new Set([
+  'genres',
+  'animation_studio',
+  'director',
+  'series_composition',
+  'character_design',
+  'music',
+  'sound_director',
+  ...ADDITIONAL_MULTI_FIELDS,
+  ...STRUCTURED_MULTI_FIELDS
+]);
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, Number(value) || 0));
+}
+
+function clean(value) {
+  return String(value || '').normalize('NFKC').trim();
+}
+
+function evidenceDirectness(item) {
+  if (Number.isFinite(Number(item?.directness))) return clamp(Number(item.directness), 0, 100);
+  return normalizeSourceClass(item?.sourceClass) === 'primary' ? 100 : 55;
+}
+
+function scoreItem(model, item) {
+  return scoreSourceCredibility(model, {
+    sourceUrl: item?.sourceUrl,
+    field: item?.field,
+    sourceClass: normalizeSourceClass(item?.sourceClass),
+    directness: evidenceDirectness(item)
+  }).credibility;
+}
+
+function buildAlternatives(evidence, model) {
+  const byField = new Map();
+  for (const item of Array.isArray(evidence) ? evidence : []) {
+    const field = String(item?.field || '');
+    const value = clean(item?.value);
+    const sourceUrl = String(item?.sourceUrl || '');
+    if (!field || !value || !sourceUrl) continue;
+    if (!byField.has(field)) byField.set(field, new Map());
+    const values = byField.get(field);
+    if (!values.has(value)) {
+      values.set(value, {
+        value,
+        sources: new Set(),
+        families: new Set(),
+        primarySources: new Set(),
+        trustedSecondaryFamilies: new Set(),
+        neutralSecondaryFamilies: new Set(),
+        credibilityTotal: 0,
+        credibilityMax: 0,
+        evidenceCount: 0
+      });
+    }
+    const bucket = values.get(value);
+    const credibility = scoreItem(model, item);
+    const family = sourceFamilyKey(sourceUrl) || sourceUrl;
+    bucket.sources.add(sourceUrl);
+    bucket.families.add(family);
+    bucket.credibilityTotal += credibility;
+    bucket.credibilityMax = Math.max(bucket.credibilityMax, credibility);
+    bucket.evidenceCount += 1;
+    if (normalizeSourceClass(item?.sourceClass) === 'primary') {
+      if (credibility >= 60) bucket.primarySources.add(sourceUrl);
+    } else if (credibility >= 60) {
+      bucket.trustedSecondaryFamilies.add(family);
+    } else if (credibility >= 50) {
+      bucket.neutralSecondaryFamilies.add(family);
+    }
+  }
+  return byField;
+}
+
+function alternativeSummary(entry) {
+  const average = entry.evidenceCount ? entry.credibilityTotal / entry.evidenceCount : 0;
+  return {
+    value: entry.value,
+    sourceCount: entry.sources.size,
+    hostCount: entry.families.size,
+    primarySourceCount: entry.primarySources.size,
+    trustedSecondaryCount: entry.trustedSecondaryFamilies.size,
+    credibility: Math.round(average),
+    maxCredibility: Math.round(entry.credibilityMax),
+    evidenceCount: entry.evidenceCount
+  };
+}
+
+function isConfirmed(entry) {
+  const summary = alternativeSummary(entry);
+  if (summary.primarySourceCount >= 1 && summary.maxCredibility >= 65) return true;
+  if (summary.trustedSecondaryCount >= 2 && summary.credibility >= 65) return true;
+  if (summary.trustedSecondaryCount >= 1 && summary.trustedSecondaryCount + entry.neutralSecondaryFamilies.size >= 3 && summary.credibility >= 60) return true;
+  return false;
+}
+
+function isCredibleConflict(entry) {
+  const summary = alternativeSummary(entry);
+  return summary.primarySourceCount >= 1 || summary.maxCredibility >= 55 || summary.trustedSecondaryCount >= 1;
+}
+
+function resolveMulti(field, values) {
+  const entries = [...values.values()];
+  const confirmed = entries.filter(isConfirmed);
+  const selected = confirmed.length
+    ? confirmed
+    : entries.filter((entry) => alternativeSummary(entry).maxCredibility >= 35);
+  const valuesOut = selected.map((entry) => entry.value);
+  const summaries = entries.map(alternativeSummary).sort((a, b) => b.credibility - a.credibility || b.sourceCount - a.sourceCount || a.value.localeCompare(b.value));
+  const selectedSummaries = summaries.filter((item) => valuesOut.includes(item.value));
+  const confidence = selectedSummaries.length
+    ? Math.round(selectedSummaries.reduce((sum, item) => sum + item.credibility, 0) / selectedSummaries.length)
+    : 0;
+  return {
+    status: confirmed.length ? 'confirmed' : 'observed',
+    value: valuesOut.join('|'),
+    sourceCount: new Set(selected.flatMap((entry) => [...entry.sources])).size,
+    hostCount: new Set(selected.flatMap((entry) => [...entry.families])).size,
+    primarySourceCount: selected.reduce((sum, entry) => sum + entry.primarySources.size, 0),
+    confidence,
+    alternatives: summaries.filter((item) => !valuesOut.includes(item.value)).slice(0, 10)
+  };
+}
+
+function resolveScalar(values) {
+  const entries = [...values.values()];
+  const confirmed = entries.filter(isConfirmed);
+  const credible = entries.filter(isCredibleConflict);
+  const summaries = entries.map(alternativeSummary).sort((a, b) => b.credibility - a.credibility || b.sourceCount - a.sourceCount || a.value.localeCompare(b.value));
+
+  if (confirmed.length === 1 && credible.filter((entry) => entry !== confirmed[0]).length === 0) {
+    const summary = alternativeSummary(confirmed[0]);
+    return {
+      status: 'confirmed',
+      value: confirmed[0].value,
+      sourceCount: summary.sourceCount,
+      hostCount: summary.hostCount,
+      primarySourceCount: summary.primarySourceCount,
+      confidence: summary.credibility,
+      alternatives: summaries.filter((item) => item.value !== confirmed[0].value).slice(0, 5)
+    };
+  }
+
+  if (confirmed.length > 1 || credible.length > 1) {
+    return {
+      status: 'conflict',
+      value: '',
+      sourceCount: summaries[0]?.sourceCount || 0,
+      hostCount: summaries[0]?.hostCount || 0,
+      primarySourceCount: summaries[0]?.primarySourceCount || 0,
+      confidence: summaries[0]?.credibility || 0,
+      alternatives: summaries.slice(0, 5)
+    };
+  }
+
+  const best = summaries[0];
+  return {
+    status: 'observed',
+    value: best?.value || '',
+    sourceCount: best?.sourceCount || 0,
+    hostCount: best?.hostCount || 0,
+    primarySourceCount: best?.primarySourceCount || 0,
+    confidence: best?.credibility || 0,
+    alternatives: summaries.slice(1, 5)
+  };
+}
+
+export function resolveEvidenceWithTrust(evidence = [], model) {
+  const byField = buildAlternatives(evidence, model);
+  const facts = {};
+  for (const [field, values] of byField) {
+    facts[field] = MULTI_VALUE_FIELDS.has(field) ? resolveMulti(field, values) : resolveScalar(values);
+  }
+  return facts;
+}
