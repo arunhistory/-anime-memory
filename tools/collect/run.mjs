@@ -20,6 +20,7 @@ import { readyDiscoveryRecords } from '../discovery/to-record.mjs';
 import { generateSynopses, GEMINI_SYNOPSIS_DEFAULT_MODEL } from '../gemini/synopsis.mjs';
 import { validateDataDirectory } from '../validate/data-validator.mjs';
 import { deduplicateIncoming } from './deduplicate.mjs';
+import { applySeriesMetadataToCollection } from './series-enrichment.mjs';
 import {
   INITIAL_CSV_RECORD_LIMIT,
   loadInitialPending,
@@ -204,6 +205,7 @@ async function loadInputRecords({ inputMode, root, columns, confirmedDate }) {
     const { records, skipped } = readyDiscoveryRecords(state, columns, confirmedDate);
     return {
       normalized: records,
+      discoveryCandidates: state.candidates,
       safeStoppedSources: 0,
       discoverySkipped: skipped.length,
       inputDetails: `crawler/state.json candidates=${state.candidates.length}`
@@ -230,6 +232,7 @@ async function loadInputRecords({ inputMode, root, columns, confirmedDate }) {
 
   return {
     normalized,
+    discoveryCandidates: [],
     safeStoppedSources,
     discoverySkipped: 0,
     inputDetails: `configured API sources=${collectedGroups.length}`
@@ -277,7 +280,7 @@ async function main() {
 
   const pendingPath = path.join(root, 'crawler', 'pending-initial.json');
   const pending = mode === 'initial' ? loadInitialPending(pendingPath, columns) : { records: [] };
-  const { accepted: uniqueIncoming, enrichments, stats } = deduplicateIncoming(
+  const { accepted: uniqueIncoming, workingExisting, stats } = deduplicateIncoming(
     mode === 'initial' ? [...pending.records, ...normalized] : normalized,
     existing,
     columns
@@ -335,6 +338,20 @@ async function main() {
     selected = takeInitialPackage(staged, { requireSynopsis: geminiEnabled }).selected;
   }
 
+  if (selected.length > 0) {
+    const nextId = nextInternalId(existing);
+    for (const record of selected) record.id = nextId();
+  }
+
+  const seriesStage = applySeriesMetadataToCollection({
+    originalExisting: existing,
+    workingExisting,
+    selected,
+    targetName,
+    candidates: input.discoveryCandidates,
+    columns
+  });
+  const enrichments = seriesStage.existingUpdates;
   const enrichmentWrites = prepareEnrichmentWrites(dataDir, enrichments, columns);
   setGithubOutput('enriched_records', enrichments.length);
 
@@ -365,6 +382,9 @@ async function main() {
       candidates: normalized.length,
       selected: 0,
       enrichedExisting: enrichments.length,
+      seriesIdsAdded: seriesStage.seriesStats.seriesIdsAdded,
+      seriesRelationsAdded: seriesStage.seriesStats.relationsAdded,
+      unresolvedSeriesRelations: seriesStage.seriesStats.unresolvedRelations,
       pending: mode === 'initial' ? staged.length : 0,
       packageSize: mode === 'initial' ? INITIAL_CSV_RECORD_LIMIT : null,
       discoverySkipped: input.discoverySkipped,
@@ -384,9 +404,6 @@ async function main() {
   const remainingStaged = mode === 'initial'
     ? takeInitialPackage(staged, { requireSynopsis: geminiEnabled }).remaining
     : [];
-
-  const nextId = nextInternalId(existing);
-  for (const record of selected) record.id = nextId();
 
   const snapshotTargets = [
     ...enrichmentWrites.map((item) => item.filePath),
@@ -422,6 +439,9 @@ async function main() {
   console.log(`candidate records: ${normalized.length}`);
   console.log(`new records: ${selected.length}`);
   console.log(`registered records enriched: ${enrichments.length}`);
+  console.log(`series IDs added: ${seriesStage.seriesStats.seriesIdsAdded}`);
+  console.log(`series relations added: ${seriesStage.seriesStats.relationsAdded}`);
+  console.log(`series relations awaiting registered target: ${seriesStage.seriesStats.unresolvedRelations}`);
   if (mode === 'initial') console.log(`pending initial records: ${remainingStaged.length}`);
   console.log(`discovery candidates not ready: ${input.discoverySkipped}`);
   console.log(`safe-stopped API sources: ${input.safeStoppedSources}`);
