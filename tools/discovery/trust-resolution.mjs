@@ -95,7 +95,9 @@ function alternativeSummary(entry) {
 
 function isConfirmed(entry) {
   const summary = alternativeSummary(entry);
-  if (summary.primarySourceCount >= 1 && summary.maxCredibility >= 65) return true;
+  // A page calling itself "official" is not enough. The site/route/field must
+  // first earn trust from registered-work feedback or corroborated history.
+  if (summary.primarySourceCount >= 1 && summary.maxCredibility >= 75) return true;
   if (summary.trustedSecondaryCount >= 2 && summary.credibility >= 65) return true;
   if (summary.trustedSecondaryCount >= 1 && summary.trustedSecondaryCount + entry.neutralSecondaryFamilies.size >= 3 && summary.credibility >= 60) return true;
   return false;
@@ -103,7 +105,9 @@ function isConfirmed(entry) {
 
 function isCredibleConflict(entry) {
   const summary = alternativeSummary(entry);
-  return summary.primarySourceCount >= 1 || summary.maxCredibility >= 55 || summary.trustedSecondaryCount >= 1;
+  // Unknown/self-declared primary pages start around the conservative prior and
+  // therefore cannot force a conflict against an already trusted value.
+  return summary.maxCredibility >= 70 || (summary.trustedSecondaryCount >= 2 && summary.credibility >= 60);
 }
 
 function resolveMulti(field, values) {
