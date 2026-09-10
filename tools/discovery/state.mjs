@@ -13,6 +13,7 @@ import {
 } from './research-strategy.mjs';
 import { resolveEvidenceWithTrust } from './trust-resolution.mjs';
 import { sanitizeWikidataBootstrapState } from './wikidata-bootstrap.mjs';
+import { sanitizeWikidataSeriesExpansionState } from './wikidata-series-expansion.mjs';
 
 const MAX_FRONTIER = 50000;
 const MAX_FRONTIER_PER_HOST = 5000;
@@ -28,6 +29,7 @@ export function emptyDiscoveryState() {
     researchStrategy: emptyResearchStrategyState(),
     calibrationSeen: [],
     wikidataBootstrap: sanitizeWikidataBootstrapState(),
+    wikidataSeriesExpansion: sanitizeWikidataSeriesExpansionState(),
     updatedAt: ''
   };
 }
@@ -49,6 +51,7 @@ function sanitizeState(input) {
   state.researchStrategy = sanitizeResearchStrategyState(input.researchStrategy);
   state.calibrationSeen = sanitizeCalibrationSeen(input.calibrationSeen);
   state.wikidataBootstrap = sanitizeWikidataBootstrapState(input.wikidataBootstrap);
+  state.wikidataSeriesExpansion = sanitizeWikidataSeriesExpansionState(input.wikidataSeriesExpansion);
   state.updatedAt = typeof input.updatedAt === 'string' ? input.updatedAt : '';
   return state;
 }
@@ -126,6 +129,7 @@ export function saveDiscoveryState(filePath, state) {
   clean.researchStrategy = sanitizeResearchStrategyState(clean.researchStrategy);
   clean.calibrationSeen = sanitizeCalibrationSeen(clean.calibrationSeen);
   clean.wikidataBootstrap = sanitizeWikidataBootstrapState(clean.wikidataBootstrap);
+  clean.wikidataSeriesExpansion = sanitizeWikidataSeriesExpansionState(clean.wikidataSeriesExpansion);
   const trustModel = buildResearchStrategyModel(clean);
 
   const frontierHostCounts = new Map();
