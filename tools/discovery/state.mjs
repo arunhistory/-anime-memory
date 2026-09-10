@@ -52,6 +52,12 @@ function sanitizeState(input) {
   return state;
 }
 
+export function loadDiscoveryState(filePath) {
+  if (!fs.existsSync(filePath)) return emptyDiscoveryState();
+  const input = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  return sanitizeState(input);
+}
+
 function sanitizeFacts(facts) {
   const output = {};
   if (!facts || typeof facts !== 'object' || Array.isArray(facts)) return output;
