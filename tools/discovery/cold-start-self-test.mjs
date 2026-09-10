@@ -21,6 +21,10 @@ const facts = resolveEvidenceWithTrust(evidence, { strategy: { version: 1, opera
 for (const field of ['title_ja', 'origin_country', 'media_type', 'release_start']) assert.equal(facts[field].status, 'confirmed', `${field} must bootstrap from direct/corroborated evidence`);
 assert.equal(discoveryCandidateReadiness({ title: '星の旅', evidence, facts }).ready, true);
 
+const coreOnlyEvidence = evidence.filter((item) => item.field !== 'release_start');
+const coreOnlyFacts = resolveEvidenceWithTrust(coreOnlyEvidence);
+assert.equal(discoveryCandidateReadiness({ title: '星の旅', evidence: coreOnlyEvidence, facts: coreOnlyFacts }).ready, true, 'independent title and media agreement may identify a work without exporting an unconfirmed date');
+
 const oneFamily = evidence.filter((item) => item.sourceUrl.includes('catalog.example.jp'));
 assert.equal(discoveryCandidateReadiness({ title: '星の旅', evidence: oneFamily, facts }).reason, 'independent-source-family-not-confirmed');
 

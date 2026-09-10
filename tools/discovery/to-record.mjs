@@ -12,8 +12,9 @@ function valueMatchesFact(evidenceValue, factValue) {
   return String(factValue || '').split('|').some((value) => value.normalize('NFKC').trim() === target);
 }
 
-function criticalEvidenceFamilies(candidate, corroboratorField) {
-  const criticalFields = new Set(['title_ja', 'origin_country', 'media_type', corroboratorField]);
+function criticalEvidenceFamilies(candidate, corroboratorField = '') {
+  const criticalFields = new Set(['title_ja', 'origin_country', 'media_type']);
+  if (corroboratorField) criticalFields.add(corroboratorField);
   const families = new Set();
   for (const item of candidate?.evidence || []) {
     if (!criticalFields.has(item?.field)) continue;
@@ -44,8 +45,11 @@ export function discoveryCandidateReadiness(candidate) {
     const fact = candidate.facts?.[field];
     return fact?.status === 'confirmed' && Boolean(fact.value);
   });
-  if (!corroboratorFields.length) return { ready: false, reason: 'identity-corroborator-not-confirmed' };
-  if (!corroboratorFields.some((field) => criticalEvidenceFamilies(candidate, field).size >= 2)) {
+  const independentCore = title.hostCount >= 2
+    && media.hostCount >= 2
+    && criticalEvidenceFamilies(candidate).size >= 2;
+  if (!corroboratorFields.length && !independentCore) return { ready: false, reason: 'identity-corroborator-not-confirmed' };
+  if (corroboratorFields.length && !independentCore && !corroboratorFields.some((field) => criticalEvidenceFamilies(candidate, field).size >= 2)) {
     return { ready: false, reason: 'independent-source-family-not-confirmed' };
   }
   return { ready: true, reason: '' };
