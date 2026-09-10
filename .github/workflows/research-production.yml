@@ -46,6 +46,7 @@ jobs:
         run: |
           set -euo pipefail
           node tools/collect/self-test.mjs
+          node tools/collect/enrichment-self-test.mjs
           node tools/collect/initial-pending-self-test.mjs
           node tools/collect/package-integration-self-test.mjs
           node tools/discovery/cycle-self-test.mjs
@@ -53,7 +54,9 @@ jobs:
           node tools/discovery/known-work-skip-self-test.mjs
           node tools/discovery/research-strategy-self-test.mjs
           node tools/discovery/trust-calibration-self-test.mjs
+          node tools/discovery/learned-source-self-test.mjs
           node tools/discovery/wikidata-bootstrap-self-test.mjs
+          node tools/discovery/series-learning-self-test.mjs
           node tools/discovery/self-test.mjs
           node tools/discovery/candidate-title-self-test.mjs
           node tools/discovery/verification-link-self-test.mjs
@@ -91,7 +94,7 @@ jobs:
         id: checkpoint
         run: node tools/discovery/cycle.mjs checkpoint
 
-      - name: Build one 450-work CSV when ready
+      - name: Build one 500-work CSV when ready
         if: ${{ steps.cycle_open.outputs.active == 'true' }}
         id: collect
         run: node tools/collect/run.mjs --input discovery --mode initial --gemini false
@@ -105,7 +108,7 @@ jobs:
           if [[ -d data ]]; then
             node tools/validate/data-validator.mjs data
           else
-            echo 'No complete 450-work package yet; preserving private pending state.'
+            echo 'No complete 500-work package yet; preserving private pending state.'
           fi
 
       - name: Commit state and validated data atomically
@@ -152,6 +155,12 @@ jobs:
           echo 'Could not publish production checkpoint without force push.' >&2
           exit 1
 
+      - name: Dispatch next bounded batch while cycle remains active
+        if: ${{ steps.cycle_final.outputs.active == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run research-production.yml --ref main -f cycle_action=continue
+
       - name: Verify published CSV is reachable from Pages
         if: ${{ steps.collect.outputs.csv_created == 'true' }}
         shell: bash
@@ -170,9 +179,3 @@ jobs:
           done
           echo "Pages did not expose the committed manifest within five minutes: ${MANIFEST_URL}" >&2
           exit 1
-
-      - name: Dispatch next bounded batch only while active
-        if: ${{ steps.cycle_final.outputs.active == 'true' && steps.collect.outputs.csv_created != 'true' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh workflow run research-production.yml --ref main -f cycle_action=continue
