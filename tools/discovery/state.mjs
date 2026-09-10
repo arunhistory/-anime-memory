@@ -5,7 +5,7 @@ import { normalizeTitleKey } from './html.mjs';
 import { mergeEvidence } from './evidence.mjs';
 import { collapseSameFamilyEvidence } from './source-family.mjs';
 import { sanitizeSeriesKnowledge } from './series-learning.mjs';
-import { sanitizeCandidateResearch } from './research-completion.mjs';
+import { recordCandidateResearch, sanitizeCandidateResearch } from './research-completion.mjs';
 import {
   buildResearchStrategyModel,
   emptyResearchStrategyState,
@@ -106,6 +106,20 @@ function sanitizeCandidateHints(values) {
   return output;
 }
 
+function deriveCandidateResearch(candidate, evidence, sources) {
+  let research = sanitizeCandidateResearch(candidate?.research);
+  const observedAt = String(candidate?.lastSeen || '');
+  for (const sourceUrl of sources) {
+    const pageEvidence = evidence.filter((item) => normalizeUrl(item?.sourceUrl) === sourceUrl);
+    research = recordCandidateResearch(research, {
+      url: sourceUrl,
+      evidence: pageEvidence,
+      observedAt
+    });
+  }
+  return research;
+}
+
 export function saveDiscoveryState(filePath, state) {
   const clean = sanitizeState(state);
   clean.updatedAt = new Date().toISOString();
@@ -150,14 +164,15 @@ export function saveDiscoveryState(filePath, state) {
     .map((candidate) => {
       const evidence = collapseSameFamilyEvidence(mergeEvidence(candidate.evidence || []));
       const resolved = resolveEvidenceWithTrust(evidence, trustModel);
+      const sources = [...new Set((candidate.sources || []).map((value) => normalizeUrl(value)).filter(Boolean))].slice(0, 50);
       return {
         key: normalizeTitleKey(candidate.title || candidate.key),
         title: String(candidate.title || '').slice(0, 120),
-        sources: [...new Set((candidate.sources || []).map((value) => normalizeUrl(value)).filter(Boolean))].slice(0, 50),
+        sources,
         evidence,
         facts: sanitizeFacts(resolved),
         series: sanitizeSeriesKnowledge(candidate.series),
-        research: sanitizeCandidateResearch(candidate.research),
+        research: deriveCandidateResearch(candidate, evidence, sources),
         lastSeen: String(candidate.lastSeen || '')
       };
     })
