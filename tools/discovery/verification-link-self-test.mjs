@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { runDiscovery } from './engine.mjs';
 import { emptyDiscoveryState, seedFrontier } from './state.mjs';
+import { recordSourceTrustOutcome } from './research-strategy.mjs';
 
 const pages = new Map([
   ['https://seed.test/', `
@@ -31,6 +32,19 @@ const fakeFetcher = {
 };
 
 const state = emptyDiscoveryState();
+for (const sourceUrl of ['https://seed.test/', 'https://news.test/interview']) {
+  for (const field of ['title_ja', 'origin_country', 'media_type', 'release_start', 'animation_studio']) {
+    for (let i = 0; i < 4; i += 1) {
+      recordSourceTrustOutcome(state.researchStrategy, {
+        sourceUrl,
+        field,
+        outcome: 'match',
+        strength: 'strong',
+        observedAt: '2026-09-08T00:00:00.000Z'
+      });
+    }
+  }
+}
 seedFrontier(state, ['https://seed.test/']);
 const discovery = await runDiscovery({
   state,
@@ -59,5 +73,6 @@ assert.ok(discovery.stats.verificationLinksPromoted >= 1, 'candidate-scoped veri
 
 console.log('Candidate-scoped verification self-test: PASS');
 console.log('related-page field evidence join: PASS');
-console.log('cross-host corroboration through verification hint: PASS');
+console.log('learned-trust cross-host corroboration: PASS');
+console.log('unknown-secondary immediate corroboration: BLOCKED BY POLICY');
 console.log('unfocused body-only pages: not promoted to verification evidence by this test path');
