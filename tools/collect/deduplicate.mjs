@@ -81,5 +81,5 @@ export function deduplicateIncoming(incoming, existing, columns, { warn = consol
 
   const enrichments = [...enrichmentMap.values()];
   stats.existingEnriched = enrichments.length;
-  return { accepted, enrichments, stats };
+  return { accepted, enrichments, workingExisting, stats };
 }
