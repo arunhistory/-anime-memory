@@ -1,4 +1,4 @@
-name: Continue Broad Web Anime Discovery Once
+name: Candidate Verification Discovery Once
 
 on:
   push:
@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   discover:
-    if: ${{ github.event.head_commit.message == 'Continue broad web anime discovery once' }}
+    if: ${{ github.event.head_commit.message == 'Run candidate verification discovery once' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -37,31 +37,41 @@ jobs:
           node tools/discovery/known-work-wasm-self-test.mjs
           node tools/discovery/known-work-skip-self-test.mjs
           node tools/discovery/self-test.mjs
+          node tools/discovery/verification-link-self-test.mjs
           node tools/discovery/quality-self-test.mjs
+          node tools/discovery/source-family-self-test.mjs
           node tools/discovery/common-evidence-self-test.mjs
           node tools/discovery/structured-evidence-self-test.mjs
           node tools/discovery/entity-resolution-self-test.mjs
           node tools/discovery/taxonomy-self-test.mjs
 
-      - name: Continue discovery from saved frontier
-        run: node tools/discovery/run.mjs --max-pages 120 --max-depth 4 --per-host-limit 15
+      - name: Continue discovery with candidate verification hints
+        run: node tools/discovery/run.mjs --max-pages 200 --max-depth 5 --per-host-limit 20
 
-      - name: Admission summary
+      - name: Admission and evidence summary
         run: |
           node --input-type=module - <<'NODE'
           import fs from 'node:fs';
           import { discoveryCandidateReadiness } from './tools/discovery/to-record.mjs';
           const state = JSON.parse(fs.readFileSync('crawler/state.json', 'utf8'));
           const counts = {};
+          const hostCounts = {};
           for (const candidate of state.candidates || []) {
             const r = discoveryCandidateReadiness(candidate);
             const key = r.ready ? 'ready' : r.reason;
             counts[key] = (counts[key] || 0) + 1;
+            const hosts = new Set((candidate.sources || []).map((url) => {
+              try { return new URL(url).hostname.toLowerCase(); } catch { return ''; }
+            }).filter(Boolean));
+            hostCounts[hosts.size] = (hostCounts[hosts.size] || 0) + 1;
           }
+          const hintedFrontier = (state.frontier || []).filter((entry) => Array.isArray(entry.candidateHints) && entry.candidateHints.length).length;
           console.log(`visited=${state.visited.length}`);
           console.log(`documents=${state.documents.length}`);
           console.log(`candidates=${state.candidates.length}`);
           console.log(`frontier=${state.frontier.length}`);
+          console.log(`hintedFrontier=${hintedFrontier}`);
+          console.log('candidateSourceHostHistogram=' + JSON.stringify(hostCounts));
           console.log('admission=' + JSON.stringify(counts));
           NODE
 
@@ -83,7 +93,7 @@ jobs:
 
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'Continue broad web anime discovery state'
+          git commit -m 'Update candidate verification discovery state'
 
           base_sha="${GITHUB_SHA}"
           for attempt in 1 2 3; do
