@@ -17,9 +17,11 @@ concurrency:
 jobs:
   research:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    timeout-minutes: 90
     env:
       DISCOVERY_MIN_DELAY_MS: '1000'
+      RESEARCH_CANDIDATE_CHECKPOINT: '1000'
+      READY_RECORD_CHECKPOINT: '450'
 
     steps:
       - name: Checkout latest main
@@ -55,42 +57,61 @@ jobs:
           node tools/gemini/self-test.mjs
           node tools/validate/pre-gemini-audit.mjs
 
-      - name: Learn research strategy until Actions deadline
+      - name: Learn research strategy to checkpoint
         shell: bash
         run: |
           set -euo pipefail
-          start_epoch="$(date +%s)"
-          # GitHub-hosted jobs are capped at 6 hours. Stop research at 5h10m
-          # so CSV validation and a safe state/data commit still have time.
-          research_deadline=$((start_epoch + 18600))
-          batch=0
 
+          state_counts() {
+            node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { loadColumns } from './tools/csv/csv.mjs';
+          import { loadDiscoveryState } from './tools/discovery/state.mjs';
+          import { readyDiscoveryRecords } from './tools/discovery/to-record.mjs';
+          const root = process.cwd();
+          const state = loadDiscoveryState(path.join(root, 'crawler', 'state.json'));
+          const columns = loadColumns(root);
+          const { records } = readyDiscoveryRecords(state, columns, new Date().toISOString().slice(0, 10));
+          const output = {
+            candidates: Array.isArray(state.candidates) ? state.candidates.length : 0,
+            frontier: Array.isArray(state.frontier) ? state.frontier.length : 0,
+            ready: records.length
+          };
+          process.stdout.write(JSON.stringify(output));
+          NODE
+          }
+
+          batch=0
           while true; do
-            now="$(date +%s)"
-            if (( now >= research_deadline )); then
-              echo 'Research soft deadline reached; finalizing learned state safely.'
+            counts="$(state_counts)"
+            candidates="$(node -e 'const x=JSON.parse(process.argv[1]);process.stdout.write(String(x.candidates))' "${counts}")"
+            frontier="$(node -e 'const x=JSON.parse(process.argv[1]);process.stdout.write(String(x.frontier))' "${counts}")"
+            ready="$(node -e 'const x=JSON.parse(process.argv[1]);process.stdout.write(String(x.ready))' "${counts}")"
+
+            echo "checkpoint status: candidates=${candidates}, ready=${ready}, frontier=${frontier}"
+
+            if (( candidates >= RESEARCH_CANDIDATE_CHECKPOINT )); then
+              echo "Candidate checkpoint ${RESEARCH_CANDIDATE_CHECKPOINT} reached; finalizing."
               break
             fi
-
-            frontier="$(node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          const state = JSON.parse(fs.readFileSync('crawler/state.json', 'utf8'));
-          process.stdout.write(String(Array.isArray(state.frontier) ? state.frontier.length : 0));
-          NODE
-          )"
-            if [[ "${frontier}" == "0" ]]; then
+            if (( ready >= READY_RECORD_CHECKPOINT )); then
+              echo "Ready-record checkpoint ${READY_RECORD_CHECKPOINT} reached; finalizing."
+              break
+            fi
+            if (( frontier == 0 )); then
               echo 'Research frontier is empty; finalizing.'
               break
             fi
 
             before="$(sha256sum crawler/state.json | awk '{print $1}')"
             batch=$((batch + 1))
-            echo "=== research batch ${batch}; frontier=${frontier} ==="
+            echo "=== research batch ${batch}; candidates=${candidates}; frontier=${frontier} ==="
 
             node tools/discovery/run.mjs \
-              --max-pages 200 \
+              --max-pages 100 \
               --max-depth 12 \
-              --per-host-limit 200
+              --per-host-limit 100
 
             after="$(sha256sum crawler/state.json | awk '{print $1}')"
             if [[ "${before}" == "${after}" ]]; then
@@ -98,6 +119,8 @@ jobs:
               break
             fi
           done
+
+          echo "final checkpoint: $(state_counts)"
 
       - name: Build initial production CSV without Gemini
         run: node tools/collect/run.mjs --input discovery --mode initial --gemini false
@@ -132,7 +155,7 @@ jobs:
 
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'Advance anime research learning and validated data'
+          git commit -m 'Checkpoint anime research learning and validated data'
 
           for attempt in 1 2 3; do
             git fetch origin main
@@ -150,5 +173,5 @@ jobs:
             fi
           done
 
-          echo 'Could not publish production state without force push.' >&2
+          echo 'Could not publish production checkpoint without force push.' >&2
           exit 1
