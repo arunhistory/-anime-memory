@@ -173,7 +173,9 @@ assert.equal(commonRecord.animation_studio, 'Studio Star');
 assert.equal(commonRecord.synopsis, '');
 assert.equal(commonRecord.updated_at, '2026-09-09');
 const readyRecords = readyDiscoveryRecords(discovery.state, columns, '2026-09-09');
-assert.equal(readyRecords.records.length, 1);
+assert.equal(readyRecords.records.length, 0, 'identity-ready but information-sparse work must not publish');
+assert.equal(readyRecords.skipped.length, 1);
+assert.match(readyRecords.skipped[0].reason, /^information-/);
 
 const foreignCandidate = {
   ...discoveredCandidate,
@@ -240,6 +242,7 @@ console.log('Web discovery self-test: PASS');
 console.log('non-official anime mention discovery: PASS');
 console.log('learned source credibility gate: PASS');
 console.log('Japanese-origin admission gate: PASS');
+console.log('identity-ready sparse publication: BLOCKED');
 console.log('non-Japanese/unknown origin CSV admission: BLOCKED');
 console.log('multi-source evidence resolution: PASS');
 console.log('conflict preservation: PASS');
