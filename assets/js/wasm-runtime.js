@@ -107,7 +107,7 @@
 
     const files = parseSingleColumnManifest(await response.text());
     if (!files.length) {
-      throw new AnimeDataError('DATA_NOT_CONNECTED', 'manifest.csv に作品CSVが登録されていません。');
+      throw new AnimeDataError('DATASET_EMPTY', 'manifest.csv は接続済みですが、作品CSVはまだ登録されていません。');
     }
     return files;
   };

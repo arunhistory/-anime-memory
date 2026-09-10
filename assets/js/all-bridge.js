@@ -168,6 +168,11 @@
     } catch (error) {
       dataReady = false;
       setBusy(false);
+      if (error?.code === 'DATASET_EMPTY') {
+        setStatus('done', '作品CSVの接続は完了しています', '現在の登録作品は0件です');
+        setEmpty('登録作品はまだありません', '500作品が揃うと最初の作品CSVが自動で追加されます。');
+        return;
+      }
       if (error?.code === 'DATA_NOT_CONNECTED') {
         setStatus('idle', '全件表示エンジン本体は配置済み', '作品CSVの接続後、自動で全作品を表示します');
         setEmpty('ここに全作品が並びます', '作品データはまだ接続されていません。');

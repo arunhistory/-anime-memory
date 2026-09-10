@@ -527,6 +527,10 @@
       if (searchInput?.value.trim()) await executeSearch();
     } catch (error) {
       dataReady = false;
+      if (error?.code === 'DATASET_EMPTY') {
+        setMessage('success', '作品CSVの接続は完了しています（現在の登録作品は0件）。');
+        return;
+      }
       if (error?.code === 'DATA_NOT_CONNECTED') {
         setMessage('info', '検索エンジン本体は配置済みです。作品CSVの接続後に検索できます。');
         return;

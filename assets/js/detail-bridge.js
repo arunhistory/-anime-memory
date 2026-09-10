@@ -277,6 +277,10 @@
       requestDetail();
     } catch (error) {
       dataReady = false;
+      if (error?.code === 'DATASET_EMPTY') {
+        setStatus('info', '作品CSVの接続は完了していますが、現在の登録作品は0件です。');
+        return;
+      }
       if (error?.code === 'DATA_NOT_CONNECTED') {
         setStatus('info', '詳細取得エンジン本体は配置済みです。作品CSVの接続後に表示できます。');
         return;
