@@ -95,8 +95,11 @@ jobs:
           node --check tools/discovery/learned-source-self-test.mjs
           node --check tools/discovery/wikidata-bootstrap.mjs
           node --check tools/discovery/wikidata-bootstrap-self-test.mjs
+          node --check tools/discovery/wikidata-series-expansion.mjs
+          node --check tools/discovery/wikidata-series-expansion-self-test.mjs
           node --check tools/discovery/series-learning.mjs
           node --check tools/discovery/series-learning-self-test.mjs
+          node --check tools/discovery/publishable-readiness-self-test.mjs
           node --check tools/discovery/common-evidence.mjs
           node --check tools/discovery/structured-evidence.mjs
           node --check tools/discovery/evidence.mjs
@@ -158,8 +161,14 @@ jobs:
       - name: Wikidata structured bootstrap and series relation self-test
         run: node tools/discovery/wikidata-bootstrap-self-test.mjs
 
+      - name: Full-series Wikidata expansion self-test
+        run: node tools/discovery/wikidata-series-expansion-self-test.mjs
+
       - name: Series-first learning self-test
         run: node tools/discovery/series-learning-self-test.mjs
+
+      - name: Series and information publication gate self-test
+        run: node tools/discovery/publishable-readiness-self-test.mjs
 
       - name: Web discovery self-test
         run: node tools/discovery/self-test.mjs
