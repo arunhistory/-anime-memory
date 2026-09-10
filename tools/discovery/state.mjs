@@ -2,8 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { normalizeUrl, urlHash } from './url.mjs';
 import { normalizeTitleKey } from './html.mjs';
-import { mergeEvidence, resolveEvidence } from './evidence.mjs';
+import { mergeEvidence } from './evidence.mjs';
 import { collapseSameFamilyEvidence } from './source-family.mjs';
+import {
+  buildResearchStrategyModel,
+  emptyResearchStrategyState,
+  sanitizeResearchStrategyState
+} from './research-strategy.mjs';
+import { resolveEvidenceWithTrust } from './trust-resolution.mjs';
 
 export function emptyDiscoveryState() {
   return {
@@ -12,6 +18,7 @@ export function emptyDiscoveryState() {
     visited: [],
     documents: [],
     candidates: [],
+    researchStrategy: emptyResearchStrategyState(),
     updatedAt: ''
   };
 }
@@ -23,6 +30,7 @@ function sanitizeState(input) {
   state.visited = Array.isArray(input.visited) ? input.visited : [];
   state.documents = Array.isArray(input.documents) ? input.documents : [];
   state.candidates = Array.isArray(input.candidates) ? input.candidates : [];
+  state.researchStrategy = sanitizeResearchStrategyState(input.researchStrategy);
   state.updatedAt = typeof input.updatedAt === 'string' ? input.updatedAt : '';
   return state;
 }
@@ -40,14 +48,20 @@ function sanitizeFacts(facts) {
     const status = ['observed', 'confirmed', 'conflict'].includes(value.status) ? value.status : 'observed';
     output[String(field).slice(0, 80)] = {
       status,
-      value: status === 'conflict' ? '' : String(value.value || '').slice(0, 160),
+      value: status === 'conflict' ? '' : String(value.value || '').slice(0, 2400),
       sourceCount: Math.max(0, Number(value.sourceCount || 0)),
       hostCount: Math.max(0, Number(value.hostCount || 0)),
+      primarySourceCount: Math.max(0, Number(value.primarySourceCount || 0)),
+      confidence: Math.max(0, Math.min(100, Number(value.confidence || 0))),
       alternatives: Array.isArray(value.alternatives)
-        ? value.alternatives.slice(0, 5).map((item) => ({
-          value: String(item?.value || '').slice(0, 160),
+        ? value.alternatives.slice(0, 10).map((item) => ({
+          value: String(item?.value || '').slice(0, 2400),
           sourceCount: Math.max(0, Number(item?.sourceCount || 0)),
           hostCount: Math.max(0, Number(item?.hostCount || 0)),
+          primarySourceCount: Math.max(0, Number(item?.primarySourceCount || 0)),
+          trustedSecondaryCount: Math.max(0, Number(item?.trustedSecondaryCount || 0)),
+          credibility: Math.max(0, Math.min(100, Number(item?.credibility || 0))),
+          maxCredibility: Math.max(0, Math.min(100, Number(item?.maxCredibility || 0))),
           evidenceCount: Math.max(0, Number(item?.evidenceCount || 0))
         }))
         : []
@@ -74,6 +88,9 @@ function sanitizeCandidateHints(values) {
 export function saveDiscoveryState(filePath, state) {
   const clean = sanitizeState(state);
   clean.updatedAt = new Date().toISOString();
+  clean.researchStrategy = sanitizeResearchStrategyState(clean.researchStrategy);
+  const trustModel = buildResearchStrategyModel(clean);
+
   clean.frontier = clean.frontier
     .map((entry) => ({
       url: normalizeUrl(entry?.url),
@@ -101,7 +118,7 @@ export function saveDiscoveryState(filePath, state) {
   clean.candidates = clean.candidates
     .map((candidate) => {
       const evidence = collapseSameFamilyEvidence(mergeEvidence(candidate.evidence || []));
-      const resolved = resolveEvidence(evidence);
+      const resolved = resolveEvidenceWithTrust(evidence, trustModel);
       return {
         key: normalizeTitleKey(candidate.title || candidate.key),
         title: String(candidate.title || '').slice(0, 120),
