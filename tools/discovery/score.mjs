@@ -39,10 +39,19 @@ export function scoreDiscoveredLink(link, parentScore, candidateTitles = []) {
   let score = Math.max(0, Math.min(100, parentScore / 4));
 
   const positive = [
-    ['anime', 25], ['アニメ', 25], ['works', 12], ['作品', 15], ['news', 8], ['ニュース', 8],
-    ['cast', 18], ['キャスト', 18], ['staff', 18], ['スタッフ', 18], ['onair', 18], ['放送', 18],
-    ['stream', 18], ['配信', 18], ['movie', 12], ['劇場', 12], ['pv', 12], ['原作', 10],
-    ['official', 45], ['公式サイト', 45], ['公式', 30]
+    ['anime', 25], ['アニメ', 25], ['works', 16], ['作品', 18], ['news', 8], ['ニュース', 8],
+    ['cast', 24], ['キャスト', 24], ['voice', 18], ['声優', 24], ['character', 24], ['キャラクター', 24],
+    ['staff', 26], ['スタッフ', 26], ['director', 18], ['監督', 20],
+    ['onair', 24], ['broadcast', 22], ['放送', 24], ['schedule', 18], ['放送日時', 22],
+    ['stream', 24], ['delivery', 20], ['配信', 24], ['vod', 18],
+    ['music', 24], ['song', 18], ['主題歌', 24], ['オープニング', 20], ['エンディング', 20], ['挿入歌', 20],
+    ['episode', 24], ['story', 22], ['各話', 24], ['エピソード', 24], ['あらすじ', 18],
+    ['production', 22], ['studio', 22], ['制作', 22], ['製作', 20], ['制作会社', 26],
+    ['original', 20], ['manga', 16], ['novel', 16], ['原作', 22], ['出版社', 18], ['連載', 18],
+    ['series', 22], ['season', 20], ['sequel', 20], ['prequel', 20], ['続編', 22], ['前作', 18],
+    ['movie', 16], ['劇場', 18], ['special', 16], ['特別編', 18], ['ova', 18], ['ona', 18],
+    ['official', 45], ['公式サイト', 45], ['公式', 30], ['profile', 14], ['data', 12],
+    ['pv', 12]
   ];
   const negative = [
     ['privacy', -45], ['policy', -35], ['terms', -35], ['contact', -40], ['recruit', -50],
