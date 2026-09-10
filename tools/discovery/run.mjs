@@ -6,6 +6,7 @@ import { loadDiscoveryState, saveDiscoveryState, seedFrontier } from './state.mj
 import { loadKnownWorkWasmSearch } from './known-work-wasm.mjs';
 import { normalizeUrl } from './url.mjs';
 import { bootstrapFromWikidata } from './wikidata-bootstrap.mjs';
+import { expandSeriesFromWikidata } from './wikidata-series-expansion.mjs';
 
 function parseArgs(argv) {
   const args = {};
@@ -82,6 +83,26 @@ async function main() {
       console.warn(`Wikidata bootstrap deferred: ${error.message}`);
     }
   }
+
+  let seriesExpansion = {
+    seriesRequested: 0,
+    rows: 0,
+    seriesExpanded: 0,
+    candidatesAdded: 0,
+    evidenceAdded: 0,
+    officialFrontierAdded: 0,
+    memberCount: 0
+  };
+  if (String(process.env.WIKIDATA_SERIES_EXPANSION_DISABLED || '').toLowerCase() !== 'true') {
+    try {
+      seriesExpansion = await expandSeriesFromWikidata(state, {
+        limit: validateNumber(process.env.WIKIDATA_SERIES_EXPANSION_LIMIT, 'WIKIDATA_SERIES_EXPANSION_LIMIT', 1, 50, 12)
+      });
+    } catch (error) {
+      console.warn(`Wikidata full-series expansion deferred: ${error.message}`);
+    }
+  }
+
   const rawSeeds = [...readSeedFile(seedPath), ...readInputSeeds()];
   const seeds = [...new Set(rawSeeds.map((value) => normalizeUrl(value)).filter(Boolean))];
   seedFrontier(state, seeds, 100);
@@ -124,6 +145,12 @@ async function main() {
   console.log(`Wikidata series verification URLs added: ${wikidata.seriesFrontierAdded || 0}`);
   console.log(`Wikidata bootstrap offset: ${wikidata.offset}`);
   console.log(`Wikidata bootstrap completed: ${wikidata.completed}`);
+  console.log(`Wikidata full-series requests: ${seriesExpansion.seriesRequested}`);
+  console.log(`Wikidata full-series rows: ${seriesExpansion.rows}`);
+  console.log(`Wikidata full-series expanded: ${seriesExpansion.seriesExpanded}`);
+  console.log(`Wikidata full-series members learned: ${seriesExpansion.memberCount}`);
+  console.log(`Wikidata full-series candidates added: ${seriesExpansion.candidatesAdded}`);
+  console.log(`Wikidata full-series official URLs added: ${seriesExpansion.officialFrontierAdded}`);
   console.log(`attempted: ${result.stats.attempted}`);
   console.log(`fetched: ${result.stats.fetched}`);
   console.log(`relevant pages: ${result.stats.relevant}`);
@@ -148,7 +175,7 @@ async function main() {
   console.log(`known candidates: ${result.state.candidates.length}`);
   console.log(`changed: ${changed}`);
   console.log('Existing-work lookup: search.wasm + enrichment reuse');
-  console.log('Series-first research: ENABLED');
+  console.log('Series-first research: FULL-SERIES PRE-EXPANSION ENABLED');
   console.log('External search API: NONE');
   console.log('Gemini: DISCONNECTED');
 }
