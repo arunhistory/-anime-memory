@@ -4,6 +4,7 @@ import { normalizeUrl, urlHash } from './url.mjs';
 import { normalizeTitleKey } from './html.mjs';
 import { mergeEvidence } from './evidence.mjs';
 import { collapseSameFamilyEvidence } from './source-family.mjs';
+import { sanitizeSeriesKnowledge } from './series-learning.mjs';
 import {
   buildResearchStrategyModel,
   emptyResearchStrategyState,
@@ -14,6 +15,7 @@ import { sanitizeWikidataBootstrapState } from './wikidata-bootstrap.mjs';
 
 const MAX_FRONTIER = 50000;
 const MAX_FRONTIER_PER_HOST = 5000;
+const MAX_CANDIDATE_HINTS = 32;
 
 export function emptyDiscoveryState() {
   return {
@@ -50,11 +52,6 @@ function sanitizeState(input) {
   return state;
 }
 
-export function loadDiscoveryState(filePath) {
-  if (!fs.existsSync(filePath)) return emptyDiscoveryState();
-  return sanitizeState(JSON.parse(fs.readFileSync(filePath, 'utf8')));
-}
-
 function sanitizeFacts(facts) {
   const output = {};
   if (!facts || typeof facts !== 'object' || Array.isArray(facts)) return output;
@@ -68,6 +65,7 @@ function sanitizeFacts(facts) {
       hostCount: Math.max(0, Number(value.hostCount || 0)),
       primarySourceCount: Math.max(0, Number(value.primarySourceCount || 0)),
       confidence: Math.max(0, Math.min(100, Number(value.confidence || 0))),
+      trainingSamples: Math.max(0, Math.min(1_000_000_000, Number(value.trainingSamples || 0))),
       alternatives: Array.isArray(value.alternatives)
         ? value.alternatives.slice(0, 10).map((item) => ({
           value: String(item?.value || '').slice(0, 2400),
@@ -77,7 +75,8 @@ function sanitizeFacts(facts) {
           trustedSecondaryCount: Math.max(0, Number(item?.trustedSecondaryCount || 0)),
           credibility: Math.max(0, Math.min(100, Number(item?.credibility || 0))),
           maxCredibility: Math.max(0, Math.min(100, Number(item?.maxCredibility || 0))),
-          evidenceCount: Math.max(0, Number(item?.evidenceCount || 0))
+          evidenceCount: Math.max(0, Number(item?.evidenceCount || 0)),
+          trainingSamples: Math.max(0, Math.min(1_000_000_000, Number(item?.trainingSamples || 0)))
         }))
         : []
     };
@@ -95,7 +94,7 @@ function sanitizeCandidateHints(values) {
     if (!key || seen.has(key)) continue;
     seen.add(key);
     output.push(title);
-    if (output.length >= 4) break;
+    if (output.length >= MAX_CANDIDATE_HINTS) break;
   }
   return output;
 }
@@ -150,6 +149,7 @@ export function saveDiscoveryState(filePath, state) {
         sources: [...new Set((candidate.sources || []).map((value) => normalizeUrl(value)).filter(Boolean))].slice(0, 50),
         evidence,
         facts: sanitizeFacts(resolved),
+        series: sanitizeSeriesKnowledge(candidate.series),
         lastSeen: String(candidate.lastSeen || '')
       };
     })
