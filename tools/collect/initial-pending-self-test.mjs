@@ -21,12 +21,12 @@ const fixture = (index) => ({
   updated_at: '2026-09-10'
 });
 
-assert.equal(INITIAL_CSV_RECORD_LIMIT, 450);
-assert.equal(takeInitialPackage(Array.from({ length: 449 }, (_, index) => fixture(index))).selected.length, 0);
-const packaged = takeInitialPackage(Array.from({ length: 451 }, (_, index) => fixture(index)));
-assert.equal(packaged.selected.length, 450);
+assert.equal(INITIAL_CSV_RECORD_LIMIT, 500);
+assert.equal(takeInitialPackage(Array.from({ length: 499 }, (_, index) => fixture(index))).selected.length, 0);
+const packaged = takeInitialPackage(Array.from({ length: 501 }, (_, index) => fixture(index)));
+assert.equal(packaged.selected.length, 500);
 assert.equal(packaged.remaining.length, 1);
-const geminiStaged = Array.from({ length: 450 }, (_, index) => ({ ...fixture(index), synopsis: index < 449 ? '概要' : '' }));
+const geminiStaged = Array.from({ length: 500 }, (_, index) => ({ ...fixture(index), synopsis: index < 499 ? '概要' : '' }));
 assert.equal(takeInitialPackage(geminiStaged, { requireSynopsis: true }).selected.length, 0);
 assert.deepEqual(loadInitialPending(filePath, columns).records, []);
 assert.equal(saveInitialPending(filePath, [fixture(1)], columns, new Date('2026-09-10T00:00:00Z')), true);
@@ -36,5 +36,5 @@ assert.equal(loadInitialPending(filePath, columns).records[0].id, '');
 
 fs.rmSync(tempRoot, { recursive: true, force: true });
 console.log('Initial pending self-test: PASS');
-console.log('CSV package size: 450');
+console.log('CSV package size: 500');
 console.log('partial records persist without public CSV: PASS');
