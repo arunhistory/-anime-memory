@@ -2,12 +2,13 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadColumns, readDataRecords } from '../csv/csv.mjs';
-import { deduplicateIncoming } from '../collect/deduplicate.mjs';
+import { externalIdSet } from '../normalize/record.mjs';
 import { loadDiscoveryState } from './state.mjs';
-import { candidateToCommonRecord, discoveryCandidateReadiness } from './to-record.mjs';
+import { discoveryCandidateReadiness } from './to-record.mjs';
+import { discoveryExternalIdForKey } from './series-record.mjs';
+import { pendingWikidataSeriesRefs } from './wikidata-series-expansion.mjs';
 
 export const RESEARCH_INACTIVITY_LIMIT_MS = 24 * 60 * 60 * 1000;
-const MAX_SEEN = 20000;
 
 function parseArgs(argv) {
   const args = {};
@@ -57,7 +58,6 @@ export function loadResearchCycle(filePath) {
     seenEligible: [...new Set((Array.isArray(input.seenEligible) ? input.seenEligible : [])
       .map(String)
       .filter((value) => /^[a-f0-9]{64}$/.test(value)))]
-      .slice(-MAX_SEEN)
   };
 }
 
@@ -72,25 +72,30 @@ function candidateFingerprint(candidate) {
   return crypto.createHash('sha256').update(`candidate:${String(candidate?.key || '')}`).digest('hex');
 }
 
-export function eligibleDiscoveryRecords({ root = process.cwd(), now = new Date() } = {}) {
+export function eligibleDiscoveryRecords({ root = process.cwd() } = {}) {
   const columns = loadColumns(root);
   const state = loadDiscoveryState(path.join(root, 'crawler', 'state.json'));
   const existing = readDataRecords(path.join(root, 'data'), columns);
-  const accepted = [];
+  const registeredDiscoveryIds = new Set();
+  for (const { record } of existing) {
+    for (const externalId of externalIdSet(record)) {
+      if (/^discovery-key::[a-f0-9]{64}$/.test(externalId)) registeredDiscoveryIds.add(externalId);
+    }
+  }
+
   const fingerprints = [];
   for (const candidate of state.candidates) {
     if (!discoveryCandidateReadiness(candidate).ready) continue;
-    const record = candidateToCommonRecord(candidate, columns, now.toISOString().slice(0, 10));
-    const known = [...existing, ...accepted.map((item) => ({ fileName: 'pending', record: item }))];
-    const result = deduplicateIncoming([record], known, columns, { warn: () => {} });
-    if (!result.accepted.length) continue;
-    accepted.push(result.accepted[0]);
+    const discoveryId = discoveryExternalIdForKey(candidate?.key);
+    if (discoveryId && registeredDiscoveryIds.has(discoveryId)) continue;
     fingerprints.push(candidateFingerprint(candidate));
   }
+
   return {
-    records: accepted,
-    fingerprints,
-    frontier: state.frontier.length
+    fingerprints: [...new Set(fingerprints)],
+    frontier: state.frontier.length,
+    bootstrapIncomplete: !Boolean(state.wikidataBootstrap?.completed),
+    pendingSeries: pendingWikidataSeriesRefs(state).length
   };
 }
 
@@ -104,22 +109,28 @@ export function startResearchCycle(fingerprints, now = new Date()) {
     lastNewDiscoveryAt: iso,
     stoppedAt: '',
     stopReason: '',
-    seenEligible: [...new Set(fingerprints)].slice(-MAX_SEEN)
+    seenEligible: [...new Set(fingerprints)]
   };
 }
 
-export function checkpointResearchCycle(cycle, fingerprints, { now = new Date(), frontier = 1 } = {}) {
+export function checkpointResearchCycle(cycle, fingerprints, {
+  now = new Date(),
+  frontier = 1,
+  bootstrapIncomplete = false,
+  pendingSeries = 0
+} = {}) {
   if (!cycle.active) return { cycle, newConfirmed: 0, inactiveMs: 0 };
   const seen = new Set(cycle.seenEligible);
   const additions = [...new Set(fingerprints)].filter((value) => !seen.has(value));
   for (const value of additions) seen.add(value);
   const next = {
     ...cycle,
-    seenEligible: [...seen].slice(-MAX_SEEN)
+    seenEligible: [...seen]
   };
   if (additions.length) next.lastNewDiscoveryAt = now.toISOString();
   const inactiveMs = Math.max(0, now.getTime() - Date.parse(next.lastNewDiscoveryAt || next.startedAt));
-  if (frontier === 0) {
+  const discoveryExhausted = frontier === 0 && !bootstrapIncomplete && Number(pendingSeries || 0) === 0;
+  if (discoveryExhausted) {
     next.active = false;
     next.stoppedAt = now.toISOString();
     next.stopReason = 'frontier-empty';
@@ -148,12 +159,17 @@ async function main() {
   let inactiveMs = 0;
 
   if (command === 'start') {
-    const eligible = eligibleDiscoveryRecords({ root, now });
+    const eligible = eligibleDiscoveryRecords({ root });
     cycle = startResearchCycle(eligible.fingerprints, now);
     saveResearchCycle(filePath, cycle);
   } else if (command === 'checkpoint') {
-    const eligible = eligibleDiscoveryRecords({ root, now });
-    const result = checkpointResearchCycle(cycle, eligible.fingerprints, { now, frontier: eligible.frontier });
+    const eligible = eligibleDiscoveryRecords({ root });
+    const result = checkpointResearchCycle(cycle, eligible.fingerprints, {
+      now,
+      frontier: eligible.frontier,
+      bootstrapIncomplete: eligible.bootstrapIncomplete,
+      pendingSeries: eligible.pendingSeries
+    });
     cycle = result.cycle;
     newConfirmed = result.newConfirmed;
     inactiveMs = result.inactiveMs;
