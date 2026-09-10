@@ -154,33 +154,3 @@ export function candidateInformationReadiness(candidate) {
     sourceFamilies
   };
 }
-
-export function missingInformationRouteKinds(candidate) {
-  const research = sanitizeCandidateResearch(candidate?.research);
-  const groups = new Set(confirmedInformationGroups(candidate));
-  const wanted = [];
-  const mapping = [
-    ['staff', 'staff'],
-    ['original', 'original'],
-    ['music', 'music'],
-    ['distribution', 'streaming'],
-    ['episodes', 'episode'],
-    ['official', 'official'],
-    ['production', 'production'],
-    ['cast', 'character'],
-    ['release', 'broadcast']
-  ];
-  for (const [group, route] of mapping) {
-    if (!groups.has(group) || !research.routes.includes(route)) wanted.push(route);
-  }
-  return [...new Set(wanted)];
-}
-
-export function informationPriorityBoost(link, candidate) {
-  if (!candidate) return 0;
-  const route = researchRouteKind(link?.url, link?.anchor);
-  const wanted = new Set(missingInformationRouteKinds(candidate));
-  if (wanted.has(route)) return 85;
-  if (route === 'works' && candidateInformationReadiness(candidate).ready === false) return 25;
-  return 0;
-}
