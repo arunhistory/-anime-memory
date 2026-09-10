@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const INITIAL_CSV_RECORD_LIMIT = 500;
-export const INITIAL_PENDING_RECORD_LIMIT = 20000;
 
 function cleanRecord(input, columns) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('initial-pending-record-invalid');
@@ -34,7 +33,6 @@ export function loadInitialPending(filePath, columns) {
   if (!fs.existsSync(filePath)) return emptyInitialPending();
   const input = JSON.parse(fs.readFileSync(filePath, 'utf8'));
   if (!input || input.version !== 1 || !Array.isArray(input.records)) throw new Error('initial-pending-state-invalid');
-  if (input.records.length > INITIAL_PENDING_RECORD_LIMIT) throw new Error('initial-pending-record-limit-exceeded');
   return {
     version: 1,
     records: input.records.map((record) => cleanRecord(record, columns)),
@@ -43,9 +41,7 @@ export function loadInitialPending(filePath, columns) {
 }
 
 export function saveInitialPending(filePath, records, columns, now = new Date()) {
-  if (!Array.isArray(records) || records.length > INITIAL_PENDING_RECORD_LIMIT) {
-    throw new Error('initial-pending-record-limit-exceeded');
-  }
+  if (!Array.isArray(records)) throw new Error('initial-pending-state-invalid');
   const cleanRecords = records.map((record) => cleanRecord(record, columns));
   if (fs.existsSync(filePath)) {
     const current = loadInitialPending(filePath, columns);
