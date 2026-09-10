@@ -64,8 +64,12 @@ jobs:
           node --check tools/validate/pre-gemini-audit.mjs
           node --check tools/collect/run.mjs
           node --check tools/collect/self-test.mjs
-          node --check tools/collect/initial-budget.mjs
-          node --check tools/collect/initial-budget-self-test.mjs
+          node --check tools/collect/deduplicate.mjs
+          node --check tools/collect/initial-pending.mjs
+          node --check tools/collect/initial-pending-self-test.mjs
+          node --check tools/collect/package-integration-self-test.mjs
+          node --check tools/discovery/cycle.mjs
+          node --check tools/discovery/cycle-self-test.mjs
           node --check tools/correct/run.mjs
           node --check tools/correct/self-test.mjs
           node --check tools/discovery/url.mjs
@@ -110,8 +114,10 @@ jobs:
       - name: Collection pipeline self-test
         run: node tools/collect/self-test.mjs
 
-      - name: Initial import rolling budget self-test
-        run: node tools/collect/initial-budget-self-test.mjs
+      - name: Initial 500-work package and pending-state self-test
+        run: |
+          node tools/collect/initial-pending-self-test.mjs
+          node tools/collect/package-integration-self-test.mjs
 
       - name: Manual correction self-test
         run: node tools/correct/self-test.mjs

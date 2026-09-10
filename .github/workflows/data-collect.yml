@@ -81,7 +81,8 @@ jobs:
       - name: Preflight self-test
         run: |
           node tools/collect/self-test.mjs
-          node tools/collect/initial-budget-self-test.mjs
+          node tools/collect/initial-pending-self-test.mjs
+          node tools/collect/package-integration-self-test.mjs
           node tools/correct/self-test.mjs
           node tools/discovery/known-work-wasm-self-test.mjs
           node tools/discovery/known-work-skip-self-test.mjs
@@ -174,18 +175,19 @@ jobs:
 
       - name: Show dry-run diff
         if: ${{ inputs.dry_run }}
-        run: git diff -- data || true
+        run: git diff -- data crawler/pending-initial.json || true
 
       - name: Commit validated data
         if: ${{ !inputs.dry_run }}
         shell: bash
         run: |
           set -euo pipefail
-          git add data
+          if [[ -d data ]]; then git add data; fi
+          if [[ -f crawler/pending-initial.json ]]; then git add crawler/pending-initial.json; fi
           if git diff --cached --quiet; then
             echo 'No validated data changes to commit.'
           else
-            unexpected="$(git status --porcelain | awk '$2 !~ /^data\// {print}')"
+            unexpected="$(git status --porcelain | awk '$2 != "crawler/pending-initial.json" && $2 !~ /^data\// {print}')"
             if [[ -n "${unexpected}" ]]; then
               echo 'Collector modified files outside data/; refusing commit.' >&2
               echo "${unexpected}" >&2
@@ -201,8 +203,8 @@ jobs:
               git fetch origin main
               remote_head="$(git rev-parse origin/main)"
               if [[ "${remote_head}" != "${base_sha}" ]]; then
-                if ! git diff --quiet "${base_sha}..${remote_head}" -- data; then
-                  echo 'data/ advanced after collection started; aborting to prevent duplicate/overwrite.' >&2
+                if ! git diff --quiet "${base_sha}..${remote_head}" -- data crawler/pending-initial.json; then
+                  echo 'data or pending state advanced after collection started; aborting to prevent duplicate/overwrite.' >&2
                   exit 1
                 fi
                 git rebase origin/main

@@ -143,7 +143,9 @@ Web探索で確定した事実は `tools/discovery/to-record.mjs` で共通70列
 
 `relations` は `relation_type::target_id` でサイト内部A-IDを参照するため、相手作品を一意に確定できない段階でタイトルから架空のIDを生成しない。必要な修正は既存の手動修正経路で、target ID存在検証を通した後に確定する。
 
-初期導入では既存 `initial-NNN.csv` へ追記せず毎回新規ファイルを作成する。さらにGit履歴から直近24時間に追加された初期CSVの作品数を数え、複数実行を跨いでも450作品を超えない残枠だけを登録対象にする。追加のDB、Cron、quota保存テーブルは使わない。
+初期導入では既存 `initial-NNN.csv` へ追記せず、確定済みの非重複作品が500件揃うたびに新しい連番CSVを1つ生成する。500件未満は `crawler/pending-initial.json` に保存し、公開用 `manifest.csv` には載せない。
+
+`Anime Research Production` は1回100ページまでの短い実行に分割し、毎回stateをCommitしてから必要な場合だけ次の `workflow_dispatch` を起動する。新しい確定作品が24時間見つからなければ周期を停止し、次の1月1日・4月1日・7月1日・10月1日の自動開始までActionsを動かさない。500件CSVを1つ公開した場合もその周期を終了する。
 
 Gemini処理コードは探索・事実確定から分離してある。GitHub Actions SecretからGemini APIへ到達することはライブ試験で確認済みだが、InteractionsとGenerateContentの双方がGoogle側のHTTP 429 `RESOURCE_EXHAUSTED` で停止したため、`Anime Data Collect` の `gemini` 入力は既定 `false` のままとする。quota/billingが利用可能になるまで同じ失敗を根拠なく再試行しない。
 
@@ -199,7 +201,10 @@ Gemini処理コードは探索・事実確定から分離してある。GitHub A
 - 外部ID完全一致と複合条件による重複候補検出
 - 既登録作品の次回探索除外に公開検索用 `search.wasm` を流用
 - 初期導入 `initial-NNN.csv` 新規生成
-- 初期導入の直近24時間450作品上限
+- 初期導入500作品単位のCSV生成と500件未満の途中状態保存
+- 確定作品なし24時間で停止する短時間バッチ型探索周期
+- 1月1日・4月1日・7月1日・10月1日の探索周期自動開始
+- Gemini明示利用時だけの日次450呼出し上限
 - 四半期 `YYYY-QN.csv` 追加経路
 - `manifest.csv` ファイル名専用生成
 - CSVスキーマ / UTF-8 / ID / media_type / 日付 / URL / relations / 重複候補 / 四半期所属の公開前検証
@@ -214,7 +219,7 @@ Gemini処理コードは探索・事実確定から分離してある。GitHub A
 現在残っている実運用工程:
 
 - 利用条件を確認した独立source familyへ探索を段階拡張
-- Geminiなしで確定できる実作品CSVの初回本番収集
+- 保存済み探索stateから500作品を確定する初回本番周期
 - Google側quota/billing解消後にGeminiを1件だけ再疎通
 - 確定済み事実のみを使った `synopsis` 実生成
 - 初期導入完了後の四半期更新実運用

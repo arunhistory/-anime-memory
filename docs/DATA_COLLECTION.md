@@ -25,7 +25,7 @@ confirmed の事実だけ共通70列Recordへ変換
   ↓
 既存作品との重複候補判定
   ↓
-初期導入24時間上限 / 四半期所属判定
+初期500件package / 四半期所属判定
   ↓
 [Gemini利用可能時のみ] synopsis生成
   ↓
@@ -106,11 +106,11 @@ Web探索state内で異なるタイトル候補を1作品へまとめる場合�
 
 ## 初期導入
 
-`mode=initial` は既存 `initial-NNN.csv` に追記しない。毎回次の連番ファイルを新規生成する。
+`mode=initial` は既存 `initial-NNN.csv` に追記しない。確定済みの非重複作品が500件揃った場合だけ、次の連番ファイルを500作品で新規生成する。
 
-1回450件だけでなく、`tools/collect/initial-budget.mjs` がGit履歴から**直近24時間に新規追加された `initial-NNN.csv` の作品数**を数える。残り枠だけを新規候補へ割り当て、複数実行を跨いでも450作品を超えない。既に履歴上450を超えている状態を検出した場合は安全停止する。
+500件未満のRecordは `crawler/pending-initial.json` へ保存し、次回の短時間バッチへ引き継ぐ。途中状態は公開用 `data/manifest.csv` に追加しない。CSV・manifest・探索state・途中状態は同じ確定処理で扱い、検証失敗時は生成前へ戻す。
 
-この上限管理のために追加DB、Cron、永続quotaテーブルは作らない。Git履歴そのものを実測基準にする。
+Geminiは明示的に有効化した場合だけ日次450呼出し上限を適用する。Gemini無効時にはこの450上限を適用せず、500件package規則だけを適用する。Gemini有効時に450件で止まった概要生成結果も途中状態へ保存し、別日に500件揃うまで公開しない。
 
 ## 四半期更新
 
@@ -142,7 +142,9 @@ GitHubへの確定時はforce pushを使用しない。処理開始後に `data/
 
 ## 実行方法と実測状況
 
-`Web Anime Discovery` と `Anime Data Collect` は `workflow_dispatch` のみで、Cronは持たない。`Anime Data Collect` は `dry_run=true`、`gemini=false` が既定値。
+`Web Anime Discovery` と `Anime Data Collect` は手動 `workflow_dispatch` のまま。統合本番用 `Anime Research Production` だけが1月1日・4月1日・7月1日・10月1日に新しい探索周期を開始する。
+
+本番周期の各Actions実行は100ページで終了し、stateをCommitした後、周期がactiveの場合だけ次の短時間実行を `workflow_dispatch` する。新しい確定・非重複の日本アニメ作品が24時間見つからない、frontierが空になる、または500件CSVを1つ公開した時点でactiveを解除する。解除後は次の四半期開始まで実行を起動しない。
 
 `crawler/seeds.txt` には実測済みbootstrap seedが設定されている。GitHub ActionsのライブbootstrapでWikipediaを許可ホストに限定して40ページを本番stateへ巡回し、40/40ページ取得、通信失敗0、23作品候補、4,154件の継続frontierを生成して `crawler/state.json` へ保存した。robots、公開IP確認、DNS pinning、取得量制御、HTML解析、候補抽出、日本アニメgate、Evidence確定条件を実Webに対して確認している。
 

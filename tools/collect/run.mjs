@@ -13,16 +13,19 @@ import {
 } from '../csv/csv.mjs';
 import {
   normalizeSourceItem,
-  hasExactExternalId,
-  isCompositeDuplicateCandidate,
-  mergeOnlyBlank,
   splitStructured
 } from '../normalize/record.mjs';
 import { loadDiscoveryState } from '../discovery/state.mjs';
 import { readyDiscoveryRecords } from '../discovery/to-record.mjs';
 import { generateSynopses, GEMINI_SYNOPSIS_DEFAULT_MODEL } from '../gemini/synopsis.mjs';
 import { validateDataDirectory } from '../validate/data-validator.mjs';
-import { initialImportBudget } from './initial-budget.mjs';
+import { deduplicateIncoming } from './deduplicate.mjs';
+import {
+  INITIAL_CSV_RECORD_LIMIT,
+  loadInitialPending,
+  saveInitialPending,
+  takeInitialPackage
+} from './initial-pending.mjs';
 
 function parseArgs(argv) {
   const args = {};
@@ -124,40 +127,6 @@ function readTargetRecords(targetPath, columns) {
   return rowsToRecords(parseCsv(readUtf8Strict(targetPath)), columns);
 }
 
-function deduplicateIncoming(incoming, existing, columns) {
-  const accepted = [];
-  const stats = { exactExisting: 0, candidateExisting: 0, exactIncomingMerged: 0, candidateIncoming: 0 };
-
-  for (const item of incoming) {
-    const exactExisting = existing.find(({ record }) => hasExactExternalId(record, item));
-    if (exactExisting) {
-      stats.exactExisting += 1;
-      continue;
-    }
-    const candidateExisting = existing.find(({ record }) => isCompositeDuplicateCandidate(record, item));
-    if (candidateExisting) {
-      stats.candidateExisting += 1;
-      console.warn(`重複候補のため自動登録しません: source title=${item.title_ja || '(empty)'} / existing=${candidateExisting.record.id}`);
-      continue;
-    }
-
-    const exactIncomingIndex = accepted.findIndex((record) => hasExactExternalId(record, item));
-    if (exactIncomingIndex >= 0) {
-      accepted[exactIncomingIndex] = mergeOnlyBlank(accepted[exactIncomingIndex], item, columns);
-      stats.exactIncomingMerged += 1;
-      continue;
-    }
-    const candidateIncoming = accepted.find((record) => isCompositeDuplicateCandidate(record, item));
-    if (candidateIncoming) {
-      stats.candidateIncoming += 1;
-      console.warn(`取得内の重複候補を自動統合しません: ${item.title_ja || '(empty)'}`);
-      continue;
-    }
-    accepted.push(item);
-  }
-  return { accepted, stats };
-}
-
 function validateSourceConfigShape(config, columns) {
   for (const source of config.sources || []) {
     if (source.mapping && typeof source.mapping === 'object') {
@@ -254,14 +223,19 @@ async function main() {
   const input = await loadInputRecords({ inputMode, root, columns, confirmedDate });
   const normalized = input.normalized;
 
-  const { accepted: uniqueIncoming, stats } = deduplicateIncoming(normalized, existing, columns);
-  let selected = uniqueIncoming;
+  const pendingPath = path.join(root, 'crawler', 'pending-initial.json');
+  const pending = mode === 'initial' ? loadInitialPending(pendingPath, columns) : { records: [] };
+  const originalPending = fs.existsSync(pendingPath) ? fs.readFileSync(pendingPath) : null;
+  const { accepted: uniqueIncoming, stats } = deduplicateIncoming(
+    mode === 'initial' ? [...pending.records, ...normalized] : normalized,
+    existing,
+    columns
+  );
+  const staged = uniqueIncoming;
+  let selected = staged;
   let targetName;
-  let initialBudget = null;
 
   if (mode === 'initial') {
-    initialBudget = initialImportBudget({ cwd: root, columns });
-    selected = selected.slice(0, initialBudget.remaining);
     targetName = nextInitialFile(dataDir);
   } else {
     const year = Number(args.year);
@@ -275,33 +249,9 @@ async function main() {
     targetName = `${year}-Q${quarter}.csv`;
   }
 
-  if (selected.length === 0) {
-    if (initialBudget?.remaining === 0 && uniqueIncoming.length > 0) {
-      console.warn('初期導入の直近24時間上限450作品に到達しているため、安全停止します。');
-    } else {
-      console.log('新規登録対象は0件です。既存CSVは変更しません。');
-    }
-    console.log(JSON.stringify({
-      input: inputMode,
-      candidates: normalized.length,
-      selected: 0,
-      discoverySkipped: input.discoverySkipped,
-      safeStoppedSources: input.safeStoppedSources,
-      gemini: geminiEnabled ? 'enabled' : 'disabled',
-      initialBudget: initialBudget ? {
-        window: initialBudget.window,
-        limit: initialBudget.limit,
-        used: initialBudget.used,
-        remaining: initialBudget.remaining
-      } : null,
-      ...stats
-    }));
-    return;
-  }
-
   let geminiStats = {
     model: process.env.ANIME_GEMINI_MODEL || GEMINI_SYNOPSIS_DEFAULT_MODEL,
-    candidates: selected.length,
+    candidates: staged.length,
     calls: 0,
     generated: 0,
     existingSynopsis: 0,
@@ -310,23 +260,51 @@ async function main() {
   };
 
   if (geminiEnabled) {
-    const result = await generateSynopses(selected, {
+    const geminiPool = mode === 'initial' ? staged : selected;
+    const geminiCandidates = geminiPool.filter((record) => !String(record.synopsis || '').trim()).slice(0, geminiMaxCalls);
+    const result = await generateSynopses(geminiCandidates, {
       apiKey: process.env.ANIME_GEMINI_API_KEY,
       model: process.env.ANIME_GEMINI_MODEL || undefined,
       requestDelayMs: process.env.ANIME_GEMINI_REQUEST_DELAY_MS,
       timeoutMs: process.env.ANIME_GEMINI_TIMEOUT_MS,
       maxCalls: geminiMaxCalls
     });
-    selected = result.records;
     geminiStats = result.stats;
+    result.records.forEach((record, index) => {
+      geminiCandidates[index].synopsis = record.synopsis;
+    });
     emitGeminiCalls(geminiStats.calls);
     if (geminiStats.stoppedEarly) {
       console.warn(`Gemini概要生成を安全停止しました。成功分のみCSV候補に残します: ${geminiStats.stopReason}`);
     }
-    if (selected.length === 0) {
-      console.warn('Gemini概要生成の成功作品が0件のため、既存CSVは変更しません。');
-      return;
+    if (mode === 'quarterly') selected = selected.filter((record) => String(record.synopsis || '').trim());
+  }
+
+  if (mode === 'initial') {
+    selected = takeInitialPackage(staged, { requireSynopsis: geminiEnabled }).selected;
+  }
+
+  if (selected.length === 0) {
+    if (mode === 'initial') {
+      saveInitialPending(pendingPath, staged, columns);
+      console.log(`初期CSVは${INITIAL_CSV_RECORD_LIMIT}作品が揃うまで生成しません。途中状態を保存しました: ${staged.length}/${INITIAL_CSV_RECORD_LIMIT}`);
+    } else {
+      console.log('新規登録対象は0件です。既存CSVは変更しません。');
     }
+    setGithubOutput('csv_created', 'false');
+    setGithubOutput('pending_records', mode === 'initial' ? staged.length : 0);
+    console.log(JSON.stringify({
+      input: inputMode,
+      candidates: normalized.length,
+      selected: 0,
+      pending: mode === 'initial' ? staged.length : 0,
+      packageSize: mode === 'initial' ? INITIAL_CSV_RECORD_LIMIT : null,
+      discoverySkipped: input.discoverySkipped,
+      safeStoppedSources: input.safeStoppedSources,
+      gemini: geminiEnabled ? 'enabled' : 'disabled',
+      ...stats
+    }));
+    return;
   }
 
   fs.mkdirSync(dataDir, { recursive: true });
@@ -338,12 +316,17 @@ async function main() {
   const manifestPath = path.join(dataDir, 'manifest.csv');
   const originalManifest = fs.existsSync(manifestPath) ? fs.readFileSync(manifestPath) : null;
 
+  const remainingStaged = mode === 'initial'
+    ? takeInitialPackage(staged, { requireSynopsis: geminiEnabled }).remaining
+    : [];
+
   const nextId = nextInternalId(existing);
   for (const record of selected) record.id = nextId();
 
   try {
     writeTargetPreservingExisting(targetPath, selected, columns, mode);
     writeManifest(dataDir);
+    if (mode === 'initial') saveInitialPending(pendingPath, remainingStaged, columns);
 
     const validation = validateDataDirectory(dataDir);
     if (validation.failures.length) {
@@ -352,8 +335,12 @@ async function main() {
   } catch (error) {
     restoreFile(targetPath, originalTarget);
     restoreFile(manifestPath, originalManifest);
+    if (mode === 'initial') restoreFile(pendingPath, originalPending);
     throw error;
   }
+
+  setGithubOutput('csv_created', 'true');
+  setGithubOutput('pending_records', remainingStaged.length);
 
   console.log('Anime collection pipeline: PASS');
   console.log(`input: ${inputMode}`);
@@ -362,11 +349,7 @@ async function main() {
   console.log(`target: data/${targetName}`);
   console.log(`candidate records: ${normalized.length}`);
   console.log(`new records: ${selected.length}`);
-  if (initialBudget) {
-    console.log(`initial import budget window: ${initialBudget.window}`);
-    console.log(`initial imports in previous 24h: ${initialBudget.used}/${initialBudget.limit}`);
-    console.log(`initial budget before this run: ${initialBudget.remaining}`);
-  }
+  if (mode === 'initial') console.log(`pending initial records: ${remainingStaged.length}`);
   console.log(`discovery candidates not ready: ${input.discoverySkipped}`);
   console.log(`safe-stopped API sources: ${input.safeStoppedSources}`);
   console.log(`existing exact duplicates skipped: ${stats.exactExisting}`);

@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadColumns } from '../csv/csv.mjs';
 import { normalizeUrl } from '../discovery/url.mjs';
-import { INITIAL_IMPORT_ROLLING_LIMIT } from '../collect/initial-budget.mjs';
+import { INITIAL_CSV_RECORD_LIMIT } from '../collect/initial-pending.mjs';
+import { GEMINI_DAILY_CALL_LIMIT } from '../gemini/quota.mjs';
 
 const root = process.cwd();
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
@@ -32,10 +33,12 @@ for (const seed of seeds) assert.ok(normalizeUrl(seed), `invalid public bootstra
 
 const discoveryWorkflow = read('.github/workflows/web-discovery.yml');
 const collectWorkflow = read('.github/workflows/data-collect.yml');
+const productionWorkflow = read('.github/workflows/research-production.yml');
 assert.equal(/^\s*schedule\s*:/m.test(discoveryWorkflow), false, 'Web discovery must not gain cron scheduling');
 assert.equal(/^\s*schedule\s*:/m.test(collectWorkflow), false, 'Data collection must not gain cron scheduling');
 assert.match(discoveryWorkflow, /workflow_dispatch:/, 'Web discovery must remain explicit/event driven');
 assert.match(collectWorkflow, /workflow_dispatch:/, 'Data collection must remain explicit/event driven');
+assert.match(productionWorkflow, /cron:\s*'17 0 1 1,4,7,10 \*'/, 'production cycle must start only on quarterly dates');
 
 function inputBlock(workflow, name) {
   const lines = workflow.split(/\r?\n/);
@@ -55,15 +58,18 @@ const collectStep = collectWorkflow.indexOf('- name: Collect and build common CS
 const geminiSecret = collectWorkflow.indexOf('ANIME_GEMINI_API_KEY:');
 assert.ok(collectStep >= 0 && geminiSecret > collectStep, 'Gemini secret must not be job-wide');
 assert.match(collectWorkflow.slice(collectStep), /ANIME_GEMINI_API_KEY:\s*\$\{\{\s*\(!inputs\.dry_run\s*&&\s*inputs\.gemini\)/, 'Gemini secret must be gated by explicit opt-in and non-dry-run');
-assert.match(collectWorkflow, /node tools\/collect\/initial-budget-self-test\.mjs/, 'initial rolling-budget preflight missing');
+assert.match(collectWorkflow, /node tools\/collect\/initial-pending-self-test\.mjs/, 'initial pending-state preflight missing');
 assert.match(collectWorkflow, /node tools\/discovery\/structured-evidence-self-test\.mjs/, 'structured Evidence preflight missing');
 assert.match(discoveryWorkflow, /known-work-wasm-self-test\.mjs/, 'search.wasm registered-work preflight missing');
 assert.match(discoveryWorkflow, /known-work-skip-self-test\.mjs/, 'next-run registered-work skip preflight missing');
 
-assert.equal(INITIAL_IMPORT_ROLLING_LIMIT, 450, 'initial rolling 24-hour limit must remain 450');
-const budgetSource = read('tools/collect/initial-budget.mjs');
-assert.match(budgetSource, /--since=24 hours ago/, 'initial limit must span multiple runs over rolling 24 hours');
-assert.match(budgetSource, /--diff-filter=A/, 'initial budget must count newly-added initial CSV files');
+assert.equal(INITIAL_CSV_RECORD_LIMIT, 500, 'initial CSV package size must remain 500');
+assert.equal(GEMINI_DAILY_CALL_LIMIT, 450, 'Gemini daily call limit must remain 450');
+assert.match(productionWorkflow, /cycle\.mjs checkpoint/, '24-hour inactivity checkpoint missing');
+assert.match(productionWorkflow, /cycle_action=continue/, 'bounded workflow continuation missing');
+assert.match(productionWorkflow, /actions:\s*write/, 'bounded workflow continuation permission missing');
+assert.match(productionWorkflow, /--max-pages 100/, 'production batch must remain bounded to 100 pages');
+assert.equal(/while true/.test(productionWorkflow), false, 'unbounded production loop returned');
 
 const validator = read('tools/validate/data-validator.mjs');
 assert.match(validator, /'Web 最速'/, 'streaming mode Web 最速 spacing drifted');
@@ -127,10 +133,13 @@ console.log('Pre-Gemini repository audit: PASS');
 console.log('70-column schema/order: PASS');
 console.log('4-page + separate WASM artifacts: PASS');
 console.log('bootstrap seed: PRESENT');
-console.log('cron/polling workflows: NONE');
+console.log('manual discovery/collection cron: NONE');
+console.log('quarterly production activation: PRESENT');
 console.log('Gemini default: OFF');
 console.log('Gemini secret scope: OPT-IN COLLECTION STEP ONLY');
-console.log('rolling 24-hour initial limit: 450');
+console.log('initial CSV package size: 500');
+console.log('Gemini daily call limit: 450 / opt-in only');
+console.log('24-hour confirmed-work inactivity stop: PRESENT');
 console.log('registered-work next-run lookup: search.wasm');
 console.log('streaming/original/relation validation: PASS');
 console.log('external search API coupling: NONE');

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { loadColumns, parseCsv, rowsToRecords, listDataCsvFiles, readUtf8Strict } from '../csv/csv.mjs';
 import { splitEscaped, splitStructured, externalIdSet, titleSet, normalizeText, releaseIdentitySet } from '../normalize/record.mjs';
 import { ANIME_GENRE_SET, ORIGINAL_TYPE_SET } from '../discovery/taxonomy.mjs';
+import { INITIAL_CSV_RECORD_LIMIT } from '../collect/initial-pending.mjs';
 
 export const MEDIA_TYPES = new Set(['TV', 'MOVIE', 'OVA', 'ONA', 'SPECIAL', 'SHORT', 'OTHER']);
 const RELATION_TYPES = new Set(['PREQUEL', 'SEQUEL', 'SPINOFF', 'MOVIE', 'OVA', 'ONA', 'SPECIAL', 'REMAKE', 'REBOOT', 'COMPILATION', 'ALTERNATIVE', 'OTHER']);
@@ -246,8 +247,8 @@ export function validateDataDirectory(dataDir = path.join(process.cwd(), 'data')
     try {
       const rows = parseCsv(readUtf8Strict(path.join(dataDir, fileName)));
       const records = rowsToRecords(rows, columns);
-      if (/^initial-\d{3}\.csv$/.test(fileName) && records.length > 450) {
-        failures.push(`${fileName}: 初期導入上限450作品を超過 (${records.length})`);
+      if (/^initial-\d{3}\.csv$/.test(fileName) && records.length > INITIAL_CSV_RECORD_LIMIT) {
+        failures.push(`${fileName}: 初期CSV上限${INITIAL_CSV_RECORD_LIMIT}作品を超過 (${records.length})`);
       }
       records.forEach((record) => entries.push({ fileName, record }));
     } catch (error) {
