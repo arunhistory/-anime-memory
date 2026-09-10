@@ -91,14 +91,10 @@ jobs:
         id: checkpoint
         run: node tools/discovery/cycle.mjs checkpoint
 
-      - name: Build one 500-work CSV when ready
+      - name: Build one 450-work CSV when ready
         if: ${{ steps.cycle_open.outputs.active == 'true' }}
         id: collect
         run: node tools/collect/run.mjs --input discovery --mode initial --gemini false
-
-      - name: Stop after publishing one complete package
-        if: ${{ steps.collect.outputs.csv_created == 'true' }}
-        run: node tools/discovery/cycle.mjs stop --reason package-complete
 
       - name: Read final cycle state
         id: cycle_final
@@ -109,7 +105,7 @@ jobs:
           if [[ -d data ]]; then
             node tools/validate/data-validator.mjs data
           else
-            echo 'No complete 500-work package yet; preserving private pending state.'
+            echo 'No complete 450-work package yet; preserving private pending state.'
           fi
 
       - name: Commit state and validated data atomically
@@ -165,9 +161,10 @@ jobs:
           set -euo pipefail
           for attempt in $(seq 1 20); do
             if curl --fail --silent --show-error --location "${MANIFEST_URL}" --output /tmp/manifest.csv; then
-              grep -Eq '^(initial-[0-9]{3}|[0-9]{4}-Q[1-4])\.csv\r?$' /tmp/manifest.csv
-              echo "Pages data manifest is reachable: ${MANIFEST_URL}"
-              exit 0
+              if grep -Eq '^(initial-[0-9]{3}|[0-9]{4}-Q[1-4])\.csv\r?$' /tmp/manifest.csv; then
+                echo "Pages data manifest is reachable: ${MANIFEST_URL}"
+                exit 0
+              fi
             fi
             sleep 15
           done
