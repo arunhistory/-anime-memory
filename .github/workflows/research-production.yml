@@ -1,0 +1,154 @@
+name: Anime Research Production
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/research-production.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: anime-production-launch
+  cancel-in-progress: false
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      DISCOVERY_MIN_DELAY_MS: '1000'
+
+    steps:
+      - name: Checkout latest main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Production preflight
+        run: |
+          set -euo pipefail
+          node tools/collect/self-test.mjs
+          node tools/collect/initial-budget-self-test.mjs
+          node tools/discovery/known-work-wasm-self-test.mjs
+          node tools/discovery/known-work-skip-self-test.mjs
+          node tools/discovery/research-strategy-self-test.mjs
+          node tools/discovery/trust-calibration-self-test.mjs
+          node tools/discovery/self-test.mjs
+          node tools/discovery/candidate-title-self-test.mjs
+          node tools/discovery/verification-link-self-test.mjs
+          node tools/discovery/quality-self-test.mjs
+          node tools/discovery/source-family-self-test.mjs
+          node tools/discovery/common-evidence-self-test.mjs
+          node tools/discovery/structured-evidence-self-test.mjs
+          node tools/discovery/entity-resolution-self-test.mjs
+          node tools/discovery/taxonomy-self-test.mjs
+          node tools/gemini/quota-self-test.mjs
+          node tools/gemini/self-test.mjs
+          node tools/validate/pre-gemini-audit.mjs
+
+      - name: Learn research strategy until Actions deadline
+        shell: bash
+        run: |
+          set -euo pipefail
+          start_epoch="$(date +%s)"
+          # GitHub-hosted jobs are capped at 6 hours. Stop research at 5h10m
+          # so CSV validation and a safe state/data commit still have time.
+          research_deadline=$((start_epoch + 18600))
+          batch=0
+
+          while true; do
+            now="$(date +%s)"
+            if (( now >= research_deadline )); then
+              echo 'Research soft deadline reached; finalizing learned state safely.'
+              break
+            fi
+
+            frontier="$(node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const state = JSON.parse(fs.readFileSync('crawler/state.json', 'utf8'));
+          process.stdout.write(String(Array.isArray(state.frontier) ? state.frontier.length : 0));
+          NODE
+          )"
+            if [[ "${frontier}" == "0" ]]; then
+              echo 'Research frontier is empty; finalizing.'
+              break
+            fi
+
+            before="$(sha256sum crawler/state.json | awk '{print $1}')"
+            batch=$((batch + 1))
+            echo "=== research batch ${batch}; frontier=${frontier} ==="
+
+            node tools/discovery/run.mjs \
+              --max-pages 200 \
+              --max-depth 12 \
+              --per-host-limit 200
+
+            after="$(sha256sum crawler/state.json | awk '{print $1}')"
+            if [[ "${before}" == "${after}" ]]; then
+              echo 'No research-state progress in this batch; stopping to avoid waste.'
+              break
+            fi
+          done
+
+      - name: Build initial production CSV without Gemini
+        run: node tools/collect/run.mjs --input discovery --mode initial --gemini false
+
+      - name: Validate production data
+        run: |
+          if [[ -d data ]]; then
+            node tools/validate/data-validator.mjs data
+          else
+            echo 'No record passed the confirmation gate yet; preserving learned research state.'
+          fi
+
+      - name: Commit learned state and validated data
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_sha="$(git rev-parse HEAD)"
+          git add crawler/state.json
+          if [[ -d data ]]; then git add data; fi
+
+          unexpected="$(git status --porcelain | awk '$2 != "crawler/state.json" && $2 !~ /^data\// {print}')"
+          if [[ -n "${unexpected}" ]]; then
+            echo 'Unexpected files changed; refusing production commit.' >&2
+            echo "${unexpected}" >&2
+            exit 1
+          fi
+
+          if git diff --cached --quiet; then
+            echo 'No learned-state or data changes to commit.'
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Advance anime research learning and validated data'
+
+          for attempt in 1 2 3; do
+            git fetch origin main
+            remote_head="$(git rev-parse origin/main)"
+            if [[ "${remote_head}" != "${base_sha}" ]]; then
+              if ! git diff --quiet "${base_sha}..${remote_head}" -- crawler/state.json data; then
+                echo 'Production state/data advanced concurrently; refusing overwrite.' >&2
+                exit 1
+              fi
+              git rebase origin/main
+              base_sha="${remote_head}"
+            fi
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+          done
+
+          echo 'Could not publish production state without force push.' >&2
+          exit 1
