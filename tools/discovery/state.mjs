@@ -15,9 +15,8 @@ import { resolveEvidenceWithTrust } from './trust-resolution.mjs';
 import { sanitizeWikidataBootstrapState } from './wikidata-bootstrap.mjs';
 import { sanitizeWikidataSeriesExpansionState } from './wikidata-series-expansion.mjs';
 
-const MAX_FRONTIER = 50000;
-const MAX_FRONTIER_PER_HOST = 5000;
 const MAX_CANDIDATE_HINTS = 32;
+const MAX_DOCUMENT_METADATA = 20000;
 
 export function emptyDiscoveryState() {
   return {
@@ -37,8 +36,7 @@ export function emptyDiscoveryState() {
 function sanitizeCalibrationSeen(values) {
   return [...new Set((Array.isArray(values) ? values : [])
     .map((value) => String(value || '').trim())
-    .filter((value) => /^[a-f0-9]{32}$/.test(value)))]
-    .slice(-100000);
+    .filter((value) => /^[a-f0-9]{32}$/.test(value)))];
 }
 
 function sanitizeState(input) {
@@ -109,6 +107,31 @@ function sanitizeCandidateHints(values) {
   return output;
 }
 
+function sanitizeFrontier(values) {
+  const byUrl = new Map();
+  for (const raw of Array.isArray(values) ? values : []) {
+    const url = normalizeUrl(raw?.url);
+    if (!url) continue;
+    const clean = {
+      url,
+      priority: Math.max(-100, Math.min(1000, Number(raw?.priority || 0))),
+      depth: Math.max(0, Number(raw?.depth || 0)),
+      discoveredFrom: normalizeUrl(raw?.discoveredFrom) || '',
+      candidateHints: sanitizeCandidateHints(raw?.candidateHints)
+    };
+    const current = byUrl.get(url);
+    if (!current) {
+      byUrl.set(url, clean);
+      continue;
+    }
+    current.priority = Math.max(current.priority, clean.priority);
+    current.depth = Math.min(current.depth, clean.depth);
+    if (!current.discoveredFrom && clean.discoveredFrom) current.discoveredFrom = clean.discoveredFrom;
+    current.candidateHints = sanitizeCandidateHints([...current.candidateHints, ...clean.candidateHints]);
+  }
+  return [...byUrl.values()].sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0));
+}
+
 function deriveCandidateResearch(candidate, evidence, sources) {
   let research = sanitizeCandidateResearch(candidate?.research);
   const observedAt = String(candidate?.lastSeen || '');
@@ -132,26 +155,8 @@ export function saveDiscoveryState(filePath, state) {
   clean.wikidataSeriesExpansion = sanitizeWikidataSeriesExpansionState(clean.wikidataSeriesExpansion);
   const trustModel = buildResearchStrategyModel(clean);
 
-  const frontierHostCounts = new Map();
-  clean.frontier = clean.frontier
-    .map((entry) => ({
-      url: normalizeUrl(entry?.url),
-      priority: Math.max(-100, Math.min(1000, Number(entry?.priority || 0))),
-      depth: Math.max(0, Number(entry?.depth || 0)),
-      discoveredFrom: normalizeUrl(entry?.discoveredFrom) || '',
-      candidateHints: sanitizeCandidateHints(entry?.candidateHints)
-    }))
-    .filter((entry) => entry.url)
-    .sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0))
-    .filter((entry) => {
-      const host = new URL(entry.url).hostname.toLowerCase().replace(/^www\./, '');
-      const count = frontierHostCounts.get(host) || 0;
-      if (count >= MAX_FRONTIER_PER_HOST) return false;
-      frontierHostCounts.set(host, count + 1);
-      return true;
-    })
-    .slice(0, MAX_FRONTIER);
-  clean.visited = [...new Set(clean.visited.map(String))].slice(-250000);
+  clean.frontier = sanitizeFrontier(clean.frontier);
+  clean.visited = [...new Set(clean.visited.map(String))];
   clean.documents = clean.documents
     .map((doc) => ({
       url: normalizeUrl(doc.url),
@@ -163,7 +168,7 @@ export function saveDiscoveryState(filePath, state) {
     }))
     .filter((doc) => doc.url)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 20000);
+    .slice(0, MAX_DOCUMENT_METADATA);
   clean.candidates = clean.candidates
     .map((candidate) => {
       const evidence = collapseSameFamilyEvidence(mergeEvidence(candidate.evidence || []));
@@ -180,8 +185,7 @@ export function saveDiscoveryState(filePath, state) {
         lastSeen: String(candidate.lastSeen || '')
       };
     })
-    .filter((candidate) => candidate.key && candidate.title)
-    .slice(0, 20000);
+    .filter((candidate) => candidate.key && candidate.title);
 
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const temp = `${filePath}.tmp-${process.pid}`;
