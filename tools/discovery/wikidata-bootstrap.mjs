@@ -82,15 +82,31 @@ function relationMember(binding, prefix, kind) {
 function buildSeriesKnowledge(binding, title, sourceUrl) {
   const seriesRef = normalizeUrl(binding?.series?.value);
   const seriesTitle = cleanTitle(binding?.seriesLabel?.value);
+  const follows = relationMember(binding, 'follows', 'PREQUEL');
+  const followedBy = relationMember(binding, 'followedBy', 'SEQUEL');
   const members = [
     { title, url: sourceUrl, kind: 'OTHER' },
-    relationMember(binding, 'follows', 'PREQUEL'),
-    relationMember(binding, 'followedBy', 'SEQUEL')
+    follows,
+    followedBy
   ].filter(Boolean);
+  const relations = [];
+  if (follows) {
+    relations.push(
+      { sourceTitle: title, targetTitle: follows.title, kind: 'PREQUEL' },
+      { sourceTitle: follows.title, targetTitle: title, kind: 'SEQUEL' }
+    );
+  }
+  if (followedBy) {
+    relations.push(
+      { sourceTitle: title, targetTitle: followedBy.title, kind: 'SEQUEL' },
+      { sourceTitle: followedBy.title, targetTitle: title, kind: 'PREQUEL' }
+    );
+  }
   return sanitizeSeriesKnowledge({
     ref: seriesRef,
     title: seriesTitle,
-    members
+    members,
+    relations
   });
 }
 
