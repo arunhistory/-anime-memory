@@ -150,10 +150,11 @@ export function seriesPriorityBoost(link, hints = []) {
 export function ensureSeriesMemberShells(candidateMap, candidate, now = new Date().toISOString()) {
   if (!(candidateMap instanceof Map) || !candidate) return 0;
   const knowledge = sanitizeSeriesKnowledge(candidate.series);
+  const currentKey = normalizeTitleKey(candidate.title || candidate.key);
   let added = 0;
   for (const member of knowledge.members) {
     const key = normalizeTitleKey(member.title);
-    if (!key || candidateMap.has(key)) continue;
+    if (!key || key === currentKey || candidateMap.has(key)) continue;
     candidateMap.set(key, {
       key,
       title: member.title,
