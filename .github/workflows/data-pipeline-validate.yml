@@ -78,6 +78,9 @@ jobs:
           node --check tools/discovery/source-quality.mjs
           node --check tools/discovery/source-family.mjs
           node --check tools/discovery/source-family-self-test.mjs
+          node --check tools/discovery/research-strategy.mjs
+          node --check tools/discovery/research-strategy-self-test.mjs
+          node --check tools/discovery/trust-resolution.mjs
           node --check tools/discovery/common-evidence.mjs
           node --check tools/discovery/structured-evidence.mjs
           node --check tools/discovery/evidence.mjs
@@ -116,6 +119,9 @@ jobs:
 
       - name: Next-run registered-work skip self-test
         run: node tools/discovery/known-work-skip-self-test.mjs
+
+      - name: Research strategy and site credibility self-test
+        run: node tools/discovery/research-strategy-self-test.mjs
 
       - name: Web discovery self-test
         run: node tools/discovery/self-test.mjs
