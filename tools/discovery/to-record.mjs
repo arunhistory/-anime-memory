@@ -1,9 +1,12 @@
 import crypto from 'node:crypto';
-import { normalizeText } from '../normalize/record.mjs';
+import { normalizeText, splitEscapedRaw } from '../normalize/record.mjs';
 import { sourceFamilyKey } from './source-family.mjs';
 
 const IDENTITY_CORROBORATORS = ['release_start', 'theatrical_release_date', 'animation_studio'];
 const PROTECTED_COLUMNS = new Set(['id', 'synopsis', 'updated_at']);
+const LEARNED_CORE_MIN_CONFIDENCE = 82;
+const LEARNED_CORE_MIN_SAMPLES = 40;
+const LEARNED_CORE_MIN_DIRECTNESS = 90;
 
 function emptyRecord(columns) {
   return Object.fromEntries(columns.map((column) => [column, '']));
@@ -53,6 +56,25 @@ function independentlyIdentifiedCore(candidate) {
   return directJapaneseOrigin && directMediaType && titleFamilies.size >= 2;
 }
 
+function learnedStructuredCore(candidate) {
+  const origin = candidate?.facts?.origin_country;
+  const title = candidate?.facts?.title_ja;
+  const media = candidate?.facts?.media_type;
+  if (origin?.status !== 'confirmed' || origin.value !== 'JP') return false;
+  if (title?.status !== 'confirmed' || !title.value || media?.status !== 'confirmed' || !media.value) return false;
+
+  for (const [field, fact] of [['title_ja', title], ['media_type', media]]) {
+    if (Number(fact.confidence || 0) < LEARNED_CORE_MIN_CONFIDENCE) return false;
+    if (Number(fact.trainingSamples || 0) < LEARNED_CORE_MIN_SAMPLES) return false;
+    if (!matchingEvidence(candidate, field, fact).some((item) => Number(item.directness || 0) >= LEARNED_CORE_MIN_DIRECTNESS)) return false;
+  }
+
+  return IDENTITY_CORROBORATORS.some((field) => {
+    const fact = candidate?.facts?.[field];
+    return fact?.status === 'confirmed' && Boolean(fact.value);
+  });
+}
+
 function criticalEvidenceFamilies(candidate, corroboratorField = '') {
   const criticalFields = new Set(['title_ja', 'origin_country', 'media_type']);
   if (corroboratorField) criticalFields.add(corroboratorField);
@@ -74,6 +96,7 @@ export function discoveryCandidateReadiness(candidate) {
   if (origin?.status === 'conflict') return { ready: false, reason: 'origin-country-conflict' };
   if (origin?.value === 'OTHER') return { ready: false, reason: 'non-japanese-origin' };
   if (independentlyIdentifiedCore(candidate)) return { ready: true, reason: '', recordLevelCore: true };
+  if (learnedStructuredCore(candidate)) return { ready: true, reason: '', learnedStructuredCore: true };
   if (origin?.status !== 'confirmed' || origin.value !== 'JP') {
     return { ready: false, reason: 'japanese-origin-not-confirmed' };
   }
@@ -97,6 +120,18 @@ export function discoveryCandidateReadiness(candidate) {
   return { ready: true, reason: '' };
 }
 
+function mergeExternalIds(current, discoveryId) {
+  const values = [];
+  const seen = new Set();
+  for (const raw of [...splitEscapedRaw(current || '', '|'), discoveryId]) {
+    const value = String(raw || '').trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    values.push(value);
+  }
+  return values.join('|');
+}
+
 export function candidateToCommonRecord(candidate, columns, confirmedDate) {
   const readiness = discoveryCandidateReadiness(candidate);
   if (!readiness.ready) return null;
@@ -104,11 +139,11 @@ export function candidateToCommonRecord(candidate, columns, confirmedDate) {
 
   for (const [field, fact] of Object.entries(candidate.facts || {})) {
     if (!columns.includes(field) || PROTECTED_COLUMNS.has(field)) continue;
-    const acceptedCore = readiness.recordLevelCore && ['title_ja', 'media_type'].includes(field);
+    const acceptedCore = (readiness.recordLevelCore || readiness.learnedStructuredCore) && ['title_ja', 'media_type'].includes(field);
     if ((fact?.status === 'confirmed' || acceptedCore) && fact.value) record[field] = String(fact.value);
   }
 
-  if (columns.includes('external_ids')) record.external_ids = discoveryExternalId(candidate);
+  if (columns.includes('external_ids')) record.external_ids = mergeExternalIds(record.external_ids, discoveryExternalId(candidate));
   if (columns.includes('synopsis')) record.synopsis = '';
   if (columns.includes('updated_at')) record.updated_at = String(confirmedDate || '').slice(0, 10);
   return record;
