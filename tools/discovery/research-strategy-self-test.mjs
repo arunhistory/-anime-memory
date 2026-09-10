@@ -20,6 +20,11 @@ const unknown = scoreSourceCredibility(model, {
 });
 assert.ok(unknown.credibility >= 35 && unknown.credibility <= 55, 'unknown secondary source must start neutral-to-conservative');
 
+const unknownOfficial = resolveEvidenceWithTrust([
+  { field: 'release_start', value: '2027-04-03', sourceUrl: 'https://claims-official.test/anime/star', sourceClass: 'primary' }
+], model);
+assert.equal(unknownOfficial.release_start.status, 'observed', 'a self-declared official page with no trust history must not confirm by itself');
+
 for (let i = 0; i < 4; i += 1) {
   recordSourceTrustOutcome(state.researchStrategy, {
     sourceUrl: 'https://good.test/staff/star',
@@ -118,6 +123,13 @@ for (let i = 0; i < 4; i += 1) {
     strength: 'strong',
     observedAt: '2026-09-10T00:00:00.000Z'
   });
+  recordSourceTrustOutcome(state.researchStrategy, {
+    sourceUrl: 'https://official.test/anime/star',
+    field: 'release_start',
+    outcome: 'match',
+    strength: 'strong',
+    observedAt: '2026-09-10T00:00:00.000Z'
+  });
 }
 model = buildResearchStrategyModel(state);
 
@@ -137,11 +149,12 @@ const officialAgainstBad = resolveEvidenceWithTrust([
   { field: 'release_start', value: '2027-04-03', sourceUrl: 'https://official.test/anime/star', sourceClass: 'primary' },
   { field: 'release_start', value: '2027-04-04', sourceUrl: 'https://wrong.test/news/star', sourceClass: 'secondary' }
 ], model);
-assert.equal(officialAgainstBad.release_start.status, 'confirmed', 'a learned low-credibility conflicting site must not overturn a direct primary source');
+assert.equal(officialAgainstBad.release_start.status, 'confirmed', 'a learned trusted primary source must not be overturned by a learned low-credibility site');
 assert.equal(officialAgainstBad.release_start.value, '2027-04-03');
 
 console.log('Research strategy self-test: PASS');
 console.log('site/family/route/field credibility learning: PASS');
 console.log('registered CSV teacher feedback: PASS');
+console.log('unknown official self-claim auto-confirmation: BLOCKED');
 console.log('unknown secondary auto-confirmation: BLOCKED');
-console.log('low-trust conflict overriding primary: BLOCKED');
+console.log('low-trust conflict overriding trusted primary: BLOCKED');
