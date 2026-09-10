@@ -1,17 +1,28 @@
 import { extractDocument, extractSitemapUrls, normalizeTitleKey } from './html.mjs';
 import { scoreAnimeDocument, scoreDiscoveredLink, isRelevantDocument } from './score.mjs';
-import { extractCandidateEvidence, mergeEvidence, resolveEvidence } from './evidence.mjs';
+import { extractCandidateEvidence, mergeEvidence } from './evidence.mjs';
 import { resolveCandidateEntities } from './entity-resolution.mjs';
 import { collapseSameFamilyEvidence } from './source-family.mjs';
+import {
+  buildResearchStrategyModel,
+  emptyResearchStrategyState,
+  learnSourceTrustFromKnownRecord,
+  recordResearchOperation,
+  scoreResearchRoute
+} from './research-strategy.mjs';
+import { resolveEvidenceWithTrust } from './trust-resolution.mjs';
 import { normalizeUrl, urlHash, hostKey } from './url.mjs';
 
-function popBest(frontier) {
+function popBest(frontier, trustModel) {
   if (!frontier.length) return null;
   let bestIndex = 0;
+  let bestScore = Number(frontier[0]?.priority || 0) + scoreResearchRoute(trustModel, { url: frontier[0]?.url }).boost;
   for (let i = 1; i < frontier.length; i += 1) {
-    const a = frontier[i];
-    const b = frontier[bestIndex];
-    if (Number(a.priority || 0) > Number(b.priority || 0)) bestIndex = i;
+    const score = Number(frontier[i]?.priority || 0) + scoreResearchRoute(trustModel, { url: frontier[i]?.url }).boost;
+    if (score > bestScore) {
+      bestScore = score;
+      bestIndex = i;
+    }
   }
   return frontier.splice(bestIndex, 1)[0];
 }
@@ -44,7 +55,7 @@ function pageFocusesCandidate(document, title) {
   return normalizeTitleKey(headline).includes(key);
 }
 
-function addCandidate(candidateMap, candidate, sourceUrl, now, evidence = []) {
+function addCandidate(candidateMap, candidate, sourceUrl, now, evidence, trustModel) {
   const key = normalizeTitleKey(candidate.title || candidate.key);
   if (!key) return false;
   const existed = candidateMap.has(key);
@@ -60,8 +71,8 @@ function addCandidate(candidateMap, candidate, sourceUrl, now, evidence = []) {
   if (!Array.isArray(current.sources)) current.sources = [];
   if (!current.sources.includes(sourceUrl)) current.sources.push(sourceUrl);
   current.sources = current.sources.slice(0, 50);
-  current.evidence = collapseSameFamilyEvidence(mergeEvidence(current.evidence, evidence));
-  current.facts = resolveEvidence(current.evidence);
+  current.evidence = collapseSameFamilyEvidence(mergeEvidence(current.evidence, evidence || []));
+  current.facts = resolveEvidenceWithTrust(current.evidence, trustModel);
   current.lastSeen = now;
   candidateMap.set(key, current);
   return !existed;
@@ -115,16 +126,23 @@ export async function runDiscovery(options) {
   } = options;
 
   if (!state || !fetcher) throw new Error('state and fetcher are required');
+  if (!state.researchStrategy || state.researchStrategy.version !== 1) state.researchStrategy = emptyResearchStrategyState();
+  let trustModel = buildResearchStrategyModel(state);
 
   const knownTitleCache = new Map();
-  const isKnownTitle = (title) => {
+  const lookupKnownTitle = (title) => {
     const value = String(title || '').trim();
-    if (!value || !knownWorkSearch?.available) return false;
+    if (!value || !knownWorkSearch?.available) return { known: false, record: null };
     if (knownTitleCache.has(value)) return knownTitleCache.get(value);
     const known = Boolean(knownWorkSearch.hasExactTitle(value));
-    knownTitleCache.set(value, known);
-    return known;
+    const record = known && typeof knownWorkSearch.findUniqueExactRecord === 'function'
+      ? knownWorkSearch.findUniqueExactRecord(value)
+      : null;
+    const result = { known, record };
+    knownTitleCache.set(value, result);
+    return result;
   };
+  const isKnownTitle = (title) => lookupKnownTitle(title).known;
 
   const frontier = state.frontier;
   const visited = new Set(state.visited || []);
@@ -148,6 +166,8 @@ export async function runDiscovery(options) {
     verificationPages: 0,
     verificationEvidenceClaims: 0,
     verificationLinksPromoted: 0,
+    sourceTrustTrainingClaims: 0,
+    researchStrategyBoostedLinks: 0,
     newLinks: 0,
     robotsSkipped: 0,
     otherSkipped: 0,
@@ -168,12 +188,12 @@ export async function runDiscovery(options) {
     candidateMap.set(normalizeTitleKey(candidate.title || candidate.key), {
       ...candidate,
       evidence: collapsedEvidence,
-      facts: resolveEvidence(collapsedEvidence)
+      facts: resolveEvidenceWithTrust(collapsedEvidence, trustModel)
     });
   }
 
   while (frontier.length && stats.attempted < maxPages) {
-    const entry = popBest(frontier);
+    const entry = popBest(frontier, trustModel);
     if (!entry) break;
     queued.delete(entry.url);
     const normalized = normalizeUrl(entry.url);
@@ -202,6 +222,8 @@ export async function runDiscovery(options) {
       result = await fetcher.fetchPage(normalized);
     } catch (error) {
       stats.failed += 1;
+      recordResearchOperation(state.researchStrategy, { url: normalized, failed: true, observedAt: now });
+      trustModel = buildResearchStrategyModel(state);
       console.warn(`Discovery fetch failed: ${normalized}: ${error.message}`);
       continue;
     }
@@ -210,10 +232,13 @@ export async function runDiscovery(options) {
       if (result.skipped) {
         if (String(result.reason).startsWith('robots')) stats.robotsSkipped += 1;
         else stats.otherSkipped += 1;
+        recordResearchOperation(state.researchStrategy, { url: normalized, blocked: true, observedAt: now });
         visited.add(hash);
       } else {
         stats.failed += 1;
+        recordResearchOperation(state.researchStrategy, { url: normalized, failed: true, observedAt: now });
       }
+      trustModel = buildResearchStrategyModel(state);
       continue;
     }
 
@@ -232,18 +257,20 @@ export async function runDiscovery(options) {
           candidateHints: entry.candidateHints || []
         })) stats.sitemapLinks += 1;
       }
+      recordResearchOperation(state.researchStrategy, { url: normalized, fetched: true, evidenceClaims: 0, observedAt: now });
+      trustModel = buildResearchStrategyModel(state);
       continue;
     }
 
     const document = extractDocument(result.text, result.url);
     const pageScore = scoreAnimeDocument(document);
-    const candidateKnowledge = new Map(document.candidates.map((candidate) => [candidate.key, isKnownTitle(candidate.title)]));
+    const candidateKnowledge = new Map(document.candidates.map((candidate) => [candidate.key, lookupKnownTitle(candidate.title)]));
     const novelCandidates = document.noindex
       ? []
-      : document.candidates.filter((candidate) => !candidateKnowledge.get(candidate.key));
+      : document.candidates.filter((candidate) => !candidateKnowledge.get(candidate.key)?.known);
     const detectedTitles = novelCandidates.map((item) => item.title);
     const subjectKey = document.subjectCandidate?.key || '';
-    const subjectKnown = Boolean(subjectKey && candidateKnowledge.get(subjectKey));
+    const subjectKnown = Boolean(subjectKey && candidateKnowledge.get(subjectKey)?.known);
     const persistableCandidateTitles = document.noindex || document.discoveryOnly || !document.subjectCandidate || subjectKnown
       ? []
       : [document.subjectCandidate.title];
@@ -251,6 +278,7 @@ export async function runDiscovery(options) {
     if (relevant) stats.relevant += 1;
     if (relevant && document.discoveryOnly) stats.discoveryOnlyPages += 1;
 
+    let pageEvidenceClaims = 0;
     const acceptedVerificationHints = [];
     if (relevant) {
       mergeDocument(state.documents, {
@@ -264,24 +292,49 @@ export async function runDiscovery(options) {
 
       if (!document.discoveryOnly) {
         for (const candidate of document.candidates) {
-          if (candidateKnowledge.get(candidate.key)) {
+          const knownInfo = candidateKnowledge.get(candidate.key) || { known: false, record: null };
+          const candidateKey = normalizeTitleKey(candidate.title || candidate.key);
+          const subjectOrFocused = subjectKey === candidateKey || pageFocusesCandidate(document, candidate.title);
+
+          if (knownInfo.known) {
             stats.knownWorkCandidatesSkipped += 1;
+            if (knownInfo.record && subjectOrFocused) {
+              const trainingEvidence = extractCandidateEvidence(document, candidate, now);
+              pageEvidenceClaims += trainingEvidence.length;
+              const trained = learnSourceTrustFromKnownRecord(state.researchStrategy, trainingEvidence, knownInfo.record, now);
+              stats.sourceTrustTrainingClaims += trained;
+              if (trained > 0) trustModel = buildResearchStrategyModel(state);
+            }
             continue;
           }
+
           const sourceUrl = document.canonical || document.url;
-          const candidateKey = normalizeTitleKey(candidate.title || candidate.key);
           const extracted = extractCandidateEvidence(document, candidate, now);
           const evidence = subjectKey && candidateKey === subjectKey
             ? extracted
             : extracted.filter((item) => item.field === 'title_ja');
           stats.evidenceClaims += evidence.length;
-          if (addCandidate(candidateMap, candidate, sourceUrl, now, evidence)) stats.candidatesFound += 1;
+          pageEvidenceClaims += evidence.length;
+          if (addCandidate(candidateMap, candidate, sourceUrl, now, evidence, trustModel)) stats.candidatesFound += 1;
         }
 
         const verificationHints = normalizeCandidateHints(entry.candidateHints);
         for (const hint of verificationHints) {
           const hintKey = normalizeTitleKey(hint);
-          if (!hintKey || isKnownTitle(hint)) continue;
+          if (!hintKey) continue;
+          const knownInfo = lookupKnownTitle(hint);
+          if (knownInfo.known) {
+            if (knownInfo.record && pageFocusesCandidate(document, hint)) {
+              const trainingCandidate = { key: hintKey, title: hint };
+              const trainingEvidence = extractCandidateEvidence(document, trainingCandidate, now);
+              pageEvidenceClaims += trainingEvidence.length;
+              const trained = learnSourceTrustFromKnownRecord(state.researchStrategy, trainingEvidence, knownInfo.record, now);
+              stats.sourceTrustTrainingClaims += trained;
+              if (trained > 0) trustModel = buildResearchStrategyModel(state);
+            }
+            continue;
+          }
+
           const existingCandidate = candidateMap.get(hintKey);
           if (!existingCandidate) continue;
 
@@ -301,11 +354,20 @@ export async function runDiscovery(options) {
           stats.verificationPages += 1;
           stats.verificationEvidenceClaims += evidence.length;
           stats.evidenceClaims += evidence.length;
-          addCandidate(candidateMap, verificationCandidate, sourceUrl, now, evidence);
+          pageEvidenceClaims += evidence.length;
+          addCandidate(candidateMap, verificationCandidate, sourceUrl, now, evidence, trustModel);
           acceptedVerificationHints.push(verificationCandidate.title);
         }
       }
     }
+
+    recordResearchOperation(state.researchStrategy, {
+      url: normalized,
+      fetched: true,
+      evidenceClaims: pageEvidenceClaims,
+      observedAt: now
+    });
+    trustModel = buildResearchStrategyModel(state);
 
     if (document.nofollow) continue;
 
@@ -330,7 +392,9 @@ export async function runDiscovery(options) {
       const minScore = relevant ? (sameSite ? 0 : 18) : (sameSite ? 25 : 55);
       if (rawLinkScore < minScore) continue;
       const verificationBoost = verificationHintsForLinks.length ? (sameSite ? 25 : 45) : 0;
-      const linkScore = Math.min(500, rawLinkScore + verificationBoost);
+      const learned = scoreResearchRoute(trustModel, { url: linkUrl, anchor: link.anchor });
+      if (learned.boost !== 0) stats.researchStrategyBoostedLinks += 1;
+      const linkScore = Math.max(-100, Math.min(500, rawLinkScore + verificationBoost + learned.boost));
       rankedLinks.push({ linkUrl, linkScore, sameSite, candidateHints: verificationHintsForLinks });
     }
 
@@ -365,7 +429,10 @@ export async function runDiscovery(options) {
 
   for (const entry of deferredBlocked) addFrontier(frontier, queued, visited, entry);
 
-  const resolved = resolveCandidateEntities([...candidateMap.values()]);
+  const resolved = resolveCandidateEntities(
+    [...candidateMap.values()],
+    (evidence) => resolveEvidenceWithTrust(evidence, trustModel)
+  );
   stats.entityMerges = resolved.merges;
   state.visited = [...visited];
   state.candidates = resolved.candidates;
