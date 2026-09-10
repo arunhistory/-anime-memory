@@ -1,6 +1,10 @@
 import { normalizeTitleKey } from './html.mjs';
 
-const MAX_SERIES_MEMBERS = 32;
+const MAX_PRIORITY_HINTS = 64;
+const RELATION_TYPES = new Set([
+  'PREQUEL', 'SEQUEL', 'SPINOFF', 'MOVIE', 'OVA', 'ONA', 'SPECIAL',
+  'REMAKE', 'REBOOT', 'COMPILATION', 'ALTERNATIVE', 'OTHER'
+]);
 
 function cleanTitle(value) {
   return String(value || '').normalize('NFKC').replace(/\s+/g, ' ').trim().slice(0, 120);
@@ -19,9 +23,11 @@ function cleanUrl(value) {
 
 function relationKind(value) {
   const normalized = String(value || '').toUpperCase();
-  return ['PREQUEL', 'SEQUEL', 'SPECIAL', 'MOVIE', 'OVA', 'ONA', 'SPINOFF', 'OTHER'].includes(normalized)
-    ? normalized
-    : 'OTHER';
+  return RELATION_TYPES.has(normalized) ? normalized : 'OTHER';
+}
+
+function relationKey(item) {
+  return `${normalizeTitleKey(item.sourceTitle)}\u0000${relationKind(item.kind)}\u0000${normalizeTitleKey(item.targetTitle)}`;
 }
 
 export function deriveSeriesStem(title) {
@@ -43,7 +49,8 @@ export function emptySeriesKnowledge() {
     ref: '',
     title: '',
     inferredStem: '',
-    members: []
+    members: [],
+    relations: []
   };
 }
 
@@ -53,24 +60,39 @@ export function sanitizeSeriesKnowledge(value) {
   const ref = cleanUrl(value.ref);
   const title = cleanTitle(value.title);
   const inferredStem = cleanTitle(value.inferredStem || deriveSeriesStem(title));
-  const seen = new Set();
+
+  const memberSeen = new Set();
   const members = [];
   for (const item of Array.isArray(value.members) ? value.members : []) {
     const memberTitle = cleanTitle(item?.title);
     const key = normalizeTitleKey(memberTitle);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
+    if (!key || memberSeen.has(key)) continue;
+    memberSeen.add(key);
     members.push({
       title: memberTitle,
       url: cleanUrl(item?.url),
       kind: relationKind(item?.kind)
     });
-    if (members.length >= MAX_SERIES_MEMBERS) break;
   }
+
+  const relationSeen = new Set();
+  const relations = [];
+  for (const item of Array.isArray(value.relations) ? value.relations : []) {
+    const sourceTitle = cleanTitle(item?.sourceTitle);
+    const targetTitle = cleanTitle(item?.targetTitle);
+    if (!sourceTitle || !targetTitle || normalizeTitleKey(sourceTitle) === normalizeTitleKey(targetTitle)) continue;
+    const clean = { sourceTitle, targetTitle, kind: relationKind(item?.kind) };
+    const key = relationKey(clean);
+    if (relationSeen.has(key)) continue;
+    relationSeen.add(key);
+    relations.push(clean);
+  }
+
   result.ref = ref;
   result.title = title;
   result.inferredStem = inferredStem;
   result.members = members;
+  result.relations = relations;
   return result;
 }
 
@@ -80,16 +102,26 @@ export function mergeSeriesKnowledge(current, incoming) {
   const ref = left.ref || right.ref;
   const title = left.title || right.title;
   const inferredStem = left.inferredStem || right.inferredStem || deriveSeriesStem(title);
+
   const members = [];
-  const seen = new Set();
+  const memberSeen = new Set();
   for (const item of [...left.members, ...right.members]) {
     const key = normalizeTitleKey(item.title);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
+    if (!key || memberSeen.has(key)) continue;
+    memberSeen.add(key);
     members.push(item);
-    if (members.length >= MAX_SERIES_MEMBERS) break;
   }
-  return { ref, title, inferredStem, members };
+
+  const relations = [];
+  const relationSeen = new Set();
+  for (const item of [...left.relations, ...right.relations]) {
+    const key = relationKey(item);
+    if (!key || relationSeen.has(key)) continue;
+    relationSeen.add(key);
+    relations.push(item);
+  }
+
+  return { ref, title, inferredStem, members, relations };
 }
 
 function sameSeriesByMetadata(left, right) {
@@ -114,7 +146,13 @@ function conservativeStemMatch(leftTitle, rightTitle) {
 export function relatedSeriesHints(candidate, candidates = []) {
   if (!candidate) return [];
   const knowledge = sanitizeSeriesKnowledge(candidate.series);
-  const values = [candidate.title, knowledge.title, knowledge.inferredStem, ...knowledge.members.map((item) => item.title)];
+  const values = [
+    candidate.title,
+    knowledge.title,
+    knowledge.inferredStem,
+    ...knowledge.members.map((item) => item.title),
+    ...knowledge.relations.flatMap((item) => [item.sourceTitle, item.targetTitle])
+  ];
   for (const other of Array.isArray(candidates) ? candidates : []) {
     if (!other || other === candidate) continue;
     if (sameSeriesByMetadata(candidate, other) || conservativeStemMatch(candidate.title, other.title)) values.push(other.title);
@@ -127,7 +165,7 @@ export function relatedSeriesHints(candidate, candidates = []) {
     if (!key || seen.has(key)) continue;
     seen.add(key);
     result.push(title);
-    if (result.length >= MAX_SERIES_MEMBERS) break;
+    if (result.length >= MAX_PRIORITY_HINTS) break;
   }
   return result;
 }
