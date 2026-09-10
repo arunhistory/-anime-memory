@@ -150,11 +150,11 @@ function trustKeys(url, field = '') {
   const host = exactHost(url) || 'unknown';
   const route = researchRouteKind(url);
   const keys = [
-    `family\u0000${family}`,
-    `host\u0000${host}`,
-    `route\u0000${host}\u0000${route}`
+    { level: 'family', key: `family\u0000${family}` },
+    { level: 'host', key: `host\u0000${host}` },
+    { level: 'route', key: `route\u0000${host}\u0000${route}` }
   ];
-  if (field) keys.push(`field\u0000${host}\u0000${route}\u0000${String(field).slice(0, 100)}`);
+  if (field) keys.push({ level: 'field', key: `field\u0000${host}\u0000${route}\u0000${String(field).slice(0, 100)}` });
   return keys;
 }
 
@@ -167,9 +167,10 @@ export function recordSourceTrustOutcome(strategyState, {
 } = {}) {
   const state = strategyState && strategyState.version === 1 ? strategyState : emptyResearchStrategyState();
   if (!sourceUrl || !['match', 'conflict'].includes(outcome)) return state;
-  const strong = strength === 'strong';
-  for (const key of trustKeys(sourceUrl, field)) {
+  const requestedStrong = strength === 'strong';
+  for (const { level, key } of trustKeys(sourceUrl, field)) {
     const current = state.trust[key] || sanitizeTrustStats({});
+    const strong = requestedStrong && (level === 'field' || !field);
     if (outcome === 'match' && strong) current.strongMatches += 1;
     else if (outcome === 'match') current.weakMatches += 1;
     else if (strong) current.strongConflicts += 1;
@@ -291,8 +292,10 @@ export function scoreSourceCredibility(model, { sourceUrl, field = '', sourceCla
   const familyScore = scoreTrustStats(trustEntry(strategy, `family\u0000${family}`), 45, 10);
   const hostScore = scoreTrustStats(trustEntry(strategy, `host\u0000${host}`), familyScore * 100, 8);
   const routeScore = scoreTrustStats(trustEntry(strategy, `route\u0000${host}\u0000${route}`), hostScore * 100, 6);
+  const fieldEntry = field ? trustEntry(strategy, `field\u0000${host}\u0000${route}\u0000${field}`) : null;
+  const untrainedFieldPrior = routeScore * 0.35 + 0.45 * 0.65;
   const fieldScore = field
-    ? scoreTrustStats(trustEntry(strategy, `field\u0000${host}\u0000${route}\u0000${field}`), routeScore * 100, 5)
+    ? scoreTrustStats(fieldEntry, (fieldEntry?.samples ? routeScore : untrainedFieldPrior) * 100, 5)
     : routeScore;
 
   let credibility = fieldScore * 100;
@@ -304,7 +307,7 @@ export function scoreSourceCredibility(model, { sourceUrl, field = '', sourceCla
     trustEntry(strategy, `family\u0000${family}`)?.samples || 0,
     trustEntry(strategy, `host\u0000${host}`)?.samples || 0,
     trustEntry(strategy, `route\u0000${host}\u0000${route}`)?.samples || 0,
-    field ? trustEntry(strategy, `field\u0000${host}\u0000${route}\u0000${field}`)?.samples || 0 : 0
+    fieldEntry?.samples || 0
   ].reduce((sum, value) => sum + Number(value || 0), 0);
 
   return {
