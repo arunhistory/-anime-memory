@@ -10,6 +10,7 @@ import {
   recordResearchOperation,
   scoreResearchRoute
 } from './research-strategy.mjs';
+import { calibrateSourceTrustFromConsensus } from './trust-calibration.mjs';
 import { resolveEvidenceWithTrust } from './trust-resolution.mjs';
 import { normalizeUrl, urlHash, hostKey } from './url.mjs';
 
@@ -127,6 +128,7 @@ export async function runDiscovery(options) {
 
   if (!state || !fetcher) throw new Error('state and fetcher are required');
   if (!state.researchStrategy || state.researchStrategy.version !== 1) state.researchStrategy = emptyResearchStrategyState();
+  if (!Array.isArray(state.calibrationSeen)) state.calibrationSeen = [];
   let trustModel = buildResearchStrategyModel(state);
 
   const knownTitleCache = new Map();
@@ -167,6 +169,9 @@ export async function runDiscovery(options) {
     verificationEvidenceClaims: 0,
     verificationLinksPromoted: 0,
     sourceTrustTrainingClaims: 0,
+    coldStartTrustTrainingClaims: 0,
+    coldStartConsensusFields: 0,
+    coldStartConflictedFieldsSkipped: 0,
     researchStrategyBoostedLinks: 0,
     newLinks: 0,
     robotsSkipped: 0,
@@ -429,10 +434,30 @@ export async function runDiscovery(options) {
 
   for (const entry of deferredBlocked) addFrontier(frontier, queued, visited, entry);
 
-  const resolved = resolveCandidateEntities(
+  let resolved = resolveCandidateEntities(
     [...candidateMap.values()],
     (evidence) => resolveEvidenceWithTrust(evidence, trustModel)
   );
+
+  const calibration = calibrateSourceTrustFromConsensus({
+    candidates: resolved.candidates,
+    strategyState: state.researchStrategy,
+    seen: state.calibrationSeen,
+    observedAt: now
+  });
+  state.calibrationSeen = calibration.seen;
+  stats.coldStartTrustTrainingClaims = calibration.trained;
+  stats.coldStartConsensusFields = calibration.consensusFields;
+  stats.coldStartConflictedFieldsSkipped = calibration.conflictedFieldsSkipped;
+
+  if (calibration.trained > 0) {
+    trustModel = buildResearchStrategyModel(state);
+    resolved = resolveCandidateEntities(
+      resolved.candidates,
+      (evidence) => resolveEvidenceWithTrust(evidence, trustModel)
+    );
+  }
+
   stats.entityMerges = resolved.merges;
   state.visited = [...visited];
   state.candidates = resolved.candidates;
