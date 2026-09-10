@@ -22,6 +22,8 @@ first.title_en = 'Star Journey';
 first.aliases = 'スター・ジャーニー|星旅';
 first.media_type = 'TV';
 first.release_start = '2027-04-03';
+first.animation_studio = 'Studio Star';
+first.director = '星野監督';
 first.updated_at = '2026-09-10';
 
 const second = blankRecord();
@@ -49,14 +51,25 @@ try {
   assert.equal(match.length, 1);
   assert.equal(match[0].id, 'A00000002');
 
+  const record = search.findUniqueExactRecord('スター・ジャーニー');
+  assert.ok(record, 'unique alias must resolve back to its full registered record');
+  assert.equal(record.id, 'A00000001');
+  assert.equal(record.title_ja, '星の旅');
+  assert.equal(record.animation_studio, 'Studio Star');
+  assert.equal(record.director, '星野監督');
+  assert.equal(search.getRecordById('A00000002')?.title_ja, '海の灯');
+  assert.equal(search.getRecordById('invalid'), null);
+
   const emptyDir = path.join(temp, 'empty');
   fs.mkdirSync(emptyDir, { recursive: true });
   const emptySearch = await loadKnownWorkWasmSearch({ root, dataDir: emptyDir });
   assert.equal(emptySearch.available, false);
   assert.equal(emptySearch.hasExactTitle('星の旅'), false);
+  assert.equal(emptySearch.findUniqueExactRecord('星の旅'), null);
 
   console.log('Known-work search WASM self-test: PASS');
   console.log('existing title lookup: search.wasm');
+  console.log('full registered-record teacher lookup: PASS');
   console.log('title_ja/kana/romaji/en/aliases exact reuse: PASS');
   console.log('partial-title false positive: BLOCKED');
 } finally {
