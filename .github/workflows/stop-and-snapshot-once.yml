@@ -1,0 +1,89 @@
+name: Stop And Snapshot Anime Research Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/stop-and-snapshot-once.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: anime-production-launch
+  cancel-in-progress: true
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout latest committed state
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Snapshot preflight
+        run: |
+          set -euo pipefail
+          node tools/collect/self-test.mjs
+          node tools/collect/initial-budget-self-test.mjs
+          node tools/discovery/known-work-wasm-self-test.mjs
+          node tools/discovery/known-work-skip-self-test.mjs
+          node tools/validate/data-validator.mjs data 2>/dev/null || [[ ! -d data ]]
+
+      - name: Build CSV from last committed research state
+        run: node tools/collect/run.mjs --input discovery --mode initial --gemini false
+
+      - name: Validate snapshot CSV
+        run: |
+          if [[ -d data ]]; then
+            node tools/validate/data-validator.mjs data
+          else
+            echo 'No record passed the confirmation gate in the last committed state.'
+          fi
+
+      - name: Remove one-time snapshot workflow and commit only validated data
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_sha="$(git rev-parse HEAD)"
+          git rm -f .github/workflows/stop-and-snapshot-once.yml
+          if [[ -d data ]]; then git add data; fi
+
+          unexpected="$(git status --porcelain | awk '$2 !~ /^data\// && $2 != ".github/workflows/stop-and-snapshot-once.yml" {print}')"
+          if [[ -n "${unexpected}" ]]; then
+            echo 'Unexpected files changed; refusing snapshot commit.' >&2
+            echo "${unexpected}" >&2
+            exit 1
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Checkpoint anime research and validated CSV snapshot'
+
+          for attempt in 1 2 3; do
+            git fetch origin main
+            remote_head="$(git rev-parse origin/main)"
+            if [[ "${remote_head}" != "${base_sha}" ]]; then
+              if ! git diff --quiet "${base_sha}..${remote_head}" -- data crawler/state.json; then
+                echo 'Research data/state advanced concurrently; refusing overwrite.' >&2
+                exit 1
+              fi
+              git rebase origin/main
+              base_sha="${remote_head}"
+            fi
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+          done
+
+          echo 'Could not publish snapshot safely.' >&2
+          exit 1
