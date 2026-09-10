@@ -147,6 +147,8 @@ Web探索で確定した事実は `tools/discovery/to-record.mjs` で共通70列
 
 `Anime Research Production` は1回100ページまでの短い実行に分割し、毎回stateをCommitしてから必要な場合だけ次の `workflow_dispatch` を起動する。新しい確定作品が24時間見つからなければ周期を停止し、次の1月1日・4月1日・7月1日・10月1日の自動開始までActionsを動かさない。500件CSVを1つ公開した場合もその周期を終了する。
 
+空データからの初回確認では、未学習でも独立した2つのsource familyが同じ事実に一致すれば確定候補にできる。ただし自己申告の公式ページ1件だけでは確定せず、CSV登録には重要Evidence全体で2系列以上を必須とする。探索frontierも1ホスト5,000件までに制限し、単一サイトへの偏りで独立照合が止まらないようにしている。
+
 Gemini処理コードは探索・事実確定から分離してある。GitHub Actions SecretからGemini APIへ到達することはライブ試験で確認済みだが、InteractionsとGenerateContentの双方がGoogle側のHTTP 429 `RESOURCE_EXHAUSTED` で停止したため、`Anime Data Collect` の `gemini` 入力は既定 `false` のままとする。quota/billingが利用可能になるまで同じ失敗を根拠なく再試行しない。
 
 既存CSV後段の詳細は `docs/DATA_COLLECTION.md` を参照。

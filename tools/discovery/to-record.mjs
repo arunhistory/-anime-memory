@@ -1,8 +1,28 @@
+import { sourceFamilyKey } from './source-family.mjs';
+
 const IDENTITY_CORROBORATORS = ['release_start', 'theatrical_release_date', 'animation_studio'];
 const PROTECTED_COLUMNS = new Set(['id', 'synopsis', 'updated_at']);
 
 function emptyRecord(columns) {
   return Object.fromEntries(columns.map((column) => [column, '']));
+}
+
+function valueMatchesFact(evidenceValue, factValue) {
+  const target = String(evidenceValue || '').normalize('NFKC').trim();
+  return String(factValue || '').split('|').some((value) => value.normalize('NFKC').trim() === target);
+}
+
+function criticalEvidenceFamilies(candidate, corroboratorField) {
+  const criticalFields = new Set(['title_ja', 'origin_country', 'media_type', corroboratorField]);
+  const families = new Set();
+  for (const item of candidate?.evidence || []) {
+    if (!criticalFields.has(item?.field)) continue;
+    const fact = candidate?.facts?.[item.field];
+    if (fact?.status !== 'confirmed' || !valueMatchesFact(item.value, fact.value)) continue;
+    const family = sourceFamilyKey(item.sourceUrl);
+    if (family) families.add(family);
+  }
+  return families;
 }
 
 export function discoveryCandidateReadiness(candidate) {
@@ -20,11 +40,14 @@ export function discoveryCandidateReadiness(candidate) {
   if (title?.status !== 'confirmed' || !title.value) return { ready: false, reason: 'title-not-confirmed' };
   if (media?.status !== 'confirmed' || !media.value) return { ready: false, reason: 'media-type-not-confirmed' };
 
-  const hasCorroborator = IDENTITY_CORROBORATORS.some((field) => {
+  const corroboratorFields = IDENTITY_CORROBORATORS.filter((field) => {
     const fact = candidate.facts?.[field];
     return fact?.status === 'confirmed' && Boolean(fact.value);
   });
-  if (!hasCorroborator) return { ready: false, reason: 'identity-corroborator-not-confirmed' };
+  if (!corroboratorFields.length) return { ready: false, reason: 'identity-corroborator-not-confirmed' };
+  if (!corroboratorFields.some((field) => criticalEvidenceFamilies(candidate, field).size >= 2)) {
+    return { ready: false, reason: 'independent-source-family-not-confirmed' };
+  }
   return { ready: true, reason: '' };
 }
 

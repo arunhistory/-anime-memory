@@ -93,7 +93,8 @@ const columns = loadColumns(process.cwd());
 const commonRecord = candidateToCommonRecord({
   key: candidate.key,
   title: candidate.title,
-  facts
+  facts,
+  evidence
 }, columns, '2026-09-09');
 assert.ok(commonRecord);
 assert.equal(commonRecord.original_type, 'なろう系');

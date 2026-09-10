@@ -29,6 +29,16 @@ function evidenceDirectness(item) {
   return normalizeSourceClass(item?.sourceClass) === 'primary' ? 100 : 55;
 }
 
+function legacyRuleDirectness(item) {
+  const stored = evidenceDirectness(item);
+  if (stored > 0 && Number.isFinite(Number(item?.directness))) return stored;
+  const rule = String(item?.rule || '');
+  if (/^origin-country-labeled-/.test(rule)) return 92;
+  if (/^event-date-/.test(rule)) return 84;
+  if (/^label-/.test(rule)) return 88;
+  return stored;
+}
+
 function scoreItem(model, item) {
   return scoreSourceCredibility(model, {
     sourceUrl: item?.sourceUrl,
@@ -55,6 +65,7 @@ function buildAlternatives(evidence, model) {
         primarySources: new Set(),
         trustedSecondaryFamilies: new Set(),
         neutralSecondaryFamilies: new Set(),
+        directFamilies: new Set(),
         credibilityTotal: 0,
         credibilityMax: 0,
         evidenceCount: 0
@@ -62,12 +73,14 @@ function buildAlternatives(evidence, model) {
     }
     const bucket = values.get(value);
     const credibility = scoreItem(model, item);
+    const directness = legacyRuleDirectness(item);
     const family = sourceFamilyKey(sourceUrl) || sourceUrl;
     bucket.sources.add(sourceUrl);
     bucket.families.add(family);
     bucket.credibilityTotal += credibility;
     bucket.credibilityMax = Math.max(bucket.credibilityMax, credibility);
     bucket.evidenceCount += 1;
+    if (directness >= 82) bucket.directFamilies.add(family);
     if (normalizeSourceClass(item?.sourceClass) === 'primary') {
       if (credibility >= 60) bucket.primarySources.add(sourceUrl);
     } else if (credibility >= 60) {
@@ -93,26 +106,30 @@ function alternativeSummary(entry) {
   };
 }
 
-function isConfirmed(entry) {
+function isConfirmed(entry, field) {
   const summary = alternativeSummary(entry);
-  // A page calling itself "official" is not enough. The site/route/field must
-  // first earn trust from registered-work feedback or corroborated history.
+  // Cold start must not depend on trust learned from records that cannot yet
+  // exist. Independent agreement can establish a field. A direct labeled
+  // country claim is allowed, while final CSV admission still requires two
+  // independent families across the critical evidence set.
   if (summary.primarySourceCount >= 1 && summary.maxCredibility >= 75) return true;
+  if (field === 'origin_country' && entry.directFamilies.size >= 1 && summary.maxCredibility >= 45) return true;
+  if (entry.families.size >= 2) return true;
   if (summary.trustedSecondaryCount >= 2 && summary.credibility >= 65) return true;
   if (summary.trustedSecondaryCount >= 1 && summary.trustedSecondaryCount + entry.neutralSecondaryFamilies.size >= 3 && summary.credibility >= 60) return true;
   return false;
 }
 
-function isCredibleConflict(entry) {
+function isCredibleConflict(entry, field) {
   const summary = alternativeSummary(entry);
   // Unknown/self-declared primary pages start around the conservative prior and
   // therefore cannot force a conflict against an already trusted value.
-  return summary.maxCredibility >= 70 || (summary.trustedSecondaryCount >= 2 && summary.credibility >= 60);
+  return (field === 'origin_country' && entry.directFamilies.size >= 1) || entry.families.size >= 2 || summary.maxCredibility >= 70 || (summary.trustedSecondaryCount >= 2 && summary.credibility >= 60);
 }
 
 function resolveMulti(field, values) {
   const entries = [...values.values()];
-  const confirmed = entries.filter(isConfirmed);
+  const confirmed = entries.filter((entry) => isConfirmed(entry, field));
   const selected = confirmed.length
     ? confirmed
     : entries.filter((entry) => alternativeSummary(entry).maxCredibility >= 35);
@@ -133,10 +150,10 @@ function resolveMulti(field, values) {
   };
 }
 
-function resolveScalar(values) {
+function resolveScalar(field, values) {
   const entries = [...values.values()];
-  const confirmed = entries.filter(isConfirmed);
-  const credible = entries.filter(isCredibleConflict);
+  const confirmed = entries.filter((entry) => isConfirmed(entry, field));
+  const credible = entries.filter((entry) => isCredibleConflict(entry, field));
   const summaries = entries.map(alternativeSummary).sort((a, b) => b.credibility - a.credibility || b.sourceCount - a.sourceCount || a.value.localeCompare(b.value));
 
   if (confirmed.length === 1 && credible.filter((entry) => entry !== confirmed[0]).length === 0) {
@@ -180,7 +197,7 @@ export function resolveEvidenceWithTrust(evidence = [], model) {
   const byField = buildAlternatives(evidence, model);
   const facts = {};
   for (const [field, values] of byField) {
-    facts[field] = MULTI_VALUE_FIELDS.has(field) ? resolveMulti(field, values) : resolveScalar(values);
+    facts[field] = MULTI_VALUE_FIELDS.has(field) ? resolveMulti(field, values) : resolveScalar(field, values);
   }
   return facts;
 }

@@ -12,7 +12,7 @@ import {
   extractCommonFieldClaims
 } from './common-evidence.mjs';
 import { STRUCTURED_MULTI_FIELDS, extractStructuredFieldClaims } from './structured-evidence.mjs';
-import { classifyEvidenceSource, normalizeSourceClass } from './source-quality.mjs';
+import { classifyEvidenceSource, evidenceDirectness, normalizeSourceClass } from './source-quality.mjs';
 
 const SCALAR_FIELDS = new Set([
   'media_type',
@@ -131,7 +131,7 @@ function extractMediaTypes(context) {
   return claims;
 }
 
-function extractOriginCountry(context) {
+function extractOriginCountry(context, candidateTitle = '') {
   const text = String(context || '').normalize('NFKC');
   const claims = [];
   const add = (value, rule) => claims.push({ field: 'origin_country', value, rule });
@@ -145,11 +145,18 @@ function extractOriginCountry(context) {
     if (hasOther || !hasJapan) add('OTHER', 'origin-country-labeled-other');
   }
 
-  if (/(?:日本の(?:テレビ|TV|劇場|Web|WEB|配信|短編)?\s*アニメ(?:ーション)?(?:作品|映画)?|日本製(?:の)?\s*アニメ(?:ーション)?|日本で(?:制作|製作)された(?:テレビ|劇場|Web|WEB)?\s*アニメ(?:ーション)?|\bJapanese\s+(?:anime|animation|animated\s+(?:series|film))\b)/i.test(text)) {
+  const title = String(candidateTitle || '').normalize('NFKC').replace(/\s+/g, ' ').trim();
+  const scopedText = text
+    .split(/[\n。！？!?]+/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter((line) => title && line.includes(title))
+    .join('\n');
+
+  if (/(?:日本の(?:テレビ|TV|劇場|Web|WEB|配信|短編)?\s*アニメ(?:ーション)?(?:作品|映画)?|日本製(?:の)?\s*アニメ(?:ーション)?|日本で(?:制作|製作)された(?:テレビ|劇場|Web|WEB)?\s*アニメ(?:ーション)?|\bJapanese\s+(?:anime|animation|animated\s+(?:series|film))\b)/i.test(scopedText)) {
     add('JP', 'origin-explicit-japan-anime');
   }
 
-  if (new RegExp(`${NON_JAPAN_COUNTRY.source}(?:の|\\s+)(?:テレビ|TV|劇場|Web|WEB)?\\s*アニメ(?:ーション)?(?:作品|映画)?`, 'i').test(text)) {
+  if (new RegExp(`${NON_JAPAN_COUNTRY.source}(?:の|\\s+)(?:テレビ|TV|劇場|Web|WEB)?\\s*アニメ(?:ーション)?(?:作品|映画)?`, 'i').test(scopedText)) {
     add('OTHER', 'origin-explicit-other-anime');
   }
 
@@ -247,10 +254,11 @@ export function extractCandidateEvidence(document, candidate, observedAt = new D
   if (!sourceUrl || !candidate?.title) return [];
   const context = candidateContext(document, candidate.title);
   const sourceClass = classifyEvidenceSource(document, candidate);
+  const directness = evidenceDirectness(document, candidate);
   const rawClaims = [
     { field: 'title_ja', value: candidate.title, rule: 'anime-title-candidate' },
     ...extractMediaTypes(context),
-    ...extractOriginCountry(context),
+    ...extractOriginCountry(context, candidate.title),
     extractOriginalType(context),
     ...extractGenreClaims(document, context),
     ...extractEventDates(context),
@@ -271,6 +279,7 @@ export function extractCandidateEvidence(document, candidate, observedAt = new D
       value,
       sourceUrl,
       sourceClass,
+      directness,
       rule: String(claim.rule || 'unknown').slice(0, 80),
       observedAt: String(observedAt || '').slice(0, 40)
     };
@@ -297,6 +306,9 @@ export function mergeEvidence(existing = [], incoming = []) {
       rule: String(item?.rule || '').slice(0, 80),
       observedAt: String(item?.observedAt || '').slice(0, 40)
     };
+    if (item?.directness !== undefined && Number.isFinite(Number(item.directness))) {
+      clean.directness = Math.max(0, Math.min(100, Number(item.directness)));
+    }
     map.set(evidenceKey(clean), clean);
   }
   return [...map.values()].slice(-700);

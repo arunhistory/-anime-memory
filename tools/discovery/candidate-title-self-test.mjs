@@ -40,6 +40,9 @@ assert.equal(isPlausibleAnimeTitle('やはり俺の青春ラブコメはまち�
 const official = doc('花の教室 | TVアニメ公式サイト', '<p>花の教室はテレビアニメ作品です。</p>');
 assert.equal(official.subjectCandidate?.title, '花の教室', 'official work title extraction must remain intact');
 
+const catalogOfficial = doc('ジャングル大帝（1965）｜アニメ｜手塚治虫 TEZUKA OSAMU OFFICIAL', '<p>ジャングル大帝（1965）は日本のテレビアニメです。</p>');
+assert.equal(catalogOfficial.subjectCandidate?.title, 'ジャングル大帝（1965）', 'official catalog suffix must be removed from the work title');
+
 console.log('Anime candidate title quality self-test: PASS');
 console.log('generic search/news/portal headings: BLOCKED');
 console.log('article headline fallback: BLOCKED');

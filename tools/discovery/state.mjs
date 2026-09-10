@@ -11,6 +11,9 @@ import {
 } from './research-strategy.mjs';
 import { resolveEvidenceWithTrust } from './trust-resolution.mjs';
 
+const MAX_FRONTIER = 50000;
+const MAX_FRONTIER_PER_HOST = 5000;
+
 export function emptyDiscoveryState() {
   return {
     version: 1,
@@ -101,6 +104,7 @@ export function saveDiscoveryState(filePath, state) {
   clean.calibrationSeen = sanitizeCalibrationSeen(clean.calibrationSeen);
   const trustModel = buildResearchStrategyModel(clean);
 
+  const frontierHostCounts = new Map();
   clean.frontier = clean.frontier
     .map((entry) => ({
       url: normalizeUrl(entry?.url),
@@ -111,7 +115,14 @@ export function saveDiscoveryState(filePath, state) {
     }))
     .filter((entry) => entry.url)
     .sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0))
-    .slice(0, 50000);
+    .filter((entry) => {
+      const host = new URL(entry.url).hostname.toLowerCase().replace(/^www\./, '');
+      const count = frontierHostCounts.get(host) || 0;
+      if (count >= MAX_FRONTIER_PER_HOST) return false;
+      frontierHostCounts.set(host, count + 1);
+      return true;
+    })
+    .slice(0, MAX_FRONTIER);
   clean.visited = [...new Set(clean.visited.map(String))].slice(-250000);
   clean.documents = clean.documents
     .map((doc) => ({

@@ -149,6 +149,11 @@ function subjectCandidateFromPage(document) {
 
     const parts = raw.split(/\s*[|｜]\s*/).map((part) => part.trim()).filter(Boolean);
     if (parts.length >= 2) {
+      if (/^(?:アニメ|anime)$/i.test(parts[1])
+        && parts.slice(2).some((part) => /(?:公式|official)/i.test(part))
+        && !/(?:ワールド作品|作品一覧|ポータル)$/i.test(parts[0])) {
+        return cleanCandidateTitle(parts[0]);
+      }
       const animeOfficialIndex = parts.findIndex((part) => /(?:TV|テレビ|劇場|Web|WEB)?\s*アニメ.*(?:公式|official)/i.test(part));
       if (animeOfficialIndex > 0) return cleanCandidateTitle(parts[animeOfficialIndex - 1]);
       if (animeOfficialIndex === 0 && parts[1]) return cleanCandidateTitle(parts[1]);

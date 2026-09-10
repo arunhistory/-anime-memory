@@ -56,6 +56,13 @@ assert.equal(resolveEvidence(oneSourceEvidence).animation_studio.value, 'Studio 
 assert.equal(resolveEvidence(oneSourceEvidence).origin_country.status, 'observed');
 assert.equal(resolveEvidence(oneSourceEvidence).origin_country.value, 'JP');
 
+const unrelatedForeignHtml = `<!doctype html><html><head><title>TVアニメ「星の旅」作品情報</title></head><body>
+<p>日本のTVアニメ「星の旅」を紹介します。</p><aside>アメリカのアニメ映画「月の船」もおすすめです。</aside>
+</body></html>`;
+const unrelatedForeignDoc = extractDocument(unrelatedForeignHtml, 'https://blog.test/star');
+const unrelatedForeignEvidence = extractCandidateEvidence(unrelatedForeignDoc, { title: '星の旅', key: '星の旅' }, '2026-09-09T00:00:00.000Z');
+assert.equal(unrelatedForeignEvidence.some((item) => item.field === 'origin_country' && item.value === 'OTHER'), false, 'another work foreign origin must not contaminate the subject');
+
 const mockResponses = new Map([
   ['https://example.test/robots.txt', new Response('User-agent: *\nDisallow: /blocked\n', { status: 200, headers: { 'content-type': 'text/plain' } })],
   ['https://example.test/page', new Response('<html><title>TVアニメ「海の灯」公式情報</title><body>TVアニメ「海の灯」キャスト</body></html>', { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } })]
@@ -195,7 +202,7 @@ assert.equal(resolveEvidence(conflictEvidence).release_start.status, 'conflict')
 assert.equal(resolveEvidence(conflictEvidence).release_start.value, '');
 const conflictCandidate = {
   ...discoveredCandidate,
-  evidence: conflictEvidence,
+  evidence: [...discoveredCandidate.evidence, conflictEvidence.at(-1)],
   facts: { ...discoveredCandidate.facts, release_start: resolveEvidence(conflictEvidence).release_start }
 };
 const conflictRecord = candidateToCommonRecord(conflictCandidate, columns, '2026-09-09');

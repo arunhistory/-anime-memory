@@ -143,7 +143,7 @@ const unknownSecondary = resolveEvidenceWithTrust([
   { field: 'release_start', value: '2027-04-03', sourceUrl: 'https://new-one.test/news/star', sourceClass: 'secondary' },
   { field: 'release_start', value: '2027-04-03', sourceUrl: 'https://new-two.test/news/star', sourceClass: 'secondary' }
 ], model);
-assert.equal(unknownSecondary.release_start.status, 'observed', 'two previously unknown secondary sites must not immediately become truth');
+assert.equal(unknownSecondary.release_start.status, 'confirmed', 'two independent secondary families must break the empty-dataset bootstrap deadlock');
 
 const officialAgainstBad = resolveEvidenceWithTrust([
   { field: 'release_start', value: '2027-04-03', sourceUrl: 'https://official.test/anime/star', sourceClass: 'primary' },
@@ -156,5 +156,5 @@ console.log('Research strategy self-test: PASS');
 console.log('site/family/route/field credibility learning: PASS');
 console.log('registered CSV teacher feedback: PASS');
 console.log('unknown official self-claim auto-confirmation: BLOCKED');
-console.log('unknown secondary auto-confirmation: BLOCKED');
+console.log('independent secondary cold-start corroboration: PASS');
 console.log('low-trust conflict overriding trusted primary: BLOCKED');

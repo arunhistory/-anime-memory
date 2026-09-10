@@ -60,7 +60,12 @@ assert.ok(facts.broadcast_networks.value.includes('TOKYO MX'));
 assert.ok(facts.broadcast_networks.value.includes('BS11'));
 
 const columns = loadColumns(process.cwd());
-const record = candidateToCommonRecord({ ...candidate, facts, evidence }, columns, '2026-09-10');
+const corroboratingEvidence = [
+  { field: 'title_ja', value: '星の旅', sourceUrl: 'https://news.example.net/star', sourceClass: 'secondary', rule: 'fixture', observedAt: '2026-09-10T00:00:00.000Z' },
+  { field: 'media_type', value: 'TV', sourceUrl: 'https://news.example.net/star', sourceClass: 'secondary', rule: 'fixture', observedAt: '2026-09-10T00:00:00.000Z' },
+  { field: 'release_start', value: '2027-04-03', sourceUrl: 'https://news.example.net/star', sourceClass: 'secondary', rule: 'fixture', observedAt: '2026-09-10T00:00:00.000Z' }
+];
+const record = candidateToCommonRecord({ ...candidate, facts, evidence: [...evidence, ...corroboratingEvidence] }, columns, '2026-09-10');
 assert.ok(record);
 assert.equal(record.title_ja, '星の旅');
 assert.equal(record.title_kana, 'ほしのたび');

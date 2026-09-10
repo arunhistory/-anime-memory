@@ -59,6 +59,7 @@ export function collapseSameFamilyEvidence(evidence = []) {
     const existingPrimary = existing?.sourceClass === 'primary';
     const incomingPrimary = item?.sourceClass === 'primary';
     if (!existingPrimary && incomingPrimary) selected.set(key, item);
+    else if (existingPrimary === incomingPrimary && Number(item?.directness || 0) > Number(existing?.directness || 0)) selected.set(key, item);
   }
 
   return [...selected.values(), ...passthrough];
