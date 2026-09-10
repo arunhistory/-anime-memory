@@ -24,17 +24,23 @@ import { calibrateSourceTrustFromConsensus } from './trust-calibration.mjs';
 import { resolveEvidenceWithTrust } from './trust-resolution.mjs';
 import { normalizeUrl, urlHash, hostKey } from './url.mjs';
 
-function popBest(frontier, trustModel) {
+function popBest(frontier, trustModel, hostCounts = null, perHostLimit = Number.POSITIVE_INFINITY) {
   if (!frontier.length) return null;
-  let bestIndex = 0;
-  let bestScore = Number(frontier[0]?.priority || 0) + scoreResearchRoute(trustModel, { url: frontier[0]?.url }).boost;
-  for (let i = 1; i < frontier.length; i += 1) {
-    const score = Number(frontier[i]?.priority || 0) + scoreResearchRoute(trustModel, { url: frontier[i]?.url }).boost;
-    if (score > bestScore) {
+  let bestIndex = -1;
+  let bestScore = Number.NEGATIVE_INFINITY;
+  for (let i = 0; i < frontier.length; i += 1) {
+    const entry = frontier[i];
+    if (hostCounts instanceof Map && Number.isFinite(perHostLimit)) {
+      const host = hostKey(entry?.url);
+      if ((hostCounts.get(host) || 0) >= perHostLimit) continue;
+    }
+    const score = Number(entry?.priority || 0) + scoreResearchRoute(trustModel, { url: entry?.url }).boost;
+    if (bestIndex < 0 || score > bestScore) {
       bestScore = score;
       bestIndex = i;
     }
   }
+  if (bestIndex < 0) return null;
   return frontier.splice(bestIndex, 1)[0];
 }
 
@@ -252,7 +258,7 @@ export async function runDiscovery(options) {
   }
 
   while (frontier.length && stats.attempted < maxPages) {
-    const entry = popBest(frontier, trustModel);
+    const entry = popBest(frontier, trustModel, hostCounts, perHostLimit);
     if (!entry) break;
     queued.delete(entry.url);
     const normalized = normalizeUrl(entry.url);
@@ -269,10 +275,7 @@ export async function runDiscovery(options) {
 
     const host = hostKey(normalized);
     const hostCount = hostCounts.get(host) || 0;
-    if (hostCount >= perHostLimit) {
-      addFrontier(frontier, queued, visited, { ...entry, priority: Number(entry.priority || 0) - 5 });
-      continue;
-    }
+    if (hostCount >= perHostLimit) continue;
     hostCounts.set(host, hostCount + 1);
     stats.attempted += 1;
 
