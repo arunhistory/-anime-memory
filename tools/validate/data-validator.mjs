@@ -168,11 +168,6 @@ function validateDuplicates(entries, failures) {
   });
 }
 
-function isKnownLegacyInitial001(fileName, records) {
-  if (fileName !== 'initial-001.csv' || records.length !== 500) return false;
-  return records.every((record, index) => record.id === `A${String(index + 1).padStart(8, '0')}` && record.updated_at === '2026-09-10');
-}
-
 export function validateRecords(entries, columns) {
   const failures = [];
   const ids = new Map();
@@ -252,7 +247,7 @@ export function validateDataDirectory(dataDir = path.join(process.cwd(), 'data')
     try {
       const rows = parseCsv(readUtf8Strict(path.join(dataDir, fileName)));
       const records = rowsToRecords(rows, columns);
-      if (/^initial-\d{3}\.csv$/.test(fileName) && records.length > INITIAL_CSV_RECORD_LIMIT && !isKnownLegacyInitial001(fileName, records)) {
+      if (/^initial-\d{3}\.csv$/.test(fileName) && records.length > INITIAL_CSV_RECORD_LIMIT) {
         failures.push(`${fileName}: 初期CSV上限${INITIAL_CSV_RECORD_LIMIT}作品を超過 (${records.length})`);
       }
       records.forEach((record) => entries.push({ fileName, record }));
