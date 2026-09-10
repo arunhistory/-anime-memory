@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { sourceFamilyKey } from './source-family.mjs';
 
 const IDENTITY_CORROBORATORS = ['release_start', 'theatrical_release_date', 'animation_studio'];
@@ -5,6 +6,12 @@ const PROTECTED_COLUMNS = new Set(['id', 'synopsis', 'updated_at']);
 
 function emptyRecord(columns) {
   return Object.fromEntries(columns.map((column) => [column, '']));
+}
+
+function discoveryExternalId(candidate) {
+  const key = String(candidate?.key || '').normalize('NFKC').trim();
+  if (!key) return '';
+  return `discovery-key::${crypto.createHash('sha256').update(key).digest('hex')}`;
 }
 
 function valueMatchesFact(evidenceValue, factValue) {
@@ -65,6 +72,7 @@ export function candidateToCommonRecord(candidate, columns, confirmedDate) {
     if (fact?.status === 'confirmed' && fact.value) record[field] = String(fact.value);
   }
 
+  if (columns.includes('external_ids')) record.external_ids = discoveryExternalId(candidate);
   if (columns.includes('synopsis')) record.synopsis = '';
   if (columns.includes('updated_at')) record.updated_at = String(confirmedDate || '').slice(0, 10);
   return record;

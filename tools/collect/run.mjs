@@ -353,6 +353,7 @@ async function main() {
   console.log(`discovery candidates not ready: ${input.discoverySkipped}`);
   console.log(`safe-stopped API sources: ${input.safeStoppedSources}`);
   console.log(`existing exact duplicates skipped: ${stats.exactExisting}`);
+  console.log(`same discovery identities merged: ${stats.identityIncomingMerged}`);
   console.log(`uncertain duplicate candidates skipped: ${stats.candidateExisting + stats.candidateIncoming}`);
   console.log(`Gemini: ${geminiEnabled ? 'CONNECTED' : 'SKIPPED'}`);
   console.log(`Gemini model: ${geminiStats.model}`);

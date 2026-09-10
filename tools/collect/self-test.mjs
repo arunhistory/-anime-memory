@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { loadColumns, parseCsv, recordsToCsv, rowsToRecords, writeManifest, readUtf8Strict } from '../csv/csv.mjs';
 import { normalizeSourceItem, hasExactExternalId, isCompositeDuplicateCandidate, splitEscaped, splitStructured } from '../normalize/record.mjs';
+import { deduplicateIncoming } from './deduplicate.mjs';
 import { validateDataDirectory } from '../validate/data-validator.mjs';
 import { collectSource } from '../fetch/http-json.mjs';
 
@@ -70,6 +71,17 @@ const theatricalA = {
 };
 const theatricalB = { ...theatricalA, animation_studio: 'Studio Test' };
 assert.equal(isCompositeDuplicateCandidate(theatricalA, theatricalB), true);
+
+const sparseDiscoveryDuplicateA = {
+  ...Object.fromEntries(columns.map((column) => [column, ''])),
+  title_ja: '東京リベンジャーズ',
+  media_type: 'TV',
+  updated_at: '2026-09-10'
+};
+const sparseDiscoveryDuplicateB = { ...sparseDiscoveryDuplicateA };
+const sparseResult = deduplicateIncoming([sparseDiscoveryDuplicateA, sparseDiscoveryDuplicateB], [], columns);
+assert.equal(sparseResult.accepted.length, 1);
+assert.equal(sparseResult.stats.identityIncomingMerged, 1);
 
 await assert.rejects(
   () => collectSource({ name: 'bad', url: 'https://example.com', transport: 'html-scrape', policy: {} }),
