@@ -154,15 +154,16 @@ function normalizedLandingUrl(document) {
   return parsed.href;
 }
 
-function socialAnchorAllowed(anchor, platform) {
+function socialAnchorAllowed(anchor, platform, { landingPage = false } = {}) {
   const text = clean(anchor, 120).toLocaleLowerCase('ja');
-  if (!text) return true;
   if (/(?:公式|official)/i.test(text)) return true;
+  if (!landingPage) return false;
+  if (!text) return true;
   if (platform === 'x') return /^(?:x|twitter|ツイッター)$/i.test(text);
   return /^(?:youtube|ユーチューブ)$/i.test(text);
 }
 
-function normalizedXProfile(link) {
+function normalizedXProfile(link, options = {}) {
   let parsed;
   try {
     parsed = new URL(link?.url);
@@ -171,7 +172,7 @@ function normalizedXProfile(link) {
   }
   const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
   if (host !== 'x.com' && host !== 'twitter.com') return '';
-  if (!socialAnchorAllowed(link?.anchor, 'x')) return '';
+  if (!socialAnchorAllowed(link?.anchor, 'x', options)) return '';
   const segments = parsed.pathname.split('/').filter(Boolean);
   if (segments.length !== 1) return '';
   const handle = segments[0];
@@ -179,7 +180,7 @@ function normalizedXProfile(link) {
   return `${parsed.protocol}//${parsed.host}/${handle}`;
 }
 
-function normalizedYoutubeChannel(link) {
+function normalizedYoutubeChannel(link, options = {}) {
   let parsed;
   try {
     parsed = new URL(link?.url);
@@ -188,7 +189,7 @@ function normalizedYoutubeChannel(link) {
   }
   const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
   if (host !== 'youtube.com' && !host.endsWith('.youtube.com')) return '';
-  if (!socialAnchorAllowed(link?.anchor, 'youtube')) return '';
+  if (!socialAnchorAllowed(link?.anchor, 'youtube', options)) return '';
   const segments = parsed.pathname.split('/').filter(Boolean);
   if (segments.length === 1 && /^@[A-Za-z0-9._-]{2,100}$/.test(segments[0])) {
     return `https://www.youtube.com/${segments[0]}`;
@@ -203,25 +204,26 @@ function extractOfficialLinks(document, sourceClass) {
   if (sourceClass !== 'primary') return [];
   const claims = [];
   const pageUrl = normalizedLandingUrl(document);
+  const landingPage = Boolean(pageUrl);
   if (pageUrl) claims.push({ field: 'official_url', value: pageUrl, rule: 'primary-landing-page-url' });
 
   const seen = new Set();
   for (const link of document.links || []) {
-    const xProfile = normalizedXProfile(link);
+    const xProfile = normalizedXProfile(link, { landingPage });
     if (xProfile) {
       const key = `official_x\u0000${xProfile}`;
       if (!seen.has(key)) {
         seen.add(key);
-        claims.push({ field: 'official_x', value: xProfile, rule: 'primary-page-social-x-profile' });
+        claims.push({ field: 'official_x', value: xProfile, rule: landingPage ? 'primary-landing-social-x-profile' : 'primary-explicit-official-social-x-profile' });
       }
       continue;
     }
-    const youtubeChannel = normalizedYoutubeChannel(link);
+    const youtubeChannel = normalizedYoutubeChannel(link, { landingPage });
     if (youtubeChannel) {
       const key = `official_youtube\u0000${youtubeChannel}`;
       if (!seen.has(key)) {
         seen.add(key);
-        claims.push({ field: 'official_youtube', value: youtubeChannel, rule: 'primary-page-youtube-channel' });
+        claims.push({ field: 'official_youtube', value: youtubeChannel, rule: landingPage ? 'primary-landing-youtube-channel' : 'primary-explicit-official-youtube-channel' });
       }
     }
   }
