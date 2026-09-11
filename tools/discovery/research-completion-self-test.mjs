@@ -4,6 +4,7 @@ import {
   corroborationPriorityBoost,
   recordCandidateResearch
 } from './research-completion.mjs';
+import { researchRouteKind } from './research-strategy.mjs';
 import { scoreDiscoveredLink } from './score.mjs';
 
 function confirmed(value) {
@@ -101,6 +102,25 @@ assert.ok(
   'explicit candidate-scoped independent news may be used for corroboration research'
 );
 
+const kodanshaProduct = 'https://kc.kodansha.co.jp/product?item=0000042408';
+const lineThemeProduct = 'https://store.line.me/themeshop/product/fc75bb55-e804-41dc-937b-af3ca322378e';
+assert.equal(researchRouteKind(kodanshaProduct), 'works', 'commerce product pages remain available to normal discovery routing');
+assert.equal(researchRouteKind(lineThemeProduct), 'works', 'theme-store product pages remain available to normal discovery routing');
+assert.equal(
+  corroborationPriorityBoost({ url: kodanshaProduct, anchor: '' }, observedCandidate, { allowBroad: true }),
+  0,
+  'publisher product pages must not become focused independent corroboration sources'
+);
+assert.equal(
+  corroborationPriorityBoost({ url: lineThemeProduct, anchor: '' }, observedCandidate, { allowBroad: true }),
+  0,
+  'merchandise/theme-store pages must not become focused independent corroboration sources'
+);
+assert.ok(
+  corroborationPriorityBoost({ url: 'https://catalog.example.jp/works/dr-stone/', anchor: '作品情報' }, observedCandidate, { allowBroad: true }) > 0,
+  'non-commerce work overview pages must remain eligible for corroboration'
+);
+
 const scarce = {
   ...sparse,
   facts: {
@@ -139,5 +159,7 @@ console.log('information-rich publication: PASS');
 console.log('Wikipedia backfill research metadata persistence: PASS');
 console.log('independent observed-field corroboration priority: PASS');
 console.log('same-family corroboration: BLOCKED');
+console.log('commerce corroboration focus: BLOCKED');
+console.log('commerce discovery routing: PRESERVED');
 console.log('researched-to-exhaustion fallback: PASS');
 console.log('detailed information route priority: PASS');
