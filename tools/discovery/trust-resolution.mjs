@@ -78,13 +78,15 @@ function buildAlternatives(evidence, model) {
     const score = scoreItem(model, item);
     const credibility = Number(score.credibility || 0);
     const directness = legacyRuleDirectness(item);
-    const family = sourceFamilyKey(sourceUrl) || sourceUrl;
+    const family = sourceFamilyKey(sourceUrl);
     bucket.sources.add(sourceUrl);
-    bucket.families.add(family);
     bucket.credibilityTotal += credibility;
     bucket.credibilityMax = Math.max(bucket.credibilityMax, credibility);
     bucket.evidenceCount += 1;
     bucket.trainingSamples = Math.max(bucket.trainingSamples, Number(score.samples || 0));
+
+    if (!family) continue;
+    bucket.families.add(family);
     if (directness >= LEARNED_SINGLE_SOURCE_MIN_DIRECTNESS) bucket.directFamilies.add(family);
     if (normalizeSourceClass(item?.sourceClass) === 'primary') {
       if (credibility >= 60) bucket.primarySources.add(sourceUrl);
