@@ -6,6 +6,7 @@ const RELATION_TYPES = new Set([
   'PREQUEL', 'SEQUEL', 'SPINOFF', 'MOVIE', 'OVA', 'ONA', 'SPECIAL',
   'REMAKE', 'REBOOT', 'COMPILATION', 'ALTERNATIVE', 'OTHER'
 ]);
+const SERIES_HINT_INDEX_KIND = 'series-hint-index-v1';
 
 function cleanTitle(value) {
   return String(value || '').normalize('NFKC').replace(/\s+/g, ' ').trim().slice(0, 120);
@@ -151,7 +152,109 @@ function conservativeStemMatch(leftTitle, rightTitle) {
   return shorter.length >= 6 && longer.startsWith(shorter);
 }
 
-export function relatedSeriesHints(candidate, candidates = []) {
+function emptyStemNode() {
+  return { children: new Map(), titles: new Set() };
+}
+
+function addMapTitle(map, key, title) {
+  if (!key || !title) return;
+  if (!map.has(key)) map.set(key, new Set());
+  map.get(key).add(title);
+}
+
+function addStem(index, stem, title) {
+  if (!stem || !title) return;
+  let node = index.stemRoot;
+  for (const char of stem) {
+    if (!node.children.has(char)) node.children.set(char, emptyStemNode());
+    node = node.children.get(char);
+  }
+  node.titles.add(title);
+}
+
+function isSeriesHintIndex(value) {
+  return value?.kind === SERIES_HINT_INDEX_KIND
+    && value.byRef instanceof Map
+    && value.bySeriesTitle instanceof Map
+    && value.stemRoot?.children instanceof Map;
+}
+
+export function addSeriesHintCandidate(index, candidate) {
+  if (!isSeriesHintIndex(index) || !candidate) return index;
+  const title = cleanTitle(candidate.title || candidate.key);
+  const titleKey = normalizeTitleKey(title);
+  if (!titleKey) return index;
+  const knowledge = sanitizeSeriesKnowledge(candidate.series);
+  const stem = normalizeTitleKey(deriveSeriesStem(title));
+  const signature = `${titleKey}\u0000${knowledge.ref}\u0000${normalizeTitleKey(knowledge.title)}\u0000${stem}`;
+  if (index.signatures.has(signature)) return index;
+  index.signatures.add(signature);
+  if (knowledge.ref) addMapTitle(index.byRef, knowledge.ref, title);
+  const seriesTitleKey = normalizeTitleKey(knowledge.title);
+  if (seriesTitleKey) addMapTitle(index.bySeriesTitle, seriesTitleKey, title);
+  if (stem) addStem(index, stem, title);
+  return index;
+}
+
+export function buildSeriesHintIndex(candidates = []) {
+  const index = {
+    kind: SERIES_HINT_INDEX_KIND,
+    byRef: new Map(),
+    bySeriesTitle: new Map(),
+    stemRoot: emptyStemNode(),
+    signatures: new Set()
+  };
+  for (const candidate of candidates || []) addSeriesHintCandidate(index, candidate);
+  return index;
+}
+
+function addValues(target, values, limit = MAX_PRIORITY_HINTS) {
+  for (const value of values || []) {
+    if (target.length >= limit) return;
+    target.push(value);
+  }
+}
+
+function collectDescendantStemTitles(node, output, limit) {
+  if (!node || output.length >= limit) return;
+  addValues(output, node.titles, limit);
+  if (output.length >= limit) return;
+  for (const child of node.children.values()) {
+    collectDescendantStemTitles(child, output, limit);
+    if (output.length >= limit) return;
+  }
+}
+
+function indexedRelatedTitles(candidate, index, limit = MAX_PRIORITY_HINTS) {
+  if (!isSeriesHintIndex(index) || !candidate || limit <= 0) return [];
+  const values = [];
+  const knowledge = sanitizeSeriesKnowledge(candidate.series);
+  if (knowledge.ref) addValues(values, index.byRef.get(knowledge.ref), limit);
+  const seriesTitleKey = normalizeTitleKey(knowledge.title);
+  if (seriesTitleKey) addValues(values, index.bySeriesTitle.get(seriesTitleKey), limit);
+  if (values.length >= limit) return values;
+
+  const stem = normalizeTitleKey(deriveSeriesStem(candidate.title || candidate.key));
+  if (!stem) return values;
+  let node = index.stemRoot;
+  for (let position = 0; position < stem.length; position += 1) {
+    node = node.children.get(stem[position]);
+    if (!node) return values;
+    const length = position + 1;
+    if (length >= 6 && length < stem.length) addValues(values, node.titles, limit);
+    if (values.length >= limit) return values;
+  }
+  if (stem.length >= 4) addValues(values, node.titles, limit);
+  if (stem.length >= 6 && values.length < limit) {
+    for (const child of node.children.values()) {
+      collectDescendantStemTitles(child, values, limit);
+      if (values.length >= limit) break;
+    }
+  }
+  return values;
+}
+
+export function relatedSeriesHints(candidate, candidatesOrIndex = []) {
   if (!candidate) return [];
   const knowledge = sanitizeSeriesKnowledge(candidate.series);
   const values = [
@@ -161,10 +264,16 @@ export function relatedSeriesHints(candidate, candidates = []) {
     ...knowledge.members.map((item) => item.title),
     ...knowledge.relations.flatMap((item) => [item.sourceTitle, item.targetTitle])
   ];
-  for (const other of Array.isArray(candidates) ? candidates : []) {
-    if (!other || other === candidate) continue;
-    if (sameSeriesByMetadata(candidate, other) || conservativeStemMatch(candidate.title, other.title)) values.push(other.title);
+
+  if (isSeriesHintIndex(candidatesOrIndex)) {
+    addValues(values, indexedRelatedTitles(candidate, candidatesOrIndex, MAX_PRIORITY_HINTS), MAX_PRIORITY_HINTS * 2);
+  } else {
+    for (const other of Array.isArray(candidatesOrIndex) ? candidatesOrIndex : []) {
+      if (!other || other === candidate) continue;
+      if (sameSeriesByMetadata(candidate, other) || conservativeStemMatch(candidate.title, other.title)) values.push(other.title);
+    }
   }
+
   const result = [];
   const seen = new Set();
   for (const value of values) {
@@ -193,7 +302,7 @@ export function seriesPriorityBoost(link, hints = []) {
   return Math.min(140, boost);
 }
 
-export function ensureSeriesMemberShells(candidateMap, candidate, now = new Date().toISOString()) {
+export function ensureSeriesMemberShells(candidateMap, candidate, now = new Date().toISOString(), onAdd = null) {
   if (!(candidateMap instanceof Map) || !candidate) return 0;
   const knowledge = sanitizeSeriesKnowledge(candidate.series);
   const currentKey = normalizeTitleKey(candidate.title || candidate.key);
@@ -201,7 +310,7 @@ export function ensureSeriesMemberShells(candidateMap, candidate, now = new Date
   for (const member of knowledge.members) {
     const key = normalizeTitleKey(member.title);
     if (!key || key === currentKey || candidateMap.has(key)) continue;
-    candidateMap.set(key, {
+    const shell = {
       key,
       title: member.title,
       sources: [],
@@ -210,7 +319,9 @@ export function ensureSeriesMemberShells(candidateMap, candidate, now = new Date
       series: mergeSeriesKnowledge(knowledge, { members: [{ ...member }] }),
       research: {},
       lastSeen: now
-    });
+    };
+    candidateMap.set(key, shell);
+    if (typeof onAdd === 'function') onAdd(shell);
     added += 1;
   }
   return added;
