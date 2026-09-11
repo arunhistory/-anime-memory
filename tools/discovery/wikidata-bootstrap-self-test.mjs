@@ -55,8 +55,30 @@ assert.ok(state.frontier.some((item) => item.url === 'https://dr-stone.jp/4th/' 
 const second = await bootstrapFromWikidata(state, { fetchImpl: async () => { throw new Error('must-not-fetch'); } });
 assert.equal(second.completed, true);
 
+const throttleState = emptyDiscoveryState();
+const throttledAt = new Date('2026-09-11T00:00:00.000Z');
+await assert.rejects(
+  bootstrapFromWikidata(throttleState, {
+    observedAt: throttledAt.toISOString(),
+    fetchImpl: async () => new Response('', { status: 429, headers: { 'retry-after': '120' } })
+  }),
+  /wikidata-http-429/
+);
+assert.equal(throttleState.wikidataBootstrap.retryAfter, '2026-09-11T00:02:00.000Z');
+let deferredFetches = 0;
+const deferred = await bootstrapFromWikidata(throttleState, {
+  observedAt: '2026-09-11T00:01:00.000Z',
+  fetchImpl: async () => {
+    deferredFetches += 1;
+    throw new Error('backoff-must-prevent-fetch');
+  }
+});
+assert.equal(deferredFetches, 0, 'persisted Retry-After must suppress the next WDQS request');
+assert.equal(deferred.backoffUntil, '2026-09-11T00:02:00.000Z');
+
 console.log('Wikidata structured bootstrap: PASS');
 console.log('country-of-origin Japan gate: PASS');
 console.log('reciprocal prequel/sequel graph: PASS');
 console.log('series-first relation expansion: PASS');
 console.log('bounded cursor completion: PASS');
+console.log('Retry-After persistent backoff: PASS');
