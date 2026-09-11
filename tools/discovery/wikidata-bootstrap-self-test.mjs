@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { emptyDiscoveryState } from './state.mjs';
 import { bootstrapFromWikidata } from './wikidata-bootstrap.mjs';
+import { backfillCandidateWikipediaSitelinks } from './wikidata-article-backfill.mjs';
+import { resolveEvidenceWithTrust } from './trust-resolution.mjs';
 
 const state = emptyDiscoveryState();
 const fetchImpl = async (url, options) => {
@@ -60,6 +62,89 @@ assert.ok(state.frontier.some((item) => item.url === 'https://dr-stone.jp/4th/' 
 const second = await bootstrapFromWikidata(state, { fetchImpl: async () => { throw new Error('must-not-fetch'); } });
 assert.equal(second.completed, true);
 
+const identityEvidence = [
+  { field: 'title_ja', value: '星の旅', sourceUrl: 'https://www.wikidata.org/entity/Q777', sourceClass: 'secondary', directness: 96, rule: 'wikidata-item-label', observedAt: '2026-09-11T00:00:00.000Z' },
+  { field: 'origin_country', value: 'JP', sourceUrl: 'https://www.wikidata.org/entity/Q777', sourceClass: 'secondary', directness: 98, rule: 'origin-country-labeled-japan', observedAt: '2026-09-11T00:00:00.000Z' },
+  { field: 'media_type', value: 'TV', sourceUrl: 'https://www.wikidata.org/entity/Q777', sourceClass: 'secondary', directness: 96, rule: 'wikidata-instance-class', observedAt: '2026-09-11T00:00:00.000Z' },
+  { field: 'title_ja', value: '星の旅', sourceUrl: 'https://news.example.net/anime/777', sourceClass: 'secondary', directness: 88, rule: 'anime-title-candidate', observedAt: '2026-09-11T00:00:00.000Z' }
+];
+const backfillState = emptyDiscoveryState();
+backfillState.candidates.push({
+  key: '星の旅',
+  title: '星の旅',
+  sources: ['https://www.wikidata.org/entity/Q777', 'https://news.example.net/anime/777'],
+  evidence: identityEvidence,
+  facts: resolveEvidenceWithTrust(identityEvidence),
+  series: {},
+  research: {},
+  lastSeen: '2026-09-11T00:00:00.000Z'
+});
+let backfillFetches = 0;
+const backfill = await backfillCandidateWikipediaSitelinks(backfillState, {
+  observedAt: '2026-09-11T01:00:00.000Z',
+  fetchImpl: async (url, options) => {
+    backfillFetches += 1;
+    assert.match(String(options?.headers?.['user-agent']), /AnimeMemoryBot/);
+    const q = new URL(url).searchParams.get('query') || '';
+    assert.match(q, /VALUES \?item \{ wd:Q777 \}/);
+    return new Response(JSON.stringify({ results: { bindings: [{
+      item: { value: 'https://www.wikidata.org/entity/Q777' },
+      article: { value: 'https://ja.wikipedia.org/wiki/星の旅' }
+    }] } }), { status: 200, headers: { 'content-type': 'application/sparql-results+json' } });
+  }
+});
+assert.equal(backfillFetches, 1);
+assert.equal(backfill.requested, 1);
+assert.equal(backfill.resolved, 1);
+assert.equal(backfill.frontierAdded, 1);
+assert.ok(backfillState.frontier.some((item) => item.url === 'https://ja.wikipedia.org/wiki/星の旅' && item.candidateHints.includes('星の旅')));
+assert.equal(backfillState.candidates[0].research.wikidataArticleUrl, 'https://ja.wikipedia.org/wiki/星の旅');
+let repeatedFetches = 0;
+const repeated = await backfillCandidateWikipediaSitelinks(backfillState, {
+  observedAt: '2026-09-11T02:00:00.000Z',
+  fetchImpl: async () => {
+    repeatedFetches += 1;
+    throw new Error('must-not-refetch-known-sitelink');
+  }
+});
+assert.equal(repeatedFetches, 0);
+assert.equal(repeated.requested, 0);
+
+const noArticleState = emptyDiscoveryState();
+const noArticleEvidence = identityEvidence.map((item) => ({
+  ...item,
+  sourceUrl: item.sourceUrl.replace(/Q777/g, 'Q778').replace(/\/777/g, '/778'),
+  value: item.field === 'title_ja' ? '月の旅' : item.value
+}));
+noArticleState.candidates.push({
+  key: '月の旅',
+  title: '月の旅',
+  sources: ['https://www.wikidata.org/entity/Q778', 'https://news.example.net/anime/778'],
+  evidence: noArticleEvidence,
+  facts: resolveEvidenceWithTrust(noArticleEvidence),
+  series: {},
+  research: {},
+  lastSeen: '2026-09-11T00:00:00.000Z'
+});
+const noArticle = await backfillCandidateWikipediaSitelinks(noArticleState, {
+  observedAt: '2026-09-11T03:00:00.000Z',
+  fetchImpl: async () => new Response(JSON.stringify({ results: { bindings: [{
+    item: { value: 'https://www.wikidata.org/entity/Q778' }
+  }] } }), { status: 200, headers: { 'content-type': 'application/sparql-results+json' } })
+});
+assert.equal(noArticle.requested, 1);
+assert.equal(noArticle.noArticle, 1);
+let noArticleRefetches = 0;
+const noArticleRepeat = await backfillCandidateWikipediaSitelinks(noArticleState, {
+  observedAt: '2026-09-11T04:00:00.000Z',
+  fetchImpl: async () => {
+    noArticleRefetches += 1;
+    throw new Error('24-hour-no-result-cache-must-prevent-fetch');
+  }
+});
+assert.equal(noArticleRefetches, 0);
+assert.equal(noArticleRepeat.requested, 0);
+
 const throttleState = emptyDiscoveryState();
 const throttledAt = new Date('2026-09-11T00:00:00.000Z');
 await assert.rejects(
@@ -86,5 +171,7 @@ console.log('country-of-origin Japan gate: PASS');
 console.log('reciprocal prequel/sequel graph: PASS');
 console.log('series-first relation expansion: PASS');
 console.log('exact Japanese Wikipedia sitelink routing: PASS');
+console.log('existing-candidate Wikipedia sitelink backfill: PASS');
+console.log('24-hour no-result sitelink recheck suppression: PASS');
 console.log('bounded cursor completion: PASS');
 console.log('Retry-After persistent backoff: PASS');
