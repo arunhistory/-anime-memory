@@ -4,7 +4,7 @@ import path from 'node:path';
 import { loadColumns, readDataRecords } from '../csv/csv.mjs';
 import { externalIdSet } from '../normalize/record.mjs';
 import { loadDiscoveryState } from './state.mjs';
-import { discoveryCandidateReadiness } from './to-record.mjs';
+import { publishableDiscoveryReadiness } from './to-record.mjs';
 import { discoveryExternalIdForKey } from './series-record.mjs';
 import { pendingWikidataSeriesRefs } from './wikidata-series-expansion.mjs';
 
@@ -72,6 +72,18 @@ function candidateFingerprint(candidate) {
   return crypto.createHash('sha256').update(`candidate:${String(candidate?.key || '')}`).digest('hex');
 }
 
+export function publishableCandidateFingerprints(state, registeredDiscoveryIds = new Set()) {
+  const fingerprints = [];
+  const expandedSeriesRefs = state?.wikidataSeriesExpansion?.expandedRefs || [];
+  for (const candidate of state?.candidates || []) {
+    if (!publishableDiscoveryReadiness(candidate, { expandedSeriesRefs }).ready) continue;
+    const discoveryId = discoveryExternalIdForKey(candidate?.key);
+    if (discoveryId && registeredDiscoveryIds.has(discoveryId)) continue;
+    fingerprints.push(candidateFingerprint(candidate));
+  }
+  return [...new Set(fingerprints)];
+}
+
 export function eligibleDiscoveryRecords({ root = process.cwd() } = {}) {
   const columns = loadColumns(root);
   const state = loadDiscoveryState(path.join(root, 'crawler', 'state.json'));
@@ -83,16 +95,8 @@ export function eligibleDiscoveryRecords({ root = process.cwd() } = {}) {
     }
   }
 
-  const fingerprints = [];
-  for (const candidate of state.candidates) {
-    if (!discoveryCandidateReadiness(candidate).ready) continue;
-    const discoveryId = discoveryExternalIdForKey(candidate?.key);
-    if (discoveryId && registeredDiscoveryIds.has(discoveryId)) continue;
-    fingerprints.push(candidateFingerprint(candidate));
-  }
-
   return {
-    fingerprints: [...new Set(fingerprints)],
+    fingerprints: publishableCandidateFingerprints(state, registeredDiscoveryIds),
     frontier: state.frontier.length,
     bootstrapIncomplete: !Boolean(state.wikidataBootstrap?.completed),
     pendingSeries: pendingWikidataSeriesRefs(state).length
@@ -137,7 +141,7 @@ export function checkpointResearchCycle(cycle, fingerprints, {
   } else if (inactiveMs >= RESEARCH_INACTIVITY_LIMIT_MS) {
     next.active = false;
     next.stoppedAt = now.toISOString();
-    next.stopReason = 'no-new-confirmed-work-24h';
+    next.stopReason = 'no-new-publishable-work-24h';
   }
   return { cycle: next, newConfirmed: additions.length, inactiveMs };
 }
