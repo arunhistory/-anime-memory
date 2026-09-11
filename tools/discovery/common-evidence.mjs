@@ -46,6 +46,9 @@ export const ADDITIONAL_MULTI_FIELDS = new Set([
   'broadcast_networks'
 ]);
 
+const DETAIL_PATH_SEGMENT = /^(?:staff|cast|staffcast|cast-staff|character|characters|chara|music|song|theme|onair|broadcast|schedule|stream|streaming|delivery|vod|episode|episodes|story|news|article|press|topics?|contact|privacy|policy|terms|recruit|company)$/i;
+const X_RESERVED = new Set(['home', 'explore', 'search', 'i', 'intent', 'share', 'hashtag', 'messages', 'compose', 'settings', 'login', 'signup', 'tos', 'privacy', 'status']);
+
 function clean(value, max = MAX_LABEL_VALUE) {
   return String(value || '')
     .normalize('NFKC')
@@ -133,26 +136,93 @@ function extractNumbers(context) {
   return claims;
 }
 
+function normalizedLandingUrl(document) {
+  const raw = document?.canonical || document?.url;
+  if (!raw) return '';
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return '';
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) return '';
+  parsed.hash = '';
+  parsed.search = '';
+  const segments = parsed.pathname.split('/').filter(Boolean);
+  if (segments.length > 2) return '';
+  if (segments.some((segment) => DETAIL_PATH_SEGMENT.test(segment))) return '';
+  return parsed.href;
+}
+
+function socialAnchorAllowed(anchor, platform) {
+  const text = clean(anchor, 120).toLocaleLowerCase('ja');
+  if (!text) return true;
+  if (/(?:公式|official)/i.test(text)) return true;
+  if (platform === 'x') return /^(?:x|twitter|ツイッター)$/i.test(text);
+  return /^(?:youtube|ユーチューブ)$/i.test(text);
+}
+
+function normalizedXProfile(link) {
+  let parsed;
+  try {
+    parsed = new URL(link?.url);
+  } catch {
+    return '';
+  }
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+  if (host !== 'x.com' && host !== 'twitter.com') return '';
+  if (!socialAnchorAllowed(link?.anchor, 'x')) return '';
+  const segments = parsed.pathname.split('/').filter(Boolean);
+  if (segments.length !== 1) return '';
+  const handle = segments[0];
+  if (!/^[A-Za-z0-9_]{1,30}$/.test(handle) || X_RESERVED.has(handle.toLowerCase())) return '';
+  return `${parsed.protocol}//${parsed.host}/${handle}`;
+}
+
+function normalizedYoutubeChannel(link) {
+  let parsed;
+  try {
+    parsed = new URL(link?.url);
+  } catch {
+    return '';
+  }
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+  if (host !== 'youtube.com' && !host.endsWith('.youtube.com')) return '';
+  if (!socialAnchorAllowed(link?.anchor, 'youtube')) return '';
+  const segments = parsed.pathname.split('/').filter(Boolean);
+  if (segments.length === 1 && /^@[A-Za-z0-9._-]{2,100}$/.test(segments[0])) {
+    return `https://www.youtube.com/${segments[0]}`;
+  }
+  if (segments.length === 2 && ['channel', 'c', 'user'].includes(segments[0].toLowerCase()) && segments[1]) {
+    return `https://www.youtube.com/${segments[0]}/${segments[1]}`;
+  }
+  return '';
+}
+
 function extractOfficialLinks(document, sourceClass) {
   if (sourceClass !== 'primary') return [];
   const claims = [];
-  const pageUrl = document.canonical || document.url;
-  if (pageUrl) claims.push({ field: 'official_url', value: pageUrl, rule: 'primary-page-url' });
+  const pageUrl = normalizedLandingUrl(document);
+  if (pageUrl) claims.push({ field: 'official_url', value: pageUrl, rule: 'primary-landing-page-url' });
 
+  const seen = new Set();
   for (const link of document.links || []) {
-    let parsed;
-    try {
-      parsed = new URL(link.url);
-    } catch {
+    const xProfile = normalizedXProfile(link);
+    if (xProfile) {
+      const key = `official_x\u0000${xProfile}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        claims.push({ field: 'official_x', value: xProfile, rule: 'primary-page-social-x-profile' });
+      }
       continue;
     }
-    const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
-    if (host === 'x.com' || host === 'twitter.com') {
-      claims.push({ field: 'official_x', value: link.url, rule: 'primary-page-social-x' });
-      continue;
-    }
-    if (host === 'youtube.com' || host.endsWith('.youtube.com') || host === 'youtu.be') {
-      claims.push({ field: 'official_youtube', value: link.url, rule: 'primary-page-youtube' });
+    const youtubeChannel = normalizedYoutubeChannel(link);
+    if (youtubeChannel) {
+      const key = `official_youtube\u0000${youtubeChannel}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        claims.push({ field: 'official_youtube', value: youtubeChannel, rule: 'primary-page-youtube-channel' });
+      }
     }
   }
   return claims;
