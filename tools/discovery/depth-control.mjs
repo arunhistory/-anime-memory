@@ -63,6 +63,16 @@ function corroborationFocus(state, pending) {
   return { focus, examined };
 }
 
+function setEphemeralFrontierFocus(frontier, focusCandidateKey) {
+  if (!Array.isArray(frontier)) return;
+  Object.defineProperty(frontier, 'focusCandidateKey', {
+    value: normalizeTitleKey(focusCandidateKey),
+    writable: true,
+    configurable: true,
+    enumerable: false
+  });
+}
+
 export function promoteCorroborationFrontier(state) {
   const pending = pendingCandidateIndex(state);
   const selection = corroborationFocus(state, pending);
@@ -74,19 +84,18 @@ export function promoteCorroborationFrontier(state) {
       const hints = cleanHints(entry?.candidateHints);
       if (!hints.includes(focus.key)) continue;
       const boost = corroborationPriorityBoost({ url: entry?.url, anchor: '' }, focus.candidate, { allowBroad: true });
-      if (boost <= 0) continue;
-      if (Number(entry.priority || 0) < 1000) {
-        entry.priority = 1000;
-        promoted += 1;
-      }
+      if (boost > 0) promoted += 1;
     }
   }
+
+  setEphemeralFrontierFocus(state?.frontier, focus?.key || '');
 
   return {
     pendingCandidates: pending.size,
     examined: selection.examined,
     promoted,
-    focusCandidate: focus?.candidate?.title || ''
+    focusCandidate: focus?.candidate?.title || '',
+    focusCandidateKey: focus?.key || ''
   };
 }
 
