@@ -1,0 +1,37 @@
+name: Temporary Two-Engine Validation
+
+on:
+  push:
+    branches:
+      - fix/anime-two-engine-20260912
+    paths:
+      - 'tools/discovery/**'
+      - '.github/workflows/two-engine-branch-test.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax
+        run: |
+          node --check tools/discovery/research-lane-state.mjs
+          node --check tools/discovery/research-seed.mjs
+          node --check tools/discovery/research-runner.mjs
+          node --check tools/discovery/research-run.mjs
+          node --check tools/discovery/depth-control.mjs
+          node --check tools/discovery/run.mjs
+          node --check tools/discovery/two-engine-self-test.mjs
+      - name: Two-engine architecture self-test
+        run: node tools/discovery/two-engine-self-test.mjs
+      - name: Existing information routing regression
+        run: node tools/discovery/information-routing-self-test.mjs
+      - name: Existing discovery regression
+        run: node tools/discovery/self-test.mjs
