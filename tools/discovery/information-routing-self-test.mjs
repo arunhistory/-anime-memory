@@ -151,14 +151,18 @@ focusState.frontier.push(
 
 const focusResult = promoteCorroborationFrontier(focusState);
 assert.equal(focusResult.focusCandidate, nearTitle, 'nearest-ready candidate must receive the focused corroboration slot');
-assert.equal(focusState.frontier[0].priority, 1000, 'focused candidate corroboration route must be promoted');
-assert.equal(focusState.frontier[1].priority, 500, 'other pending candidate must remain queued without same-batch priority promotion');
+assert.ok(focusResult.focusCandidateKey, 'focused corroboration must expose the ephemeral normalized candidate key');
+assert.ok(focusResult.promoted >= 1, 'focused candidate must have at least one eligible corroboration frontier entry');
+assert.equal(focusState.frontier[0].priority, 500, 'focused candidate base priority must not be persisted or mutated');
+assert.equal(focusState.frontier[1].priority, 500, 'other pending candidate base priority must remain unchanged');
 assert.equal(focusState.candidates.length, 2, 'focus scheduling must not discard pending candidates');
 assert.equal(focusState.frontier.length, 2, 'focus scheduling must not discard frontier work');
+assert.equal(JSON.stringify(focusState).includes('focusCandidateKey'), false, 'ephemeral focus key must not serialize into crawler state');
 
 console.log('Information routing integration self-test: PASS');
 console.log('missing staff route prioritization: PASS');
 console.log('candidate page research accounting: PASS');
 console.log('generic verification-hint fanout: BLOCKED');
 console.log('nearest-ready corroboration focus: PASS');
+console.log('focused priority persistence mutation: NONE');
 console.log('non-focused pending work preservation: PASS');
