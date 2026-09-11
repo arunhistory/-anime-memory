@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { sourceFamilyKey, collapseSameFamilyEvidence } from './source-family.mjs';
 import { resolveEvidence } from './evidence.mjs';
+import { resolveEvidenceWithTrust } from './trust-resolution.mjs';
 
 assert.equal(sourceFamilyKey('https://ja.wikipedia.org/wiki/Test'), 'wikimedia-family');
 assert.equal(sourceFamilyKey('https://www.wikidata.org/wiki/Q1'), 'wikimedia-family');
@@ -38,6 +39,32 @@ assert.equal(
   '',
   'unresolved Wayback UI URLs must never become an independent archive.org source family'
 );
+
+const unresolvedWaybackFacts = resolveEvidenceWithTrust([
+  {
+    field: 'director', value: 'Director A', sourceUrl: 'https://web.archive.org/save/https://hamehura-anime.com/staff/',
+    sourceClass: 'secondary', directness: 90, rule: 'fixture', observedAt: '2026-09-10T00:00:00.000Z'
+  },
+  {
+    field: 'director', value: 'Director A', sourceUrl: 'https://web.archive.org/save/https://hamehura-anime.com/staff/?copy=2',
+    sourceClass: 'secondary', directness: 90, rule: 'fixture', observedAt: '2026-09-10T00:01:00.000Z'
+  }
+]);
+assert.equal(unresolvedWaybackFacts.director.status, 'observed', 'unknown Wayback wrappers must not self-confirm by URL multiplicity');
+assert.equal(unresolvedWaybackFacts.director.hostCount, 0, 'unknown Wayback wrappers must contribute no independent source-family vote');
+
+const livePlusUnknownArchiveFacts = resolveEvidenceWithTrust([
+  {
+    field: 'director', value: 'Director A', sourceUrl: 'https://hamehura-anime.com/staff/',
+    sourceClass: 'secondary', directness: 90, rule: 'fixture', observedAt: '2026-09-10T00:00:00.000Z'
+  },
+  {
+    field: 'director', value: 'Director A', sourceUrl: 'https://web.archive.org/save/https://hamehura-anime.com/staff/',
+    sourceClass: 'secondary', directness: 90, rule: 'fixture', observedAt: '2026-09-10T00:01:00.000Z'
+  }
+]);
+assert.equal(livePlusUnknownArchiveFacts.director.status, 'observed', 'unresolved Wayback wrapper must not become a second vote beside a live source');
+assert.equal(livePlusUnknownArchiveFacts.director.hostCount, 1);
 
 const sameFamily = collapseSameFamilyEvidence([
   {
@@ -289,6 +316,7 @@ console.log('same registrable-family duplication: BLOCKED');
 console.log('Wayback/original source-family duplication: BLOCKED');
 console.log('nested Wayback screenshot family duplication: BLOCKED');
 console.log('unresolved Wayback independent family: BLOCKED');
+console.log('unknown-family trust confirmation fallback: BLOCKED');
 console.log('independent-family corroboration: PASS');
 console.log('same-family conflicts preserved: PASS');
 console.log('legacy news/share/search/playlist official evidence: REMOVED');
