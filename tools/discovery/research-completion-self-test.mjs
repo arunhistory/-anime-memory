@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   candidateInformationReadiness,
   corroborationPriorityBoost,
+  isCorroborationEligibleUrl,
   recordCandidateResearch
 } from './research-completion.mjs';
 import { researchRouteKind } from './research-strategy.mjs';
@@ -102,6 +103,25 @@ assert.ok(
   'explicit candidate-scoped independent news may be used for corroboration research'
 );
 
+assert.equal(isCorroborationEligibleUrl('https://ja.wikipedia.org/wiki/Dr.STONE'), true, 'canonical Wikipedia article must remain eligible');
+for (const url of [
+  'https://ja.wikipedia.org/w/index.php?title=Dr.STONE&action=history',
+  'https://ja.wikipedia.org/w/index.php?title=Dr.STONE&redirect=no',
+  'https://ja.wikipedia.org/wiki/Dr.STONE?action=edit',
+  'https://ja.wikipedia.org/wiki/Dr.STONE?oldid=123456',
+  'https://ja.wikipedia.org/wiki/Dr.STONE?printable=yes',
+  'https://ja.wikipedia.org/wiki/%E7%89%B9%E5%88%A5:%E3%83%AD%E3%82%B0%E3%82%A4%E3%83%B3',
+  'https://ja.wikipedia.org/wiki/Template:Anime',
+  'https://ja.wikipedia.org/wiki/%E3%83%86%E3%83%B3%E3%83%97%E3%83%AC%E3%83%BC%E3%83%88:Anime'
+]) {
+  assert.equal(isCorroborationEligibleUrl(url), false, `${url} must not become a corroboration target`);
+}
+assert.equal(
+  isCorroborationEligibleUrl('https://ja.wikipedia.org/wiki/Re:%E3%82%BC%E3%83%AD%E3%81%8B%E3%82%89%E5%A7%8B%E3%82%81%E3%82%8B%E7%95%B0%E4%B8%96%E7%95%8C%E7%94%9F%E6%B4%BB'),
+  true,
+  'a main-namespace article title containing a colon must remain eligible'
+);
+
 const kodanshaProduct = 'https://kc.kodansha.co.jp/product?item=0000042408';
 const lineThemeProduct = 'https://store.line.me/themeshop/product/fc75bb55-e804-41dc-937b-af3ca322378e';
 assert.equal(researchRouteKind(kodanshaProduct), 'works', 'commerce product pages remain available to normal discovery routing');
@@ -159,6 +179,8 @@ console.log('information-rich publication: PASS');
 console.log('Wikipedia backfill research metadata persistence: PASS');
 console.log('independent observed-field corroboration priority: PASS');
 console.log('same-family corroboration: BLOCKED');
+console.log('Wikipedia utility corroboration focus: BLOCKED');
+console.log('Wikipedia main-namespace article corroboration: PRESERVED');
 console.log('commerce corroboration focus: BLOCKED');
 console.log('commerce discovery routing: PRESERVED');
 console.log('researched-to-exhaustion fallback: PASS');
