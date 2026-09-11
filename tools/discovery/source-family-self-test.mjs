@@ -23,6 +23,21 @@ assert.equal(
   'wikimedia-family',
   'archived Wikipedia page must remain in Wikimedia family'
 );
+assert.equal(
+  sourceFamilyKey('https://web.archive.org/web/20200803173725/http://web.archive.org/screenshot/https://hamehura-anime.com/onair/'),
+  'hamehura-anime.com',
+  'nested Wayback screenshot wrapper must resolve to the embedded original site family'
+);
+assert.equal(
+  sourceFamilyKey('http://web.archive.org/screenshot/https://hamehura-anime.com/onair/'),
+  'hamehura-anime.com',
+  'direct Wayback screenshot wrapper must resolve to the embedded original site family'
+);
+assert.equal(
+  sourceFamilyKey('https://web.archive.org/save/https://hamehura-anime.com/onair/'),
+  '',
+  'unresolved Wayback UI URLs must never become an independent archive.org source family'
+);
 
 const sameFamily = collapseSameFamilyEvidence([
   {
@@ -61,10 +76,18 @@ const archivedSameFamily = collapseSameFamilyEvidence([
     sourceClass: 'secondary',
     rule: 'fixture',
     observedAt: '2026-09-10T00:01:00.000Z'
+  },
+  {
+    field: 'director',
+    value: 'Director A',
+    sourceUrl: 'https://web.archive.org/web/20200803173725/http://web.archive.org/screenshot/https://hamehura-anime.com/staff/',
+    sourceClass: 'secondary',
+    rule: 'fixture',
+    observedAt: '2026-09-10T00:02:00.000Z'
   }
 ]);
-assert.equal(archivedSameFamily.length, 1, 'live site and its Wayback copy must count as one source family');
-assert.equal(resolveEvidence(archivedSameFamily).director.status, 'observed', 'Wayback copy must not independently confirm its original source');
+assert.equal(archivedSameFamily.length, 1, 'live site and all resolvable Wayback copies must count as one source family');
+assert.equal(resolveEvidence(archivedSameFamily).director.status, 'observed', 'Wayback copies must not independently confirm their original source');
 
 const independent = collapseSameFamilyEvidence([
   ...sameFamily,
@@ -264,6 +287,8 @@ console.log('Source family self-test: PASS');
 console.log('Wikimedia cross-host self-confirmation: BLOCKED');
 console.log('same registrable-family duplication: BLOCKED');
 console.log('Wayback/original source-family duplication: BLOCKED');
+console.log('nested Wayback screenshot family duplication: BLOCKED');
+console.log('unresolved Wayback independent family: BLOCKED');
 console.log('independent-family corroboration: PASS');
 console.log('same-family conflicts preserved: PASS');
 console.log('legacy news/share/search/playlist official evidence: REMOVED');
