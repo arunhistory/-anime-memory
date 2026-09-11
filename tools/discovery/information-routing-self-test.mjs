@@ -67,6 +67,7 @@ assert.equal(
 );
 
 const focusState = emptyDiscoveryState();
+focusState.engineMode = 'research';
 const at = '2026-09-11T00:00:00.000Z';
 const nearTitle = '近い作品';
 const farTitle = '遠い作品';
