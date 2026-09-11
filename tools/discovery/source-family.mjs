@@ -20,8 +20,11 @@ function archivedOriginalUrl(url) {
   const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
   if (host !== 'web.archive.org') return '';
 
-  const match = parsed.pathname.match(/^\/web\/[^/]+\/(.+)$/i);
+  const snapshot = parsed.pathname.match(/^\/web\/[^/]+\/(.+)$/i);
+  const screenshot = parsed.pathname.match(/^\/screenshot\/(https?:\/\/.+)$/i);
+  const match = snapshot || screenshot;
   if (!match) return '';
+
   let original = match[1];
   try {
     original = decodeURIComponent(original);
@@ -53,8 +56,10 @@ function isIpHost(host) {
 }
 
 export function sourceFamilyKey(url) {
-  const host = normalizedHost(effectiveFamilyUrl(url));
+  const effectiveUrl = effectiveFamilyUrl(url);
+  const host = normalizedHost(effectiveUrl);
   if (!host) return '';
+  if (host === 'web.archive.org') return '';
   if (isIpHost(host)) return host;
 
   if (
