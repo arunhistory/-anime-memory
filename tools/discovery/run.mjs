@@ -7,6 +7,7 @@ import { loadKnownWorkWasmSearch } from './known-work-wasm.mjs';
 import { normalizeUrl } from './url.mjs';
 import { bootstrapFromWikidata } from './wikidata-bootstrap.mjs';
 import { expandSeriesFromWikidata } from './wikidata-series-expansion.mjs';
+import { buildReadinessReport } from './readiness-report.mjs';
 
 function parseArgs(argv) {
   const args = {};
@@ -83,7 +84,9 @@ function emptyDiscoveryStats() {
     knownWorkEvidenceReused: 0,
     knownStateCandidatesRetained: 0,
     knownWorkCandidatesSkipped: 0,
-    knownStateCandidatesPruned: 0
+    knownStateCandidatesPruned: 0,
+    frontierPriorityGroups: 0,
+    frontierPriorityGroupEvaluations: 0
   };
 }
 
@@ -165,6 +168,7 @@ async function main() {
 
   if (!dryRun) saveDiscoveryState(statePath, result.state);
   const changed = before !== JSON.stringify(result.state);
+  const readiness = buildReadinessReport(result.state);
 
   console.log('Web discovery engine: PASS');
   console.log(`mode: ${dryRun ? 'dry-run' : 'persist'}`);
@@ -196,6 +200,8 @@ async function main() {
   console.log(`series member shells added: ${result.stats.seriesShellCandidates}`);
   console.log(`series-priority links detected: ${result.stats.seriesPriorityLinks}`);
   console.log(`missing-information priority links: ${result.stats.informationPriorityLinks}`);
+  console.log(`frontier priority groups: ${result.stats.frontierPriorityGroups}`);
+  console.log(`frontier group-head evaluations: ${result.stats.frontierPriorityGroupEvaluations}`);
   console.log(`entity merges: ${result.stats.entityMerges}`);
   console.log(`evidence claims: ${result.stats.evidenceClaims}`);
   console.log(`candidate verification pages: ${result.stats.verificationPages}`);
@@ -208,6 +214,13 @@ async function main() {
   console.log(`failed: ${result.stats.failed}`);
   console.log(`frontier remaining: ${result.state.frontier.length}`);
   console.log(`known candidates: ${result.state.candidates.length}`);
+  console.log(`identity-ready candidates: ${readiness.identityReady} (${readiness.identityReadyRate})`);
+  console.log(`information-ready candidates: ${readiness.informationReady}`);
+  console.log(`publishable-ready candidates: ${readiness.publishableReady} (${readiness.publishableReadyRate})`);
+  console.log(`average confirmed information fields: ${readiness.averageConfirmedInformationFields}`);
+  console.log(`series-learned candidates: ${readiness.seriesLearned} (${readiness.seriesLearnedRate})`);
+  console.log(`identity blocked reasons: ${JSON.stringify(readiness.identityBlockedReasons)}`);
+  console.log(`publication blocked reasons: ${JSON.stringify(readiness.publicationBlockedReasons)}`);
   console.log(`changed: ${changed}`);
   if (result.stats.attempted === 0) console.log('Web frontier empty: bootstrap/series progress persisted without treating this batch as an error');
   console.log('Existing-work lookup: search.wasm + enrichment reuse');
