@@ -188,6 +188,42 @@ assert.deepEqual(
 );
 assert.ok(legacy.every((item) => item.rule.startsWith('legacy-primary-')));
 
+const currentMovieRoot = collapseSameFamilyEvidence([{
+  field: 'official_url', value: 'https://anime.example.jp/movie/', sourceUrl: 'https://anime.example.jp/movie/',
+  sourceClass: 'primary', rule: 'primary-landing-page-url', observedAt: ''
+}]);
+const currentSpecialRoot = collapseSameFamilyEvidence([{
+  field: 'official_url', value: 'https://anime.example.jp/special/', sourceUrl: 'https://anime.example.jp/special/',
+  sourceClass: 'primary', rule: 'primary-landing-page-url', observedAt: ''
+}]);
+assert.equal(currentMovieRoot.length, 1, 'movie work root must remain eligible as official_url');
+assert.equal(currentSpecialRoot.length, 1, 'special work root must remain eligible as official_url');
+
+for (const url of [
+  'https://anime.example.jp/staff-cast/',
+  'https://anime.example.jp/goods/',
+  'https://anime.example.jp/goods/post-1/',
+  'https://anime.example.jp/campaign/',
+  'https://anime.example.jp/blu-ray/',
+  'https://anime.example.jp/movie/post-2/',
+  'https://anime.example.jp/special/post-2/'
+]) {
+  const filtered = collapseSameFamilyEvidence([{
+    field: 'official_url', value: url, sourceUrl: url,
+    sourceClass: 'primary', rule: 'primary-landing-page-url', observedAt: ''
+  }]);
+  assert.equal(filtered.length, 0, `${url} must not survive as current official_url evidence`);
+}
+
+assert.equal(collapseSameFamilyEvidence([{
+  field: 'official_x', value: 'https://twitter.com/anime_official', sourceUrl: 'https://anime.example.jp/goods/post-1/',
+  sourceClass: 'primary', rule: 'primary-landing-social-x-profile', observedAt: ''
+}]).length, 0, 'content-page landing social evidence must be removed');
+assert.equal(collapseSameFamilyEvidence([{
+  field: 'official_youtube', value: 'https://www.youtube.com/@anime_official', sourceUrl: 'https://anime.example.jp/campaign/',
+  sourceClass: 'primary', rule: 'primary-landing-youtube-channel', observedAt: ''
+}]).length, 0, 'content-page landing YouTube evidence must be removed');
+
 console.log('Source family self-test: PASS');
 console.log('Wikimedia cross-host self-confirmation: BLOCKED');
 console.log('same registrable-family duplication: BLOCKED');
@@ -195,3 +231,5 @@ console.log('independent-family corroboration: PASS');
 console.log('same-family conflicts preserved: PASS');
 console.log('legacy news/share/search/playlist official evidence: REMOVED');
 console.log('legacy landing official URL/profile/channel: PRESERVED');
+console.log('current content-page landing evidence: REMOVED');
+console.log('movie/special work landing roots: PRESERVED');
