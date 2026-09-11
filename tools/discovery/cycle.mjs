@@ -30,6 +30,12 @@ function validIso(value) {
   return typeof value === 'string' && Number.isFinite(Date.parse(value));
 }
 
+function inactivityMs(cycle, now) {
+  const anchor = cycle.lastNewDiscoveryAt || cycle.startedAt;
+  if (!validIso(anchor)) return 0;
+  return Math.max(0, now.getTime() - Date.parse(anchor));
+}
+
 export function emptyResearchCycle() {
   return {
     version: 1,
@@ -39,6 +45,7 @@ export function emptyResearchCycle() {
     lastNewDiscoveryAt: '',
     stoppedAt: '',
     stopReason: '',
+    waitingForInactivity: false,
     seenEligible: []
   };
 }
@@ -55,6 +62,7 @@ export function loadResearchCycle(filePath) {
     lastNewDiscoveryAt: validIso(input.lastNewDiscoveryAt) ? input.lastNewDiscoveryAt : '',
     stoppedAt: validIso(input.stoppedAt) ? input.stoppedAt : '',
     stopReason: String(input.stopReason || '').slice(0, 80),
+    waitingForInactivity: Boolean(input.waitingForInactivity),
     seenEligible: [...new Set((Array.isArray(input.seenEligible) ? input.seenEligible : [])
       .map(String)
       .filter((value) => /^[a-f0-9]{64}$/.test(value)))]
@@ -113,6 +121,7 @@ export function startResearchCycle(fingerprints, now = new Date()) {
     lastNewDiscoveryAt: iso,
     stoppedAt: '',
     stopReason: '',
+    waitingForInactivity: false,
     seenEligible: [...new Set(fingerprints)]
   };
 }
@@ -123,27 +132,45 @@ export function checkpointResearchCycle(cycle, fingerprints, {
   bootstrapIncomplete = false,
   pendingSeries = 0
 } = {}) {
-  if (!cycle.active) return { cycle, newConfirmed: 0, inactiveMs: 0 };
+  const workRemaining = frontier > 0 || Boolean(bootstrapIncomplete) || Number(pendingSeries || 0) > 0;
+  if (!cycle.active) return { cycle, newConfirmed: 0, inactiveMs: 0, workRemaining };
+
   const seen = new Set(cycle.seenEligible);
   const additions = [...new Set(fingerprints)].filter((value) => !seen.has(value));
   for (const value of additions) seen.add(value);
   const next = {
     ...cycle,
+    waitingForInactivity: !workRemaining,
     seenEligible: [...seen]
   };
   if (additions.length) next.lastNewDiscoveryAt = now.toISOString();
-  const inactiveMs = Math.max(0, now.getTime() - Date.parse(next.lastNewDiscoveryAt || next.startedAt));
-  const discoveryExhausted = frontier === 0 && !bootstrapIncomplete && Number(pendingSeries || 0) === 0;
-  if (discoveryExhausted) {
-    next.active = false;
-    next.stoppedAt = now.toISOString();
-    next.stopReason = 'frontier-empty';
-  } else if (inactiveMs >= RESEARCH_INACTIVITY_LIMIT_MS) {
+  const inactiveMs = inactivityMs(next, now);
+
+  if (inactiveMs >= RESEARCH_INACTIVITY_LIMIT_MS) {
     next.active = false;
     next.stoppedAt = now.toISOString();
     next.stopReason = 'no-new-publishable-work-24h';
+    next.waitingForInactivity = false;
   }
-  return { cycle: next, newConfirmed: additions.length, inactiveMs };
+  return { cycle: next, newConfirmed: additions.length, inactiveMs, workRemaining };
+}
+
+export function timeoutResearchCycle(cycle, { now = new Date() } = {}) {
+  if (!cycle.active || !cycle.waitingForInactivity) {
+    return { cycle, inactiveMs: inactivityMs(cycle, now), stopped: false };
+  }
+  const inactiveMs = inactivityMs(cycle, now);
+  if (inactiveMs < RESEARCH_INACTIVITY_LIMIT_MS) {
+    return { cycle, inactiveMs, stopped: false };
+  }
+  const next = {
+    ...cycle,
+    active: false,
+    stoppedAt: now.toISOString(),
+    stopReason: 'no-new-publishable-work-24h',
+    waitingForInactivity: false
+  };
+  return { cycle: next, inactiveMs, stopped: true };
 }
 
 function setGithubOutput(name, value) {
@@ -160,11 +187,13 @@ async function main() {
   if (!Number.isFinite(now.getTime())) throw new Error('--now must be an ISO date');
   let cycle = loadResearchCycle(filePath);
   let newConfirmed = 0;
-  let inactiveMs = 0;
+  let inactiveMs = inactivityMs(cycle, now);
+  let workRemaining = !cycle.waitingForInactivity;
 
   if (command === 'start') {
     const eligible = eligibleDiscoveryRecords({ root });
     cycle = startResearchCycle(eligible.fingerprints, now);
+    workRemaining = eligible.frontier > 0 || eligible.bootstrapIncomplete || eligible.pendingSeries > 0;
     saveResearchCycle(filePath, cycle);
   } else if (command === 'checkpoint') {
     const eligible = eligibleDiscoveryRecords({ root });
@@ -177,21 +206,35 @@ async function main() {
     cycle = result.cycle;
     newConfirmed = result.newConfirmed;
     inactiveMs = result.inactiveMs;
+    workRemaining = result.workRemaining;
     saveResearchCycle(filePath, cycle);
+  } else if (command === 'timeout') {
+    const result = timeoutResearchCycle(cycle, { now });
+    cycle = result.cycle;
+    inactiveMs = result.inactiveMs;
+    if (result.stopped) saveResearchCycle(filePath, cycle);
   } else if (command === 'stop') {
     cycle.active = false;
     cycle.stoppedAt = now.toISOString();
     cycle.stopReason = String(args.reason || 'manual-stop').slice(0, 80);
+    cycle.waitingForInactivity = false;
     saveResearchCycle(filePath, cycle);
   } else if (command !== 'status') {
-    throw new Error('cycle command must be start, checkpoint, stop, or status');
+    throw new Error('cycle command must be start, checkpoint, timeout, stop, or status');
   }
 
   setGithubOutput('active', cycle.active ? 'true' : 'false');
   setGithubOutput('new_confirmed', newConfirmed);
   setGithubOutput('inactive_seconds', Math.floor(inactiveMs / 1000));
   setGithubOutput('stop_reason', cycle.stopReason);
-  console.log(JSON.stringify({ ...cycle, newConfirmed, inactiveSeconds: Math.floor(inactiveMs / 1000) }));
+  setGithubOutput('waiting_for_inactivity', cycle.waitingForInactivity ? 'true' : 'false');
+  setGithubOutput('work_remaining', workRemaining ? 'true' : 'false');
+  console.log(JSON.stringify({
+    ...cycle,
+    newConfirmed,
+    inactiveSeconds: Math.floor(inactiveMs / 1000),
+    workRemaining
+  }));
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
