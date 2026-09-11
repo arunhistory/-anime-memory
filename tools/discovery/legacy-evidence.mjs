@@ -3,17 +3,23 @@ import { normalizeUrl } from './url.mjs';
 const DETAIL_PATH_SEGMENT = /^(?:staff|cast|staffcast|cast-staff|character|characters|chara|music|song|theme|onair|broadcast|schedule|stream|streaming|delivery|vod|episode|episodes|story|news|article|press|topics?|contact|privacy|policy|terms|recruit|company)$/i;
 const X_RESERVED = new Set(['home', 'explore', 'search', 'i', 'intent', 'share', 'hashtag', 'messages', 'compose', 'settings', 'login', 'signup', 'tos', 'privacy', 'status']);
 
-function legacyLandingUrl(value, sourceUrl) {
-  const normalized = normalizeUrl(value);
+function legacyLandingSource(sourceUrl) {
   const source = normalizeUrl(sourceUrl);
-  if (!normalized || !source || normalized !== source) return '';
-  const parsed = new URL(normalized);
+  if (!source) return '';
+  const parsed = new URL(source);
   parsed.hash = '';
   parsed.search = '';
   const segments = parsed.pathname.split('/').filter(Boolean);
   if (segments.length > 2) return '';
   if (segments.some((segment) => DETAIL_PATH_SEGMENT.test(segment))) return '';
   return parsed.href;
+}
+
+function legacyLandingUrl(value, sourceUrl) {
+  const normalized = normalizeUrl(value);
+  const source = legacyLandingSource(sourceUrl);
+  if (!normalized || !source || normalized !== source) return '';
+  return source;
 }
 
 function legacyXProfile(value) {
@@ -56,11 +62,13 @@ export function sanitizeLegacyEvidenceItem(item) {
   }
 
   if (field === 'official_x' && rule === 'primary-page-social-x') {
+    if (!legacyLandingSource(item.sourceUrl)) return null;
     const value = legacyXProfile(item.value);
     return value ? { ...item, value, rule: 'legacy-primary-social-x-profile' } : null;
   }
 
   if (field === 'official_youtube' && rule === 'primary-page-youtube') {
+    if (!legacyLandingSource(item.sourceUrl)) return null;
     const value = legacyYoutubeChannel(item.value);
     return value ? { ...item, value, rule: 'legacy-primary-youtube-channel' } : null;
   }
