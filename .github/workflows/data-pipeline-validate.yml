@@ -93,6 +93,11 @@ jobs:
           node --check tools/discovery/research-strategy-self-test.mjs
           node --check tools/discovery/research-completion.mjs
           node --check tools/discovery/research-completion-self-test.mjs
+          node --check tools/discovery/information-routing-self-test.mjs
+          node --check tools/discovery/readiness-report.mjs
+          node --check tools/discovery/readiness-report-self-test.mjs
+          node --check tools/discovery/frontier-priority.mjs
+          node --check tools/discovery/frontier-priority-self-test.mjs
           node --check tools/discovery/trust-calibration.mjs
           node --check tools/discovery/trust-calibration-self-test.mjs
           node --check tools/discovery/trust-resolution.mjs
@@ -146,6 +151,9 @@ jobs:
       - name: Crawler state sharding self-test
         run: node tools/discovery/state-sharding-self-test.mjs
 
+      - name: 200k frontier priority self-test
+        run: node tools/discovery/frontier-priority-self-test.mjs
+
       - name: Search WASM registered-work lookup self-test
         run: node tools/discovery/known-work-wasm-self-test.mjs
 
@@ -157,6 +165,12 @@ jobs:
 
       - name: Information research completion self-test
         run: node tools/discovery/research-completion-self-test.mjs
+
+      - name: Information routing integration self-test
+        run: node tools/discovery/information-routing-self-test.mjs
+
+      - name: Readiness report self-test
+        run: node tools/discovery/readiness-report-self-test.mjs
 
       - name: Cold-start trust calibration self-test
         run: node tools/discovery/trust-calibration-self-test.mjs
