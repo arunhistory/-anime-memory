@@ -6,6 +6,7 @@ import { resolveEvidenceWithTrust } from './trust-resolution.mjs';
 import { discoveryCandidateReadiness } from './to-record.mjs';
 import { emptyDiscoveryState, loadDiscoveryState, saveDiscoveryState } from './state.mjs';
 import { runDiscovery } from './engine.mjs';
+import { buildInformationDepthPlan } from './depth-control.mjs';
 
 const at = '2026-09-10T00:00:00.000Z';
 const evidence = [
@@ -46,6 +47,31 @@ assert.equal(discoveryCandidateReadiness({ title: '星の旅', evidence: oneFami
 const conflicting = [...evidence, { field: 'origin_country', value: 'OTHER', sourceUrl: 'https://official.example.org/work/1', sourceClass: 'primary', directness: 100, rule: 'origin-country-labeled-other', observedAt: at }];
 assert.equal(resolveEvidenceWithTrust(conflicting).origin_country.status, 'conflict');
 assert.equal(discoveryCandidateReadiness({ title: '星の旅', evidence: conflicting, facts: resolveEvidenceWithTrust(conflicting) }).reason, 'origin-country-conflict');
+
+const depthState = emptyDiscoveryState();
+depthState.candidates.push({
+  key: '星の旅',
+  title: '星の旅',
+  sources: ['https://catalog.example.jp/work/1', 'https://news.example.net/anime/1'],
+  evidence,
+  facts,
+  series: {},
+  research: {},
+  lastSeen: at
+});
+depthState.frontier.push({
+  url: 'https://official.example.org/staff',
+  priority: 900,
+  depth: 0,
+  discoveredFrom: 'https://catalog.example.jp/work/1',
+  candidateHints: ['星の旅']
+});
+const depthPlan = buildInformationDepthPlan(depthState);
+assert.equal(depthPlan.pendingCandidates, 1, 'identity-ready but information-incomplete work must enter depth backlog');
+assert.equal(depthPlan.actionableFrontier, 1, 'candidate-linked frontier must be recognized as actionable depth work');
+assert.equal(depthPlan.pauseBootstrap, true, 'new horizontal bootstrap must pause while actionable depth work exists');
+depthState.frontier[0].candidateHints = ['別作品'];
+assert.equal(buildInformationDepthPlan(depthState).pauseBootstrap, false, 'bootstrap must resume when no actionable depth frontier remains');
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'anime-frontier-balance-'));
 const state = emptyDiscoveryState();
@@ -89,5 +115,6 @@ assert.equal(boundedResult.state.frontier.filter((item) => item.url.includes('on
 console.log('Cold-start trust bootstrap: PASS');
 console.log('single-family CSV admission: BLOCKED');
 console.log('credible origin conflict: BLOCKED');
+console.log('actionable information-depth bootstrap pause: PASS');
 console.log('frontier persistence per-host truncation: NONE');
 console.log('per-batch host limit without requeue loop: PASS');
