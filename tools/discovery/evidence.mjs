@@ -260,9 +260,9 @@ export function extractCandidateEvidence(document, candidate, observedAt = new D
   const sourceUrl = normalizeUrl(document.canonical || document.url);
   if (!sourceUrl || !candidate?.title) return [];
   const context = candidateContext(document, candidate.title);
-  const sourceClass = classifyEvidenceSource(document, candidate);
-  const directness = evidenceDirectness(document, candidate);
   const verifiedPrimary = isExternallyVerifiedPrimary(candidate, sourceUrl);
+  const sourceClass = verifiedPrimary ? 'primary' : classifyEvidenceSource(document, candidate);
+  const directness = evidenceDirectness(document, candidate);
   const rawClaims = [
     { field: 'title_ja', value: candidate.title, rule: 'anime-title-candidate' },
     ...extractMediaTypes(context),
