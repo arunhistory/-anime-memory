@@ -3,6 +3,7 @@ import { emptyDiscoveryState } from './state.mjs';
 import { bootstrapFromWikidata } from './wikidata-bootstrap.mjs';
 import { backfillCandidateWikipediaSitelinks } from './wikidata-article-backfill.mjs';
 import { resolveEvidenceWithTrust } from './trust-resolution.mjs';
+import { normalizeUrl } from './url.mjs';
 
 const state = emptyDiscoveryState();
 const fetchImpl = async (url, options) => {
@@ -93,12 +94,13 @@ const backfill = await backfillCandidateWikipediaSitelinks(backfillState, {
     }] } }), { status: 200, headers: { 'content-type': 'application/sparql-results+json' } });
   }
 });
+const expectedArticle = normalizeUrl('https://ja.wikipedia.org/wiki/星の旅');
 assert.equal(backfillFetches, 1);
 assert.equal(backfill.requested, 1);
 assert.equal(backfill.resolved, 1);
 assert.equal(backfill.frontierAdded, 1);
-assert.ok(backfillState.frontier.some((item) => item.url === 'https://ja.wikipedia.org/wiki/星の旅' && item.candidateHints.includes('星の旅')));
-assert.equal(backfillState.candidates[0].research.wikidataArticleUrl, 'https://ja.wikipedia.org/wiki/星の旅');
+assert.ok(backfillState.frontier.some((item) => item.url === expectedArticle && item.candidateHints.includes('星の旅') && item.priority === 1000));
+assert.equal(backfillState.candidates[0].research.wikidataArticleUrl, expectedArticle);
 let repeatedFetches = 0;
 const repeated = await backfillCandidateWikipediaSitelinks(backfillState, {
   observedAt: '2026-09-11T02:00:00.000Z',
