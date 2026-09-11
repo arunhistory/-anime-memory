@@ -52,10 +52,13 @@ jobs:
           node tools/collect/package-integration-self-test.mjs
           node tools/discovery/cycle-self-test.mjs
           node tools/discovery/state-sharding-self-test.mjs
+          node tools/discovery/frontier-priority-self-test.mjs
           node tools/discovery/known-work-wasm-self-test.mjs
           node tools/discovery/known-work-skip-self-test.mjs
           node tools/discovery/research-strategy-self-test.mjs
           node tools/discovery/research-completion-self-test.mjs
+          node tools/discovery/information-routing-self-test.mjs
+          node tools/discovery/readiness-report-self-test.mjs
           node tools/discovery/trust-calibration-self-test.mjs
           node tools/discovery/learned-source-self-test.mjs
           node tools/discovery/cold-start-self-test.mjs
