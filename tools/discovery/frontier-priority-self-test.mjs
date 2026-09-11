@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  addFrontierPriorityEntry,
   buildFrontierPriorityIndex,
   compactFrontier,
   popBestFrontier,
@@ -93,6 +94,67 @@ assert.equal(
 assert.equal(hostLimitedQueued.has('https://limited.example.test/works/a'), true);
 assert.equal(hostLimitedQueued.has('https://limited.example.test/works/b'), true);
 
+const focusedSameGroup = [
+  { url: 'https://focus.example.test/broadcast/stale', priority: 1000, candidateHints: ['別作品'] },
+  { url: 'https://focus.example.test/broadcast/target', priority: 100, candidateHints: ['集中作品'] }
+];
+Object.defineProperty(focusedSameGroup, 'focusCandidateKey', {
+  value: '集中作品',
+  enumerable: false,
+  configurable: true,
+  writable: true
+});
+const sameGroupQueued = new Map(focusedSameGroup.map((entry) => [entry.url, entry]));
+const sameGroupIndex = buildFrontierPriorityIndex(focusedSameGroup, sameGroupQueued);
+assert.equal(
+  popBestFrontier(sameGroupIndex, sameGroupQueued, trustModel, new Map(), 10)?.url,
+  'https://focus.example.test/broadcast/target',
+  'ephemeral focus must outrank stale priority 1000 inside the same host/route heap'
+);
+assert.equal(focusedSameGroup[0].priority, 1000, 'stale base priority must remain unchanged');
+assert.equal(focusedSameGroup[1].priority, 100, 'focused base priority must remain unchanged');
+assert.equal(JSON.stringify(focusedSameGroup).includes('focusCandidateKey'), false, 'ephemeral focus must not serialize into crawler state');
+
+const focusedAcrossGroups = [
+  { url: 'https://stale.example.test/works/old', priority: 1000, candidateHints: ['別作品'] },
+  { url: 'https://target.example.net/staff/new', priority: 1, candidateHints: ['集中作品'] }
+];
+Object.defineProperty(focusedAcrossGroups, 'focusCandidateKey', {
+  value: '集中作品',
+  enumerable: false,
+  configurable: true,
+  writable: true
+});
+const acrossQueued = new Map(focusedAcrossGroups.map((entry) => [entry.url, entry]));
+const acrossIndex = buildFrontierPriorityIndex(focusedAcrossGroups, acrossQueued);
+assert.equal(
+  popBestFrontier(acrossIndex, acrossQueued, trustModel, new Map(), 10)?.url,
+  'https://target.example.net/staff/new',
+  'ephemeral focus must outrank stale priority 1000 across groups'
+);
+
+const lateFocusFrontier = [
+  { url: 'https://late.example.test/broadcast/stale', priority: 1000, candidateHints: ['別作品'] }
+];
+Object.defineProperty(lateFocusFrontier, 'focusCandidateKey', {
+  value: '集中作品',
+  enumerable: false,
+  configurable: true,
+  writable: true
+});
+const lateFocusQueued = new Map(lateFocusFrontier.map((entry) => [entry.url, entry]));
+const lateFocusIndex = buildFrontierPriorityIndex(lateFocusFrontier, lateFocusQueued);
+const lateEntry = { url: 'https://late.example.test/broadcast/new', priority: 5, candidateHints: ['集中作品'] };
+lateFocusFrontier.push(lateEntry);
+lateFocusQueued.set(lateEntry.url, lateEntry);
+addFrontierPriorityEntry(lateFocusIndex, lateEntry);
+assert.equal(
+  popBestFrontier(lateFocusIndex, lateFocusQueued, trustModel, new Map(), 10)?.url,
+  lateEntry.url,
+  'newly queued focused URL must enter the ephemeral focus lane immediately'
+);
+assert.equal(lateEntry.priority, 5, 'late focused URL base priority must stay unchanged');
+
 const scaleFrontier = [];
 const hostCount = 100;
 const routeParts = ['works', 'staff', 'music', 'onair'];
@@ -162,6 +224,9 @@ console.log('legacy selection semantics: PASS');
 console.log('dynamic trust reprioritization: PASS');
 console.log('per-host bound: PASS');
 console.log('priority update lazy heap refresh: PASS');
+console.log('ephemeral focused lane over stale priority 1000: PASS');
+console.log('focused base priority persistence mutation: NONE');
+console.log('late focused URL indexing: PASS');
 console.log('200k frontier: GROUP-HEAD SELECTION');
 console.log(`200k groups: ${scaleIndex.groups.size}`);
 console.log(`100 pops group evaluations: ${scaleIndex.selectionStats.groupEvaluations}`);
