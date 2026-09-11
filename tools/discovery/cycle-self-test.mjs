@@ -3,7 +3,8 @@ import {
   RESEARCH_INACTIVITY_LIMIT_MS,
   checkpointResearchCycle,
   publishableCandidateFingerprints,
-  startResearchCycle
+  startResearchCycle,
+  timeoutResearchCycle
 } from './cycle.mjs';
 import { recordCandidateResearch } from './research-completion.mjs';
 
@@ -13,6 +14,7 @@ const start = new Date('2026-09-10T00:00:00Z');
 let cycle = startResearchCycle([hashA], start);
 assert.equal(cycle.active, true);
 assert.equal(cycle.lastNewDiscoveryAt, start.toISOString());
+assert.equal(cycle.waitingForInactivity, false);
 
 let result = checkpointResearchCycle(cycle, [hashA], {
   now: new Date(start.getTime() + RESEARCH_INACTIVITY_LIMIT_MS - 1),
@@ -20,6 +22,7 @@ let result = checkpointResearchCycle(cycle, [hashA], {
 });
 assert.equal(result.cycle.active, true);
 assert.equal(result.newConfirmed, 0);
+assert.equal(result.workRemaining, true);
 
 result = checkpointResearchCycle(result.cycle, [hashA, hashB], {
   now: new Date(start.getTime() + RESEARCH_INACTIVITY_LIMIT_MS - 1),
@@ -39,15 +42,34 @@ assert.equal(result.cycle.stopReason, 'no-new-publishable-work-24h');
 cycle = startResearchCycle([], start);
 result = checkpointResearchCycle(cycle, [], { now: start, frontier: 0, bootstrapIncomplete: true, pendingSeries: 0 });
 assert.equal(result.cycle.active, true, 'empty web frontier must not stop while Wikidata bootstrap can still add works');
+assert.equal(result.workRemaining, true);
+assert.equal(result.cycle.waitingForInactivity, false);
 
 cycle = startResearchCycle([], start);
 result = checkpointResearchCycle(cycle, [], { now: start, frontier: 0, bootstrapIncomplete: false, pendingSeries: 1 });
 assert.equal(result.cycle.active, true, 'empty web frontier must not stop while a known series still needs expansion');
+assert.equal(result.workRemaining, true);
+assert.equal(result.cycle.waitingForInactivity, false);
 
 cycle = startResearchCycle([], start);
 result = checkpointResearchCycle(cycle, [], { now: start, frontier: 0, bootstrapIncomplete: false, pendingSeries: 0 });
-assert.equal(result.cycle.active, false);
-assert.equal(result.cycle.stopReason, 'frontier-empty');
+assert.equal(result.cycle.active, true, 'research exhaustion must wait for the 24-hour no-new-work condition');
+assert.equal(result.cycle.stopReason, '');
+assert.equal(result.workRemaining, false);
+assert.equal(result.cycle.waitingForInactivity, true);
+
+let timeout = timeoutResearchCycle(result.cycle, {
+  now: new Date(start.getTime() + RESEARCH_INACTIVITY_LIMIT_MS - 1)
+});
+assert.equal(timeout.cycle.active, true, 'timeout watcher must not stop before 24 hours');
+assert.equal(timeout.stopped, false);
+
+timeout = timeoutResearchCycle(result.cycle, {
+  now: new Date(start.getTime() + RESEARCH_INACTIVITY_LIMIT_MS)
+});
+assert.equal(timeout.cycle.active, false);
+assert.equal(timeout.cycle.stopReason, 'no-new-publishable-work-24h');
+assert.equal(timeout.stopped, true);
 
 cycle = startResearchCycle([], start);
 result = checkpointResearchCycle(cycle, [], {
@@ -140,5 +162,5 @@ console.log('Research cycle self-test: PASS');
 console.log('24-hour no-new-publishable-work stop: PASS');
 console.log('new publishable work resets inactivity timer: PASS');
 console.log('identity-only sparse work does not reset inactivity: PASS');
-console.log('bootstrap/series work prevents premature frontier-empty stop: PASS');
+console.log('exhausted research waits without redispatch until inactivity timeout: PASS');
 console.log('eligible history over 20k: PRESERVED');
