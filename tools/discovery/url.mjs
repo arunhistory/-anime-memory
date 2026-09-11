@@ -17,6 +17,9 @@ export function normalizeUrl(raw, base = undefined) {
   }
   if (!['http:', 'https:'].includes(url.protocol)) return null;
   if (url.username || url.password) return null;
+  const malformedSchemeHost = ['http', 'https'].includes(url.hostname.toLowerCase())
+    && /^\/\/[^/]+\.[^/]+(?:\/|$)/.test(url.pathname);
+  if (malformedSchemeHost) return null;
   url.hash = '';
   url.hostname = url.hostname.toLowerCase();
   if ((url.protocol === 'https:' && url.port === '443') || (url.protocol === 'http:' && url.port === '80')) {
