@@ -166,8 +166,8 @@ jobs:
           echo 'Could not publish production checkpoint without force push.' >&2
           exit 1
 
-      - name: Dispatch next bounded batch while cycle remains active
-        if: ${{ steps.cycle_final.outputs.active == 'true' }}
+      - name: Dispatch next bounded batch while research work remains
+        if: ${{ steps.cycle_final.outputs.active == 'true' && steps.checkpoint.outputs.work_remaining == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run research-production.yml --ref main -f cycle_action=continue
