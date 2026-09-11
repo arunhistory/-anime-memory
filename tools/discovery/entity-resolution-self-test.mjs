@@ -46,6 +46,7 @@ function candidate(title, aliases, release, studio, extra = {}) {
 }
 
 const canonical = candidate('星の旅', 'Star Journey', '2027-04-03', 'Studio Star');
+canonical.verifiedPrimaryUrls = ['https://official.example.jp/work'];
 canonical.research = {
   pageUrls: ['https://official.example.jp/work'],
   routes: ['official'],
@@ -55,6 +56,7 @@ canonical.research = {
   lastEvidenceAt: '2026-09-09T00:00:00.000Z'
 };
 const alias = candidate('Star Journey', '', '2027-04-03', 'Studio Star');
+alias.verifiedPrimaryUrls = ['https://official-en.example.net/work'];
 alias.research = {
   pageUrls: ['https://database.example.net/work'],
   routes: ['staff'],
@@ -68,6 +70,7 @@ const merged = resolveCandidateEntities([canonical, alias]);
 assert.equal(merged.merges, 1);
 assert.equal(merged.candidates.length, 1);
 assert.equal(merged.candidates[0].title, '星の旅');
+assert.deepEqual(new Set(merged.candidates[0].verifiedPrimaryUrls), new Set(['https://official.example.jp/work', 'https://official-en.example.net/work']), 'verified primary provenance must survive entity merge');
 assert.equal(merged.candidates[0].facts.title_ja.status, 'confirmed');
 assert.equal(merged.candidates[0].facts.title_ja.value, '星の旅');
 assert.equal(merged.candidates[0].facts.aliases.status, 'confirmed');
@@ -114,6 +117,7 @@ assert.equal(scale.pairChecks, 0, 'unlinked candidates must not be compared pair
 console.log('Entity resolution self-test: PASS');
 console.log('explicit alias + identity merge: PASS');
 console.log('alternate title retained as alias: PASS');
+console.log('verified primary provenance retained: PASS');
 console.log('research progress retained conservatively: PASS');
 console.log('different release protection: PASS');
 console.log('no-alias conservative separation: PASS');
