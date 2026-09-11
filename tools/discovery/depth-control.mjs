@@ -55,7 +55,9 @@ function corroborationFocus(state, pending) {
       if (!candidate) continue;
       examined += 1;
       const boost = corroborationPriorityBoost({ url: entry?.url, anchor: '' }, candidate, { allowBroad: true });
-      if (boost > 0) eligible.set(key, { key, candidate });
+      if (boost <= 0) continue;
+      if (!eligible.has(key)) eligible.set(key, { key, candidate, urls: new Set() });
+      if (entry?.url) eligible.get(key).urls.add(entry.url);
     }
   }
 
@@ -63,10 +65,16 @@ function corroborationFocus(state, pending) {
   return { focus, examined };
 }
 
-function setEphemeralFrontierFocus(frontier, focusCandidateKey) {
+function setEphemeralFrontierFocus(frontier, focusCandidateKey, focusUrls = []) {
   if (!Array.isArray(frontier)) return;
   Object.defineProperty(frontier, 'focusCandidateKey', {
     value: normalizeTitleKey(focusCandidateKey),
+    writable: true,
+    configurable: true,
+    enumerable: false
+  });
+  Object.defineProperty(frontier, 'focusUrls', {
+    value: new Set(focusUrls),
     writable: true,
     configurable: true,
     enumerable: false
@@ -77,23 +85,14 @@ export function promoteCorroborationFrontier(state) {
   const pending = pendingCandidateIndex(state);
   const selection = corroborationFocus(state, pending);
   const focus = selection.focus;
-  let promoted = 0;
+  const focusUrls = focus?.urls || new Set();
 
-  if (focus) {
-    for (const entry of Array.isArray(state?.frontier) ? state.frontier : []) {
-      const hints = cleanHints(entry?.candidateHints);
-      if (!hints.includes(focus.key)) continue;
-      const boost = corroborationPriorityBoost({ url: entry?.url, anchor: '' }, focus.candidate, { allowBroad: true });
-      if (boost > 0) promoted += 1;
-    }
-  }
-
-  setEphemeralFrontierFocus(state?.frontier, focus?.key || '');
+  setEphemeralFrontierFocus(state?.frontier, focus?.key || '', focusUrls);
 
   return {
     pendingCandidates: pending.size,
     examined: selection.examined,
-    promoted,
+    promoted: focusUrls.size,
     focusCandidate: focus?.candidate?.title || '',
     focusCandidateKey: focus?.key || ''
   };
