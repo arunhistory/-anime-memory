@@ -523,9 +523,10 @@ export async function runDiscovery(options) {
     for (const link of document.links) {
       const linkUrl = normalizeUrl(link.url, document.url);
       if (!linkUrl) continue;
-      const route = researchRouteKind(linkUrl, link.anchor || '');
-      if (!researchMode && DISCOVERY_DEEP_ROUTES.has(route)) continue;
       const linkOrigin = new URL(linkUrl).origin;
+      const sameSite = linkOrigin === sameOrigin;
+      const route = researchRouteKind(linkUrl, link.anchor || '');
+      if (!researchMode && sameSite && DISCOVERY_DEEP_ROUTES.has(route)) continue;
       const rawLinkScore = scoreDiscoveredLink(link, pageScore, titleBoostSet);
       const seriesBoost = seriesPriorityBoost(link, seriesHints);
       if (seriesBoost > 0) stats.seriesPriorityLinks += 1;
@@ -534,7 +535,6 @@ export async function runDiscovery(options) {
         0
       );
       if (informationBoost > 0) stats.informationPriorityLinks += 1;
-      const sameSite = linkOrigin === sameOrigin;
       const candidateRelevant = verificationHintsForLinks.length > 0 && (
         seriesBoost > 0
         || informationBoost >= 85
