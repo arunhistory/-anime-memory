@@ -5,6 +5,7 @@ import path from 'node:path';
 import { resolveEvidenceWithTrust } from './trust-resolution.mjs';
 import { discoveryCandidateReadiness } from './to-record.mjs';
 import { emptyDiscoveryState, loadDiscoveryState, saveDiscoveryState } from './state.mjs';
+import { runDiscovery } from './engine.mjs';
 
 const at = '2026-09-10T00:00:00.000Z';
 const evidence = [
@@ -54,12 +55,39 @@ for (let index = 0; index < 6000; index += 1) {
 }
 const statePath = path.join(temp, 'state.json');
 saveDiscoveryState(statePath, state);
-const balanced = loadDiscoveryState(statePath);
-assert.equal(balanced.frontier.filter((item) => item.url.includes('dominant.example.jp')).length, 5000);
-assert.equal(balanced.frontier.filter((item) => item.url.includes('independent.example.net')).length, 5000);
+const persisted = loadDiscoveryState(statePath);
+assert.equal(persisted.frontier.filter((item) => item.url.includes('dominant.example.jp')).length, 6000);
+assert.equal(persisted.frontier.filter((item) => item.url.includes('independent.example.net')).length, 6000);
 fs.rmSync(temp, { recursive: true, force: true });
+
+const boundedState = emptyDiscoveryState();
+boundedState.frontier.push(
+  { url: 'https://one-host.example/1', priority: 300, depth: 0, discoveredFrom: '', candidateHints: [] },
+  { url: 'https://one-host.example/2', priority: 290, depth: 0, discoveredFrom: '', candidateHints: [] },
+  { url: 'https://one-host.example/3', priority: 280, depth: 0, discoveredFrom: '', candidateHints: [] },
+  { url: 'https://other-host.example/1', priority: 200, depth: 0, discoveredFrom: '', candidateHints: [] }
+);
+const fetchedUrls = [];
+const boundedResult = await runDiscovery({
+  state: boundedState,
+  fetcher: {
+    async fetchPage(url) {
+      fetchedUrls.push(url);
+      return { ok: true, url, contentType: 'text/html; charset=utf-8', text: '<html><head><title>情報ページ</title></head><body>情報</body></html>', sitemaps: [] };
+    }
+  },
+  maxPages: 4,
+  maxDepth: 1,
+  perHostLimit: 1,
+  now: at
+});
+assert.equal(boundedResult.stats.attempted, 2, 'one batch may fetch at most one page from each host when perHostLimit=1');
+assert.equal(fetchedUrls.filter((url) => url.includes('one-host.example')).length, 1);
+assert.equal(fetchedUrls.filter((url) => url.includes('other-host.example')).length, 1);
+assert.equal(boundedResult.state.frontier.filter((item) => item.url.includes('one-host.example')).length, 2, 'host-limited URLs must remain queued for the next batch');
 
 console.log('Cold-start trust bootstrap: PASS');
 console.log('single-family CSV admission: BLOCKED');
 console.log('credible origin conflict: BLOCKED');
-console.log('frontier per-host domination: CAPPED');
+console.log('frontier persistence per-host truncation: NONE');
+console.log('per-batch host limit without requeue loop: PASS');

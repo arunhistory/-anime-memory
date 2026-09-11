@@ -1,5 +1,7 @@
 import { normalizeTitleKey } from './html.mjs';
 import { mergeEvidence, resolveEvidence } from './evidence.mjs';
+import { mergeCandidateResearch } from './research-completion.mjs';
+import { mergeSeriesKnowledge } from './series-learning.mjs';
 
 function fact(candidate, field) {
   const value = candidate?.facts?.[field];
@@ -96,37 +98,150 @@ function mergePair(left, right, resolveFacts) {
     sources,
     evidence,
     facts: resolveFacts(evidence),
+    series: mergeSeriesKnowledge(primary.series, secondary.series),
+    research: mergeCandidateResearch(primary.research, secondary.research),
     lastSeen: [primary.lastSeen, secondary.lastSeen].filter(Boolean).sort().at(-1) || ''
   };
 }
 
+function heapPush(heap, pair) {
+  heap.push(pair);
+  let index = heap.length - 1;
+  while (index > 0) {
+    const parent = Math.floor((index - 1) / 2);
+    const current = heap[index];
+    const up = heap[parent];
+    if (up.left < current.left || (up.left === current.left && up.right <= current.right)) break;
+    heap[parent] = current;
+    heap[index] = up;
+    index = parent;
+  }
+}
+
+function heapPop(heap) {
+  if (!heap.length) return null;
+  const first = heap[0];
+  const last = heap.pop();
+  if (!heap.length) return first;
+  heap[0] = last;
+  let index = 0;
+  while (true) {
+    const leftIndex = index * 2 + 1;
+    const rightIndex = leftIndex + 1;
+    let smallest = index;
+    for (const child of [leftIndex, rightIndex]) {
+      if (child >= heap.length) continue;
+      const a = heap[child];
+      const b = heap[smallest];
+      if (a.left < b.left || (a.left === b.left && a.right < b.right)) smallest = child;
+    }
+    if (smallest === index) break;
+    [heap[index], heap[smallest]] = [heap[smallest], heap[index]];
+    index = smallest;
+  }
+  return first;
+}
+
+function addIndex(map, key, index) {
+  if (!key) return;
+  if (!map.has(key)) map.set(key, new Set());
+  map.get(key).add(index);
+}
+
+function removeIndex(map, key, index) {
+  const set = map.get(key);
+  if (!set) return;
+  set.delete(index);
+  if (!set.size) map.delete(key);
+}
+
 export function resolveCandidateEntities(candidates = [], resolveFacts = resolveEvidence) {
   const resolver = typeof resolveFacts === 'function' ? resolveFacts : resolveEvidence;
-  const working = candidates.map((candidate) => {
+  const nodes = candidates.map((candidate, index) => {
     const evidence = mergeEvidence(candidate.evidence || []);
     return {
-      ...candidate,
-      evidence,
-      facts: resolver(evidence)
+      index,
+      active: true,
+      version: 0,
+      candidate: {
+        ...candidate,
+        evidence,
+        facts: resolver(evidence),
+        series: mergeSeriesKnowledge({}, candidate.series)
+      }
     };
   });
-  let merges = 0;
-  let changed = true;
 
-  while (changed) {
-    changed = false;
-    outer: for (let i = 0; i < working.length; i += 1) {
-      for (let j = i + 1; j < working.length; j += 1) {
-        if (!areCandidatesMergeable(working[i], working[j])) continue;
-        const merged = mergePair(working[i], working[j], resolver);
-        working.splice(j, 1);
-        working.splice(i, 1, merged);
-        merges += 1;
-        changed = true;
-        break outer;
-      }
-    }
+  const titleIndex = new Map();
+  const reverseAliasIndex = new Map();
+  for (const node of nodes) {
+    addIndex(titleIndex, normalizeTitleKey(node.candidate.title || node.candidate.key), node.index);
+    for (const alias of confirmedAliases(node.candidate)) addIndex(reverseAliasIndex, alias, node.index);
   }
 
-  return { candidates: working, merges };
+  const heap = [];
+  const queued = new Set();
+  let pairChecks = 0;
+
+  const schedulePair = (aIndex, bIndex) => {
+    if (aIndex === bIndex) return;
+    const left = Math.min(aIndex, bIndex);
+    const right = Math.max(aIndex, bIndex);
+    const a = nodes[left];
+    const b = nodes[right];
+    if (!a?.active || !b?.active) return;
+    const key = `${left}:${a.version}:${right}:${b.version}`;
+    if (queued.has(key)) return;
+    pairChecks += 1;
+    if (!areCandidatesMergeable(a.candidate, b.candidate)) return;
+    queued.add(key);
+    heapPush(heap, { left, right, leftVersion: a.version, rightVersion: b.version, key });
+  };
+
+  const scheduleNode = (index) => {
+    const node = nodes[index];
+    if (!node?.active) return;
+    const titleKey = normalizeTitleKey(node.candidate.title || node.candidate.key);
+    for (const alias of confirmedAliases(node.candidate)) {
+      for (const target of titleIndex.get(alias) || []) schedulePair(index, target);
+    }
+    for (const source of reverseAliasIndex.get(titleKey) || []) schedulePair(index, source);
+  };
+
+  for (const node of nodes) scheduleNode(node.index);
+
+  let merges = 0;
+  while (heap.length) {
+    const pair = heapPop(heap);
+    queued.delete(pair.key);
+    const leftNode = nodes[pair.left];
+    const rightNode = nodes[pair.right];
+    if (!leftNode?.active || !rightNode?.active) continue;
+    if (leftNode.version !== pair.leftVersion || rightNode.version !== pair.rightVersion) continue;
+    pairChecks += 1;
+    if (!areCandidatesMergeable(leftNode.candidate, rightNode.candidate)) continue;
+
+    const leftTitle = normalizeTitleKey(leftNode.candidate.title || leftNode.candidate.key);
+    const rightTitle = normalizeTitleKey(rightNode.candidate.title || rightNode.candidate.key);
+    removeIndex(titleIndex, leftTitle, leftNode.index);
+    removeIndex(titleIndex, rightTitle, rightNode.index);
+
+    const merged = mergePair(leftNode.candidate, rightNode.candidate, resolver);
+    leftNode.candidate = merged;
+    leftNode.version += 1;
+    rightNode.active = false;
+    rightNode.version += 1;
+    merges += 1;
+
+    const mergedTitle = normalizeTitleKey(merged.title || merged.key);
+    addIndex(titleIndex, mergedTitle, leftNode.index);
+    for (const alias of confirmedAliases(merged)) addIndex(reverseAliasIndex, alias, leftNode.index);
+    scheduleNode(leftNode.index);
+  }
+
+  return {
+    candidates: nodes.filter((node) => node.active).map((node) => node.candidate),
+    merges,
+    pairChecks
+  };
 }

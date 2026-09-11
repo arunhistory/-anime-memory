@@ -4,6 +4,25 @@ import { extractCandidateEvidence, mergeEvidence } from './evidence.mjs';
 import { resolveCandidateEntities } from './entity-resolution.mjs';
 import { collapseSameFamilyEvidence } from './source-family.mjs';
 import {
+  addSeriesHintCandidate,
+  buildSeriesHintIndex,
+  ensureSeriesMemberShells,
+  mergeSeriesKnowledge,
+  relatedSeriesHints,
+  seriesPriorityBoost
+} from './series-learning.mjs';
+import {
+  addFrontierPriorityEntry,
+  buildFrontierPriorityIndex,
+  compactFrontier,
+  popBestFrontier,
+  touchFrontierPriorityEntry
+} from './frontier-priority.mjs';
+import {
+  informationPriorityBoost,
+  recordCandidateResearch
+} from './research-completion.mjs';
+import {
   buildResearchStrategyModel,
   emptyResearchStrategyState,
   learnSourceTrustFromKnownRecord,
@@ -13,20 +32,6 @@ import {
 import { calibrateSourceTrustFromConsensus } from './trust-calibration.mjs';
 import { resolveEvidenceWithTrust } from './trust-resolution.mjs';
 import { normalizeUrl, urlHash, hostKey } from './url.mjs';
-
-function popBest(frontier, trustModel) {
-  if (!frontier.length) return null;
-  let bestIndex = 0;
-  let bestScore = Number(frontier[0]?.priority || 0) + scoreResearchRoute(trustModel, { url: frontier[0]?.url }).boost;
-  for (let i = 1; i < frontier.length; i += 1) {
-    const score = Number(frontier[i]?.priority || 0) + scoreResearchRoute(trustModel, { url: frontier[i]?.url }).boost;
-    if (score > bestScore) {
-      bestScore = score;
-      bestIndex = i;
-    }
-  }
-  return frontier.splice(bestIndex, 1)[0];
-}
 
 function normalizeCandidateHints(values) {
   const source = Array.isArray(values) ? values : [];
@@ -38,7 +43,7 @@ function normalizeCandidateHints(values) {
     if (!key || seen.has(key)) continue;
     seen.add(key);
     output.push(title);
-    if (output.length >= 4) break;
+    if (output.length >= 32) break;
   }
   return output;
 }
@@ -56,7 +61,7 @@ function pageFocusesCandidate(document, title) {
   return normalizeTitleKey(headline).includes(key);
 }
 
-function addCandidate(candidateMap, candidate, sourceUrl, now, evidence, trustModel) {
+function addCandidate(candidateMap, candidate, sourceUrl, now, evidence, trustModel, onStored = null) {
   const key = normalizeTitleKey(candidate.title || candidate.key);
   if (!key) return false;
   const existed = candidateMap.has(key);
@@ -66,20 +71,31 @@ function addCandidate(candidateMap, candidate, sourceUrl, now, evidence, trustMo
     sources: [],
     evidence: [],
     facts: {},
+    series: {},
+    research: {},
     lastSeen: now
   };
   if (!current.title) current.title = candidate.title;
   if (!Array.isArray(current.sources)) current.sources = [];
-  if (!current.sources.includes(sourceUrl)) current.sources.push(sourceUrl);
+  if (sourceUrl && !current.sources.includes(sourceUrl)) current.sources.push(sourceUrl);
   current.sources = current.sources.slice(0, 50);
   current.evidence = collapseSameFamilyEvidence(mergeEvidence(current.evidence, evidence || []));
   current.facts = resolveEvidenceWithTrust(current.evidence, trustModel);
+  current.series = mergeSeriesKnowledge(current.series, candidate.series);
+  if (sourceUrl) {
+    current.research = recordCandidateResearch(current.research, {
+      url: sourceUrl,
+      evidence: evidence || [],
+      observedAt: now
+    });
+  }
   current.lastSeen = now;
   candidateMap.set(key, current);
+  if (typeof onStored === 'function') onStored(current, { created: !existed });
   return !existed;
 }
 
-function addFrontier(frontier, queued, visited, entry) {
+function addFrontier(frontier, queued, visited, entry, priorityIndex = null) {
   const url = normalizeUrl(entry.url);
   if (!url) return false;
   const hash = urlHash(url);
@@ -89,11 +105,15 @@ function addFrontier(frontier, queued, visited, entry) {
   const candidateHints = normalizeCandidateHints(entry.candidateHints);
   const existing = queued.get(url);
   if (existing) {
-    existing.priority = Math.max(Number(existing.priority || 0), priority);
+    const previousPriority = Number(existing.priority || 0);
+    existing.priority = Math.max(previousPriority, priority);
     existing.candidateHints = normalizeCandidateHints([
       ...(existing.candidateHints || []),
       ...candidateHints
     ]);
+    if (priorityIndex && Number(existing.priority || 0) !== previousPriority) {
+      touchFrontierPriorityEntry(priorityIndex, existing);
+    }
     return false;
   }
 
@@ -106,6 +126,7 @@ function addFrontier(frontier, queued, visited, entry) {
   };
   frontier.push(item);
   queued.set(url, item);
+  if (priorityIndex) addFrontierPriorityEntry(priorityIndex, item);
   return true;
 }
 
@@ -113,6 +134,31 @@ function mergeDocument(documents, doc) {
   const index = documents.findIndex((item) => item.url === doc.url);
   if (index >= 0) documents[index] = doc;
   else documents.push(doc);
+}
+
+function seriesHintsFromEntry(candidateMap, seriesHintIndex, subjectKey, entryHints) {
+  const values = [];
+  if (subjectKey && candidateMap.has(subjectKey)) {
+    values.push(...relatedSeriesHints(candidateMap.get(subjectKey), seriesHintIndex));
+  }
+  for (const hint of normalizeCandidateHints(entryHints)) {
+    const candidate = candidateMap.get(normalizeTitleKey(hint));
+    if (candidate) values.push(...relatedSeriesHints(candidate, seriesHintIndex));
+  }
+  return normalizeCandidateHints(values);
+}
+
+function informationCandidatesFromContext(candidateMap, subjectHint, entryHints, verificationHints) {
+  const candidates = [];
+  const seen = new Set();
+  for (const title of normalizeCandidateHints([subjectHint, ...(entryHints || []), ...(verificationHints || [])])) {
+    const key = normalizeTitleKey(title);
+    const candidate = candidateMap.get(key);
+    if (!candidate || seen.has(key)) continue;
+    seen.add(key);
+    candidates.push(candidate);
+  }
+  return candidates;
 }
 
 export async function runDiscovery(options) {
@@ -144,7 +190,6 @@ export async function runDiscovery(options) {
     knownTitleCache.set(value, result);
     return result;
   };
-  const isKnownTitle = (title) => lookupKnownTitle(title).known;
 
   const frontier = state.frontier;
   const visited = new Set(state.visited || []);
@@ -152,9 +197,11 @@ export async function runDiscovery(options) {
   for (const entry of frontier) {
     const url = normalizeUrl(entry?.url);
     if (!url) continue;
+    entry.url = url;
     queued.set(url, entry);
     entry.candidateHints = normalizeCandidateHints(entry.candidateHints);
   }
+  const frontierPriorityIndex = buildFrontierPriorityIndex(frontier, queued);
   const hostCounts = new Map();
   const deferredBlocked = [];
   const stats = {
@@ -173,34 +220,66 @@ export async function runDiscovery(options) {
     coldStartConsensusFields: 0,
     coldStartConflictedFieldsSkipped: 0,
     researchStrategyBoostedLinks: 0,
+    seriesPriorityLinks: 0,
+    informationPriorityLinks: 0,
+    seriesShellCandidates: 0,
     newLinks: 0,
     robotsSkipped: 0,
     otherSkipped: 0,
     hostFiltered: 0,
     failed: 0,
     sitemapLinks: 0,
+    knownWorkCandidatesSeen: 0,
+    knownWorkEvidenceReused: 0,
+    knownStateCandidatesRetained: 0,
     knownWorkCandidatesSkipped: 0,
-    knownStateCandidatesPruned: 0
+    knownStateCandidatesPruned: 0,
+    frontierPriorityGroups: frontierPriorityIndex.groups.size,
+    frontierPriorityGroupEvaluations: 0
   };
 
   const candidateMap = new Map();
   for (const candidate of state.candidates || []) {
-    if (isKnownTitle(candidate.title || candidate.key)) {
-      stats.knownStateCandidatesPruned += 1;
-      continue;
-    }
     const collapsedEvidence = collapseSameFamilyEvidence(mergeEvidence(candidate.evidence || []));
-    candidateMap.set(normalizeTitleKey(candidate.title || candidate.key), {
+    const key = normalizeTitleKey(candidate.title || candidate.key);
+    if (!key) continue;
+    if (lookupKnownTitle(candidate.title || candidate.key).known) stats.knownStateCandidatesRetained += 1;
+    candidateMap.set(key, {
       ...candidate,
       evidence: collapsedEvidence,
-      facts: resolveEvidenceWithTrust(collapsedEvidence, trustModel)
+      facts: resolveEvidenceWithTrust(collapsedEvidence, trustModel),
+      series: mergeSeriesKnowledge({}, candidate.series)
     });
   }
+  for (const candidate of [...candidateMap.values()]) {
+    stats.seriesShellCandidates += ensureSeriesMemberShells(candidateMap, candidate, now);
+  }
 
-  while (frontier.length && stats.attempted < maxPages) {
-    const entry = popBest(frontier, trustModel);
+  const seriesHintIndex = buildSeriesHintIndex(candidateMap.values());
+  const recentCandidateTitles = [...candidateMap.values()].slice(-200).map((item) => item.title);
+  const rememberCandidateTitle = (title) => {
+    const value = String(title || '').trim();
+    if (!value) return;
+    recentCandidateTitles.push(value);
+    if (recentCandidateTitles.length > 200) recentCandidateTitles.splice(0, recentCandidateTitles.length - 200);
+  };
+  const onCandidateStored = (stored, meta = {}) => {
+    addSeriesHintCandidate(seriesHintIndex, stored);
+    if (meta.created) rememberCandidateTitle(stored.title);
+  };
+  const ensureIndexedSeriesShells = (candidate) => ensureSeriesMemberShells(
+    candidateMap,
+    candidate,
+    now,
+    (shell) => {
+      addSeriesHintCandidate(seriesHintIndex, shell);
+      rememberCandidateTitle(shell.title);
+    }
+  );
+
+  while (queued.size && stats.attempted < maxPages) {
+    const entry = popBestFrontier(frontierPriorityIndex, queued, trustModel, hostCounts, perHostLimit);
     if (!entry) break;
-    queued.delete(entry.url);
     const normalized = normalizeUrl(entry.url);
     if (!normalized) continue;
     const hash = urlHash(normalized);
@@ -216,7 +295,7 @@ export async function runDiscovery(options) {
     const host = hostKey(normalized);
     const hostCount = hostCounts.get(host) || 0;
     if (hostCount >= perHostLimit) {
-      addFrontier(frontier, queued, visited, { ...entry, priority: Number(entry.priority || 0) - 5 });
+      deferredBlocked.push(entry);
       continue;
     }
     hostCounts.set(host, hostCount + 1);
@@ -260,7 +339,7 @@ export async function runDiscovery(options) {
           depth: entry.depth + 1,
           discoveredFrom: result.url,
           candidateHints: entry.candidateHints || []
-        })) stats.sitemapLinks += 1;
+        }, frontierPriorityIndex)) stats.sitemapLinks += 1;
       }
       recordResearchOperation(state.researchStrategy, { url: normalized, fetched: true, evidenceClaims: 0, observedAt: now });
       trustModel = buildResearchStrategyModel(state);
@@ -276,7 +355,7 @@ export async function runDiscovery(options) {
     const detectedTitles = novelCandidates.map((item) => item.title);
     const subjectKey = document.subjectCandidate?.key || '';
     const subjectKnown = Boolean(subjectKey && candidateKnowledge.get(subjectKey)?.known);
-    const persistableCandidateTitles = document.noindex || document.discoveryOnly || !document.subjectCandidate || subjectKnown
+    const persistableCandidateTitles = document.noindex || document.discoveryOnly || !document.subjectCandidate
       ? []
       : [document.subjectCandidate.title];
     const relevant = !document.noindex && isRelevantDocument(pageScore);
@@ -300,27 +379,36 @@ export async function runDiscovery(options) {
           const knownInfo = candidateKnowledge.get(candidate.key) || { known: false, record: null };
           const candidateKey = normalizeTitleKey(candidate.title || candidate.key);
           const subjectOrFocused = subjectKey === candidateKey || pageFocusesCandidate(document, candidate.title);
+          const sourceUrl = document.canonical || document.url;
 
           if (knownInfo.known) {
-            stats.knownWorkCandidatesSkipped += 1;
+            stats.knownWorkCandidatesSeen += 1;
             if (knownInfo.record && subjectOrFocused) {
-              const trainingEvidence = extractCandidateEvidence(document, candidate, now);
-              pageEvidenceClaims += trainingEvidence.length;
-              const trained = learnSourceTrustFromKnownRecord(state.researchStrategy, trainingEvidence, knownInfo.record, now);
+              const evidence = extractCandidateEvidence(document, candidate, now);
+              pageEvidenceClaims += evidence.length;
+              stats.evidenceClaims += evidence.length;
+              const trained = learnSourceTrustFromKnownRecord(state.researchStrategy, evidence, knownInfo.record, now);
               stats.sourceTrustTrainingClaims += trained;
               if (trained > 0) trustModel = buildResearchStrategyModel(state);
+              const existingCandidate = candidateMap.get(candidateKey);
+              addCandidate(candidateMap, { ...candidate, series: existingCandidate?.series }, sourceUrl, now, evidence, trustModel, onCandidateStored);
+              stats.knownWorkEvidenceReused += evidence.length;
+              acceptedVerificationHints.push(candidate.title);
+              const updated = candidateMap.get(candidateKey);
+              if (updated) stats.seriesShellCandidates += ensureIndexedSeriesShells(updated);
             }
             continue;
           }
 
-          const sourceUrl = document.canonical || document.url;
           const extracted = extractCandidateEvidence(document, candidate, now);
           const evidence = subjectKey && candidateKey === subjectKey
             ? extracted
             : extracted.filter((item) => item.field === 'title_ja');
           stats.evidenceClaims += evidence.length;
           pageEvidenceClaims += evidence.length;
-          if (addCandidate(candidateMap, candidate, sourceUrl, now, evidence, trustModel)) stats.candidatesFound += 1;
+          if (addCandidate(candidateMap, candidate, sourceUrl, now, evidence, trustModel, onCandidateStored)) stats.candidatesFound += 1;
+          const updated = candidateMap.get(candidateKey);
+          if (updated) stats.seriesShellCandidates += ensureIndexedSeriesShells(updated);
         }
 
         const verificationHints = normalizeCandidateHints(entry.candidateHints);
@@ -330,12 +418,17 @@ export async function runDiscovery(options) {
           const knownInfo = lookupKnownTitle(hint);
           if (knownInfo.known) {
             if (knownInfo.record && pageFocusesCandidate(document, hint)) {
-              const trainingCandidate = { key: hintKey, title: hint };
-              const trainingEvidence = extractCandidateEvidence(document, trainingCandidate, now);
-              pageEvidenceClaims += trainingEvidence.length;
-              const trained = learnSourceTrustFromKnownRecord(state.researchStrategy, trainingEvidence, knownInfo.record, now);
+              const existingCandidate = candidateMap.get(hintKey);
+              const trainingCandidate = { key: hintKey, title: existingCandidate?.title || hint, series: existingCandidate?.series };
+              const evidence = extractCandidateEvidence(document, trainingCandidate, now);
+              pageEvidenceClaims += evidence.length;
+              stats.evidenceClaims += evidence.length;
+              const trained = learnSourceTrustFromKnownRecord(state.researchStrategy, evidence, knownInfo.record, now);
               stats.sourceTrustTrainingClaims += trained;
               if (trained > 0) trustModel = buildResearchStrategyModel(state);
+              addCandidate(candidateMap, trainingCandidate, document.canonical || document.url, now, evidence, trustModel, onCandidateStored);
+              stats.knownWorkEvidenceReused += evidence.length;
+              acceptedVerificationHints.push(trainingCandidate.title);
             }
             continue;
           }
@@ -352,15 +445,17 @@ export async function runDiscovery(options) {
           const sourceUrl = document.canonical || document.url;
           const verificationCandidate = {
             key: hintKey,
-            title: existingCandidate.title || hint
+            title: existingCandidate.title || hint,
+            series: existingCandidate.series
           };
           const evidence = extractCandidateEvidence(document, verificationCandidate, now);
-          if (!evidence.length) continue;
           stats.verificationPages += 1;
-          stats.verificationEvidenceClaims += evidence.length;
-          stats.evidenceClaims += evidence.length;
-          pageEvidenceClaims += evidence.length;
-          addCandidate(candidateMap, verificationCandidate, sourceUrl, now, evidence, trustModel);
+          if (evidence.length) {
+            stats.verificationEvidenceClaims += evidence.length;
+            stats.evidenceClaims += evidence.length;
+            pageEvidenceClaims += evidence.length;
+          }
+          addCandidate(candidateMap, verificationCandidate, sourceUrl, now, evidence, trustModel, onCandidateStored);
           acceptedVerificationHints.push(verificationCandidate.title);
         }
       }
@@ -376,30 +471,45 @@ export async function runDiscovery(options) {
 
     if (document.nofollow) continue;
 
-    const existingCandidateTitles = [...candidateMap.values()].slice(-200).map((item) => item.title);
-    const titleBoostSet = [...new Set([...detectedTitles, ...existingCandidateTitles])].slice(0, 250);
+    const seriesHints = seriesHintsFromEntry(candidateMap, seriesHintIndex, subjectKey, entry.candidateHints);
+    const titleBoostSet = [...new Set([...detectedTitles, ...seriesHints, ...recentCandidateTitles])].slice(0, 250);
     const sameOrigin = new URL(document.url).origin;
-    const subjectHint = relevant && !document.discoveryOnly && document.subjectCandidate && !subjectKnown
+    const subjectHint = relevant && !document.discoveryOnly && document.subjectCandidate
       ? document.subjectCandidate.title
       : '';
     const verificationHintsForLinks = normalizeCandidateHints([
+      ...seriesHints,
       subjectHint,
       ...acceptedVerificationHints
     ]);
+    const informationCandidates = informationCandidatesFromContext(
+      candidateMap,
+      subjectHint,
+      entry.candidateHints,
+      acceptedVerificationHints
+    );
     const rankedLinks = [];
     for (const link of document.links) {
       const linkUrl = normalizeUrl(link.url, document.url);
       if (!linkUrl) continue;
       const linkOrigin = new URL(linkUrl).origin;
       const rawLinkScore = scoreDiscoveredLink(link, pageScore, titleBoostSet);
+      const seriesBoost = seriesPriorityBoost(link, seriesHints);
+      if (seriesBoost > 0) stats.seriesPriorityLinks += 1;
+      const informationBoost = informationCandidates.reduce(
+        (best, candidate) => Math.max(best, informationPriorityBoost({ url: linkUrl, anchor: link.anchor }, candidate)),
+        0
+      );
+      if (informationBoost > 0) stats.informationPriorityLinks += 1;
       const sameSite = linkOrigin === sameOrigin;
+      const discoveryScore = rawLinkScore + seriesBoost + informationBoost;
 
       const minScore = relevant ? (sameSite ? 0 : 18) : (sameSite ? 25 : 55);
-      if (rawLinkScore < minScore) continue;
+      if (discoveryScore < minScore) continue;
       const verificationBoost = verificationHintsForLinks.length ? (sameSite ? 25 : 45) : 0;
       const learned = scoreResearchRoute(trustModel, { url: linkUrl, anchor: link.anchor });
       if (learned.boost !== 0) stats.researchStrategyBoostedLinks += 1;
-      const linkScore = Math.max(-100, Math.min(500, rawLinkScore + verificationBoost + learned.boost));
+      const linkScore = Math.max(-100, Math.min(500, discoveryScore + verificationBoost + learned.boost));
       rankedLinks.push({ linkUrl, linkScore, sameSite, candidateHints: verificationHintsForLinks });
     }
 
@@ -413,7 +523,7 @@ export async function runDiscovery(options) {
         depth: entry.depth + 1,
         discoveredFrom: document.url,
         candidateHints: item.candidateHints
-      });
+      }, frontierPriorityIndex);
       if (item.candidateHints.length) stats.verificationLinksPromoted += 1;
       if (added) {
         stats.newLinks += 1;
@@ -427,12 +537,12 @@ export async function runDiscovery(options) {
         priority: Math.max(50, Number(entry.priority || 0)),
         depth: Math.min(entry.depth + 1, maxDepth),
         discoveredFrom: document.url,
-        candidateHints: acceptedVerificationHints
-      })) stats.sitemapLinks += 1;
+        candidateHints: [...seriesHints, ...acceptedVerificationHints]
+      }, frontierPriorityIndex)) stats.sitemapLinks += 1;
     }
   }
 
-  for (const entry of deferredBlocked) addFrontier(frontier, queued, visited, entry);
+  for (const entry of deferredBlocked) addFrontier(frontier, queued, visited, entry, frontierPriorityIndex);
 
   let resolved = resolveCandidateEntities(
     [...candidateMap.values()],
@@ -459,9 +569,11 @@ export async function runDiscovery(options) {
   }
 
   stats.entityMerges = resolved.merges;
+  stats.frontierPriorityGroups = frontierPriorityIndex.groups.size;
+  stats.frontierPriorityGroupEvaluations = frontierPriorityIndex.selectionStats.groupEvaluations;
   state.visited = [...visited];
   state.candidates = resolved.candidates;
-  state.frontier = frontier;
+  state.frontier = compactFrontier(frontier, queued);
   state.updatedAt = now;
   return { state, stats };
 }

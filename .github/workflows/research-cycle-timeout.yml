@@ -1,0 +1,87 @@
+name: Anime Research Inactivity Timeout
+
+on:
+  schedule:
+    - cron: '47 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: anime-production-cycle
+  cancel-in-progress: false
+
+jobs:
+  timeout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout latest main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Read lightweight cycle gate
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          active="$(jq -r 'if .active == true then "true" else "false" end' crawler/research-cycle.json)"
+          waiting="$(jq -r 'if .waitingForInactivity == true then "true" else "false" end' crawler/research-cycle.json)"
+          echo "active=${active}" >> "${GITHUB_OUTPUT}"
+          echo "waiting=${waiting}" >> "${GITHUB_OUTPUT}"
+
+      - name: Setup Node only for an active waiting cycle
+        if: ${{ steps.gate.outputs.active == 'true' && steps.gate.outputs.waiting == 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Apply inactivity timeout or release expired backoff
+        id: timeout
+        if: ${{ steps.gate.outputs.active == 'true' && steps.gate.outputs.waiting == 'true' }}
+        run: node tools/discovery/cycle.mjs timeout
+
+      - name: Commit timeout only when state changed
+        if: ${{ steps.gate.outputs.active == 'true' && steps.gate.outputs.waiting == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add crawler/research-cycle.json
+          if git diff --cached --quiet; then
+            echo 'No timeout state change.'
+            exit 0
+          fi
+
+          base_sha="$(git rev-parse HEAD)"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Stop anime research after 24h inactivity'
+
+          for attempt in 1 2 3; do
+            git fetch origin main
+            remote_head="$(git rev-parse origin/main)"
+            if [[ "${remote_head}" != "${base_sha}" ]]; then
+              if ! git diff --quiet "${base_sha}..${remote_head}" -- crawler/research-cycle.json; then
+                echo 'Research cycle changed concurrently; refusing timeout overwrite.' >&2
+                exit 1
+              fi
+              git rebase origin/main
+              base_sha="${remote_head}"
+            fi
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+          done
+
+          echo 'Could not publish inactivity timeout without force push.' >&2
+          exit 1
+
+      - name: Resume bounded research after backoff
+        if: ${{ steps.gate.outputs.active == 'true' && steps.gate.outputs.waiting == 'true' && steps.timeout.outputs.resume_research == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run research-production.yml --ref main -f cycle_action=continue

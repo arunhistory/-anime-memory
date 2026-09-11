@@ -14,17 +14,44 @@ function hasSameDiscoveryIdentity(left, right) {
     && left.media_type === right.media_type;
 }
 
+function meaningfulBlankFill(before, after, columns) {
+  return columns.some((column) => column !== 'id'
+    && column !== 'updated_at'
+    && !String(before?.[column] || '').trim()
+    && Boolean(String(after?.[column] || '').trim()));
+}
+
 export function deduplicateIncoming(incoming, existing, columns, { warn = console.warn } = {}) {
   const accepted = [];
-  const stats = { exactExisting: 0, candidateExisting: 0, exactIncomingMerged: 0, identityIncomingMerged: 0, candidateIncoming: 0 };
+  const workingExisting = (Array.isArray(existing) ? existing : []).map((entry) => ({
+    fileName: String(entry?.fileName || ''),
+    record: { ...(entry?.record || {}) }
+  }));
+  const enrichmentMap = new Map();
+  const stats = {
+    exactExisting: 0,
+    existingEnriched: 0,
+    candidateExisting: 0,
+    exactIncomingMerged: 0,
+    identityIncomingMerged: 0,
+    candidateIncoming: 0
+  };
 
   for (const item of incoming) {
-    const exactExisting = existing.find(({ record }) => hasExactExternalId(record, item));
+    const exactExisting = workingExisting.find(({ record }) => hasExactExternalId(record, item));
     if (exactExisting) {
       stats.exactExisting += 1;
+      const before = exactExisting.record;
+      const merged = mergeOnlyBlank(before, item, columns);
+      if (meaningfulBlankFill(before, merged, columns)) {
+        if (item.updated_at) merged.updated_at = item.updated_at;
+        exactExisting.record = merged;
+        const key = `${exactExisting.fileName}\u0000${String(merged.id || '')}`;
+        enrichmentMap.set(key, { fileName: exactExisting.fileName, record: { ...merged } });
+      }
       continue;
     }
-    const candidateExisting = existing.find(({ record }) => isCompositeDuplicateCandidate(record, item));
+    const candidateExisting = workingExisting.find(({ record }) => isCompositeDuplicateCandidate(record, item));
     if (candidateExisting) {
       stats.candidateExisting += 1;
       warn(`重複候補のため自動登録しません: source title=${item.title_ja || '(empty)'} / existing=${candidateExisting.record.id}`);
@@ -51,5 +78,8 @@ export function deduplicateIncoming(incoming, existing, columns, { warn = consol
     }
     accepted.push({ ...item });
   }
-  return { accepted, stats };
+
+  const enrichments = [...enrichmentMap.values()];
+  stats.existingEnriched = enrichments.length;
+  return { accepted, enrichments, workingExisting, stats };
 }

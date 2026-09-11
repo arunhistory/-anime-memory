@@ -61,7 +61,7 @@ assert.match(collectWorkflow.slice(collectStep), /ANIME_GEMINI_API_KEY:\s*\$\{\{
 assert.match(collectWorkflow, /node tools\/collect\/initial-pending-self-test\.mjs/, 'initial pending-state preflight missing');
 assert.match(collectWorkflow, /node tools\/discovery\/structured-evidence-self-test\.mjs/, 'structured Evidence preflight missing');
 assert.match(discoveryWorkflow, /known-work-wasm-self-test\.mjs/, 'search.wasm registered-work preflight missing');
-assert.match(discoveryWorkflow, /known-work-skip-self-test\.mjs/, 'next-run registered-work skip preflight missing');
+assert.match(discoveryWorkflow, /known-work-skip-self-test\.mjs/, 'next-run registered-work enrichment preflight missing');
 
 assert.equal(INITIAL_CSV_RECORD_LIMIT, 500, 'initial CSV package size must remain 500');
 assert.equal(GEMINI_DAILY_CALL_LIMIT, 450, 'Gemini daily call limit must remain 450');
@@ -69,24 +69,98 @@ assert.match(productionWorkflow, /cycle\.mjs checkpoint/, '24-hour inactivity ch
 assert.match(productionWorkflow, /cycle_action=continue/, 'bounded workflow continuation missing');
 assert.match(productionWorkflow, /actions:\s*write/, 'bounded workflow continuation permission missing');
 assert.match(productionWorkflow, /--max-pages 100/, 'production batch must remain bounded to 100 pages');
+assert.match(productionWorkflow, /--per-host-limit 100/, 'production batch must keep a bounded per-host fetch limit');
 assert.equal(/while true/.test(productionWorkflow), false, 'unbounded production loop returned');
+assert.equal(/stop\s+--reason\s+package-complete/.test(productionWorkflow), false, 'one CSV package must not terminate the research cycle');
+assert.equal(/cycle_final\.outputs\.active == 'true'\s*&&\s*steps\.collect\.outputs\.csv_created != 'true'/.test(productionWorkflow), false, 'CSV creation must not suppress the next research batch');
+assert.match(productionWorkflow, /if grep -Eq '[^']+' \/tmp\/manifest\.csv; then/, 'Pages manifest retry must not fail on a stale successful response');
+assert.match(productionWorkflow, /wikidata-series-expansion-self-test\.mjs/, 'full-series expansion must be production-preflight tested');
+assert.match(productionWorkflow, /publishable-readiness-self-test\.mjs/, 'publication information gate must be production-preflight tested');
+assert.match(productionWorkflow, /series-record-self-test\.mjs/, 'series CSV mapping must be production-preflight tested');
+assert.match(productionWorkflow, /series-enrichment-self-test\.mjs/, 'series transactional enrichment must be production-preflight tested');
+assert.match(productionWorkflow, /cold-start-self-test\.mjs/, 'frontier persistence/per-host behavior must be production-preflight tested');
+assert.match(productionWorkflow, /frontier-priority-self-test\.mjs/, '200k frontier priority scaling must be production-preflight tested');
+assert.match(discoveryWorkflow, /frontier-priority-self-test\.mjs/, '200k frontier priority scaling must be manual-discovery preflight tested');
 
 const validator = read('tools/validate/data-validator.mjs');
 assert.match(validator, /'Web 最速'/, 'streaming mode Web 最速 spacing drifted');
 assert.match(validator, /relations targetが存在しない/, 'relation target existence validation missing');
 assert.match(validator, /original_type は原作タグ1つのみ指定可能/, 'single original_type enforcement missing');
+assert.equal(validator.includes('isKnownLegacyInitial001'), false, 'obsolete legacy initial package exception must not remain');
 
 const knownWorkWasm = read('tools/discovery/known-work-wasm.mjs');
 assert.match(knownWorkWasm, /assets[^\n]+wasm[^\n]+search\.js/, 'registered-work lookup must reuse assets/wasm/search.js');
 assert.match(knownWorkWasm, /search\.wasm/, 'registered-work lookup must reuse search.wasm');
 assert.match(knownWorkWasm, /_anime_search_add_text_term/, 'registered-work lookup must use search.wasm text search ABI');
 assert.match(knownWorkWasm, /'title'/, 'registered-work lookup must search the WASM title group');
+
 const discoveryRun = read('tools/discovery/run.mjs');
 const discoveryEngine = read('tools/discovery/engine.mjs');
-assert.match(discoveryRun, /loadKnownWorkWasmSearch/, 'discovery runner must load registered works through search.wasm');
+const frontierPriority = read('tools/discovery/frontier-priority.mjs');
+const discoveryState = read('tools/discovery/state.mjs');
+const discoveryCycle = read('tools/discovery/cycle.mjs');
+const seriesLearning = read('tools/discovery/series-learning.mjs');
+const seriesExpansion = read('tools/discovery/wikidata-series-expansion.mjs');
+const seriesRecord = read('tools/discovery/series-record.mjs');
+const researchCompletion = read('tools/discovery/research-completion.mjs');
+const toRecord = read('tools/discovery/to-record.mjs');
+const wikidataBootstrap = read('tools/discovery/wikidata-bootstrap.mjs');
+const collector = read('tools/collect/run.mjs');
+const seriesEnrichment = read('tools/collect/series-enrichment.mjs');
+const initialPending = read('tools/collect/initial-pending.mjs');
+
+assert.match(discoveryRun, /loadKnownWorkWasmSearch/, 'discovery runner must load registered works through search.wasm when web pages are available');
 assert.match(discoveryRun, /knownWorkSearch/, 'discovery runner must pass search.wasm lookup into the engine');
-assert.match(discoveryEngine, /hasExactTitle/, 'discovery engine must query search.wasm before collecting known-work evidence');
-assert.match(discoveryEngine, /knownStateCandidatesPruned/, 'registered candidates already in discovery state must be pruned after CSV registration');
+assert.match(discoveryRun, /expandSeriesFromWikidata/, 'full-series expansion must run before ordinary page discovery');
+assert.match(discoveryRun, /if \(state\.frontier\.length > 0\)/, 'empty web frontier must not be treated as a fatal bootstrap condition');
+assert.equal(discoveryRun.includes('探索開始URLがありません'), false, 'empty frontier fatal error must not discard bootstrap/series progress');
+assert.match(discoveryRun, /saveDiscoveryState\(statePath, result\.state\)/, 'bounded discovery progress must persist');
+
+assert.match(discoveryEngine, /hasExactTitle/, 'discovery engine must query search.wasm for registered works');
+assert.match(discoveryEngine, /knownStateCandidatesRetained/, 'registered candidates must stay researchable while information is incomplete');
+assert.match(discoveryEngine, /knownWorkEvidenceReused/, 'registered-work evidence must be reused for enrichment');
+assert.match(discoveryEngine, /seriesPriorityBoost/, 'series-first link prioritization must be connected');
+assert.match(discoveryEngine, /informationPriorityBoost/, 'missing information categories must affect link priority');
+assert.match(discoveryEngine, /recordCandidateResearch/, 'candidate research progress must be recorded from fetched pages');
+assert.match(discoveryEngine, /buildFrontierPriorityIndex\(frontier, queued\)/, 'frontier grouped priority index must be connected');
+assert.match(discoveryEngine, /popBestFrontier\(frontierPriorityIndex, queued, trustModel, hostCounts, perHostLimit\)/, 'per-host bounded grouped frontier selection must be connected');
+assert.match(discoveryEngine, /compactFrontier\(frontier, queued\)/, 'frontier must compact only after the bounded batch');
+assert.equal(/function\s+popBest\s*\(/.test(discoveryEngine), false, 'legacy O(n) popBest frontier scan returned');
+assert.match(frontierPriority, /scoreResearchRoute/, 'group-head selection must re-evaluate current learned route trust');
+assert.match(frontierPriority, /heapPush/, 'frontier index must use heap ordering within route groups');
+assert.match(frontierPriority, /hostCounts/, 'frontier priority index must preserve per-host fetch bounds');
+
+assert.match(seriesLearning, /relatedSeriesHints/, 'series learner must expose related work hints');
+assert.equal(seriesLearning.includes('MAX_SERIES_MEMBERS'), false, 'canonical series members must not be silently capped');
+assert.match(seriesExpansion, /\?item wdt:P179 \?series/, 'full-series expansion must enumerate members through series membership');
+assert.match(seriesExpansion, /\?item wdt:P495 wd:Q17/, 'full-series expansion must retain the Japan-origin gate');
+assert.equal(seriesExpansion.includes('MAX_EXPANDED_SERIES'), false, 'expanded-series progress must not silently stop at 20,000');
+assert.match(discoveryState, /wikidataSeriesExpansion/, 'full-series expansion progress must persist across bounded runs');
+assert.equal(discoveryState.includes('MAX_FRONTIER'), false, 'frontier must not be silently capped at 50,000');
+assert.equal(discoveryState.includes('MAX_FRONTIER_PER_HOST'), false, 'frontier persistence must not silently discard one host after 5,000 URLs');
+assert.equal(/\.slice\(0,\s*20000\)\s*;/.test(discoveryState), false, 'candidate state must not be silently capped at 20,000');
+assert.equal(initialPending.includes('INITIAL_PENDING_RECORD_LIMIT'), false, 'pending initial works must not be silently capped at 20,000');
+assert.equal(discoveryCycle.includes('MAX_SEEN'), false, 'cycle eligible history must not be silently capped at 20,000');
+assert.match(discoveryCycle, /bootstrapIncomplete/, 'empty-frontier stop must account for unfinished bootstrap work');
+assert.match(discoveryCycle, /pendingSeries/, 'empty-frontier stop must account for unfinished series expansion');
+
+assert.match(researchCompletion, /information-rich/, 'publication research completion mode missing');
+assert.match(researchCompletion, /researched-to-exhaustion/, 'scarce-work research saturation fallback missing');
+assert.match(toRecord, /publishableDiscoveryReadiness/, 'CSV publication must use information-aware readiness');
+assert.match(toRecord, /series-not-expanded/, 'series records must not publish before full-series expansion');
+assert.match(toRecord, /seriesIdForRef/, 'series_id must be derived from canonical series reference');
+assert.match(wikidataBootstrap, /wdt:P179/, 'Wikidata bootstrap must learn series membership');
+assert.match(wikidataBootstrap, /wdt:P155/, 'Wikidata bootstrap must learn previous works');
+assert.match(wikidataBootstrap, /wdt:P156/, 'Wikidata bootstrap must learn next works');
+assert.match(wikidataBootstrap, /sourceTitle/, 'Wikidata relation graph must preserve directed source/target works');
+assert.match(seriesRecord, /seriesIdForRef/, 'stable series common-ID mapping missing');
+assert.match(seriesRecord, /unresolvedRelations/, 'unregistered relation targets must remain unresolved instead of dangling');
+assert.match(seriesRecord, /seriesIdConflicts/, 'non-empty series ID conflicts must be surfaced instead of overwritten');
+assert.match(seriesEnrichment, /applySeriesMetadata/, 'series metadata must be staged across existing and selected records');
+assert.match(collector, /applySeriesMetadataToCollection/, 'collector must connect series metadata staging');
+assert.match(collector, /for \(const record of selected\) record\.id = nextId\(\);[\s\S]*applySeriesMetadataToCollection/, 'A IDs must be assigned before relation target resolution');
+assert.match(collector, /prepareEnrichmentWrites/, 'collector must stage registered-work blank-field enrichment');
+assert.match(collector, /restoreSnapshots/, 'collector enrichment must have rollback');
 
 const discoveryDir = path.join(root, 'tools', 'discovery');
 const discoverySource = fs.readdirSync(discoveryDir)
@@ -140,7 +214,16 @@ console.log('Gemini secret scope: OPT-IN COLLECTION STEP ONLY');
 console.log('initial CSV package size: 500');
 console.log('Gemini daily call limit: 450 / opt-in only');
 console.log('24-hour confirmed-work inactivity stop: PRESENT');
-console.log('registered-work next-run lookup: search.wasm');
+console.log('single CSV package cycle-stop: BLOCKED');
+console.log('bootstrap/series premature frontier-empty stop: BLOCKED');
+console.log('Pages stale-manifest retry: PRESENT');
+console.log('registered-work next-run lookup: search.wasm + enrichment retained');
+console.log('series-first research: FULL-SERIES PRE-EXPANSION');
+console.log('series_id / relations CSV bridge: CONNECTED + VALIDATED');
+console.log('sparse publication: BLOCKED BY INFORMATION COMPLETION');
+console.log('candidate/frontier/pending/cycle 20k-50k silent caps: REMOVED');
+console.log('frontier selection: GROUPED HEAP + CURRENT TRUST RE-EVALUATION');
+console.log('per-host fetch protection: BOUNDED PER BATCH WITHOUT PERSISTENCE LOSS');
 console.log('streaming/original/relation validation: PASS');
 console.log('external search API coupling: NONE');
 console.log('public secret exposure markers: NONE');

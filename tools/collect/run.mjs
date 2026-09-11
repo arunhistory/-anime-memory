@@ -20,6 +20,7 @@ import { readyDiscoveryRecords } from '../discovery/to-record.mjs';
 import { generateSynopses, GEMINI_SYNOPSIS_DEFAULT_MODEL } from '../gemini/synopsis.mjs';
 import { validateDataDirectory } from '../validate/data-validator.mjs';
 import { deduplicateIncoming } from './deduplicate.mjs';
+import { applySeriesMetadataToCollection } from './series-enrichment.mjs';
 import {
   INITIAL_CSV_RECORD_LIMIT,
   loadInitialPending,
@@ -142,20 +143,59 @@ function restoreFile(filePath, originalBytes) {
   if (originalBytes === null) {
     if (fs.existsSync(filePath)) fs.rmSync(filePath);
   } else {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, originalBytes);
   }
 }
 
+function atomicWriteText(filePath, text) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const tempPath = `${filePath}.tmp-${process.pid}-${Math.random().toString(16).slice(2)}`;
+  fs.writeFileSync(tempPath, text, 'utf8');
+  fs.renameSync(tempPath, filePath);
+}
+
+function prepareEnrichmentWrites(dataDir, enrichments, columns) {
+  const byFile = new Map();
+  for (const item of Array.isArray(enrichments) ? enrichments : []) {
+    const fileName = String(item?.fileName || '');
+    if (!/^(?:initial-\d{3}|\d{4}-Q[1-4])\.csv$/.test(fileName)) throw new Error(`既存データ更新先が不正です: ${fileName}`);
+    const id = String(item?.record?.id || '');
+    if (!/^A\d{8}$/.test(id)) throw new Error(`既存データ更新IDが不正です: ${id || '(empty)'}`);
+    if (!byFile.has(fileName)) byFile.set(fileName, new Map());
+    byFile.get(fileName).set(id, item.record);
+  }
+
+  const writes = [];
+  for (const [fileName, updates] of byFile) {
+    const filePath = path.join(dataDir, fileName);
+    if (!fs.existsSync(filePath)) throw new Error(`既存データ更新先が見つかりません: ${fileName}`);
+    const records = readTargetRecords(filePath, columns);
+    const matched = new Set();
+    const merged = records.map((record) => {
+      const update = updates.get(String(record.id || ''));
+      if (!update) return record;
+      matched.add(record.id);
+      return { ...update, id: record.id };
+    });
+    for (const id of updates.keys()) {
+      if (!matched.has(id)) throw new Error(`既存データ更新対象IDが見つかりません: ${fileName}/${id}`);
+    }
+    writes.push({ filePath, text: recordsToCsv(merged, columns) });
+  }
+  return writes;
+}
+
 function writeTargetPreservingExisting(targetPath, selected, columns, mode) {
   if (mode !== 'quarterly' || !fs.existsSync(targetPath)) {
-    fs.writeFileSync(targetPath, recordsToCsv(selected, columns), 'utf8');
+    atomicWriteText(targetPath, recordsToCsv(selected, columns));
     return;
   }
 
   const existingText = readUtf8Strict(targetPath);
   rowsToRecords(parseCsv(existingText), columns);
   const separator = existingText.endsWith('\n') || existingText.endsWith('\r') ? '' : '\r\n';
-  fs.writeFileSync(targetPath, `${existingText}${separator}${recordsToCsvRows(selected, columns)}`, 'utf8');
+  atomicWriteText(targetPath, `${existingText}${separator}${recordsToCsvRows(selected, columns)}`);
 }
 
 async function loadInputRecords({ inputMode, root, columns, confirmedDate }) {
@@ -165,6 +205,7 @@ async function loadInputRecords({ inputMode, root, columns, confirmedDate }) {
     const { records, skipped } = readyDiscoveryRecords(state, columns, confirmedDate);
     return {
       normalized: records,
+      discoveryCandidates: state.candidates,
       safeStoppedSources: 0,
       discoverySkipped: skipped.length,
       inputDetails: `crawler/state.json candidates=${state.candidates.length}`
@@ -191,10 +232,24 @@ async function loadInputRecords({ inputMode, root, columns, confirmedDate }) {
 
   return {
     normalized,
+    discoveryCandidates: [],
     safeStoppedSources,
     discoverySkipped: 0,
     inputDetails: `configured API sources=${collectedGroups.length}`
   };
+}
+
+function snapshotPaths(paths) {
+  const snapshots = new Map();
+  for (const filePath of paths) {
+    if (!filePath || snapshots.has(filePath)) continue;
+    snapshots.set(filePath, fs.existsSync(filePath) ? fs.readFileSync(filePath) : null);
+  }
+  return snapshots;
+}
+
+function restoreSnapshots(snapshots) {
+  for (const [filePath, bytes] of snapshots) restoreFile(filePath, bytes);
 }
 
 async function main() {
@@ -225,8 +280,7 @@ async function main() {
 
   const pendingPath = path.join(root, 'crawler', 'pending-initial.json');
   const pending = mode === 'initial' ? loadInitialPending(pendingPath, columns) : { records: [] };
-  const originalPending = fs.existsSync(pendingPath) ? fs.readFileSync(pendingPath) : null;
-  const { accepted: uniqueIncoming, stats } = deduplicateIncoming(
+  const { accepted: uniqueIncoming, workingExisting, stats } = deduplicateIncoming(
     mode === 'initial' ? [...pending.records, ...normalized] : normalized,
     existing,
     columns
@@ -284,12 +338,42 @@ async function main() {
     selected = takeInitialPackage(staged, { requireSynopsis: geminiEnabled }).selected;
   }
 
+  if (selected.length > 0) {
+    const nextId = nextInternalId(existing);
+    for (const record of selected) record.id = nextId();
+  }
+
+  const seriesStage = applySeriesMetadataToCollection({
+    originalExisting: existing,
+    workingExisting,
+    selected,
+    targetName,
+    candidates: input.discoveryCandidates,
+    columns
+  });
+  const enrichments = seriesStage.existingUpdates;
+  const enrichmentWrites = prepareEnrichmentWrites(dataDir, enrichments, columns);
+  setGithubOutput('enriched_records', enrichments.length);
+
   if (selected.length === 0) {
+    const snapshotTargets = [...enrichmentWrites.map((item) => item.filePath), ...(mode === 'initial' ? [pendingPath] : [])];
+    const snapshots = snapshotPaths(snapshotTargets);
+    try {
+      for (const write of enrichmentWrites) atomicWriteText(write.filePath, write.text);
+      if (mode === 'initial') saveInitialPending(pendingPath, staged, columns);
+      if (fs.existsSync(dataDir)) {
+        const validation = validateDataDirectory(dataDir);
+        if (validation.failures.length) throw new Error(`既存CSV補完後の検証に失敗しました:\n${validation.failures.map((value) => `- ${value}`).join('\n')}`);
+      }
+    } catch (error) {
+      restoreSnapshots(snapshots);
+      throw error;
+    }
+
     if (mode === 'initial') {
-      saveInitialPending(pendingPath, staged, columns);
       console.log(`初期CSVは${INITIAL_CSV_RECORD_LIMIT}作品が揃うまで生成しません。途中状態を保存しました: ${staged.length}/${INITIAL_CSV_RECORD_LIMIT}`);
     } else {
-      console.log('新規登録対象は0件です。既存CSVは変更しません。');
+      console.log('新規登録対象は0件です。既存CSVへの検証済み空欄補完のみ反映しました。');
     }
     setGithubOutput('csv_created', 'false');
     setGithubOutput('pending_records', mode === 'initial' ? staged.length : 0);
@@ -297,6 +381,10 @@ async function main() {
       input: inputMode,
       candidates: normalized.length,
       selected: 0,
+      enrichedExisting: enrichments.length,
+      seriesIdsAdded: seriesStage.seriesStats.seriesIdsAdded,
+      seriesRelationsAdded: seriesStage.seriesStats.relationsAdded,
+      unresolvedSeriesRelations: seriesStage.seriesStats.unresolvedRelations,
       pending: mode === 'initial' ? staged.length : 0,
       packageSize: mode === 'initial' ? INITIAL_CSV_RECORD_LIMIT : null,
       discoverySkipped: input.discoverySkipped,
@@ -312,18 +400,21 @@ async function main() {
   if (mode === 'initial' && fs.existsSync(targetPath)) throw new Error(`${targetName} は既に存在します。初期CSVへ追記しません。`);
 
   if (mode === 'quarterly') readTargetRecords(targetPath, columns);
-  const originalTarget = fs.existsSync(targetPath) ? fs.readFileSync(targetPath) : null;
   const manifestPath = path.join(dataDir, 'manifest.csv');
-  const originalManifest = fs.existsSync(manifestPath) ? fs.readFileSync(manifestPath) : null;
-
   const remainingStaged = mode === 'initial'
     ? takeInitialPackage(staged, { requireSynopsis: geminiEnabled }).remaining
     : [];
 
-  const nextId = nextInternalId(existing);
-  for (const record of selected) record.id = nextId();
+  const snapshotTargets = [
+    ...enrichmentWrites.map((item) => item.filePath),
+    targetPath,
+    manifestPath,
+    ...(mode === 'initial' ? [pendingPath] : [])
+  ];
+  const snapshots = snapshotPaths(snapshotTargets);
 
   try {
+    for (const write of enrichmentWrites) atomicWriteText(write.filePath, write.text);
     writeTargetPreservingExisting(targetPath, selected, columns, mode);
     writeManifest(dataDir);
     if (mode === 'initial') saveInitialPending(pendingPath, remainingStaged, columns);
@@ -333,9 +424,7 @@ async function main() {
       throw new Error(`生成CSV検証に失敗しました:\n${validation.failures.map((value) => `- ${value}`).join('\n')}`);
     }
   } catch (error) {
-    restoreFile(targetPath, originalTarget);
-    restoreFile(manifestPath, originalManifest);
-    if (mode === 'initial') restoreFile(pendingPath, originalPending);
+    restoreSnapshots(snapshots);
     throw error;
   }
 
@@ -349,6 +438,10 @@ async function main() {
   console.log(`target: data/${targetName}`);
   console.log(`candidate records: ${normalized.length}`);
   console.log(`new records: ${selected.length}`);
+  console.log(`registered records enriched: ${enrichments.length}`);
+  console.log(`series IDs added: ${seriesStage.seriesStats.seriesIdsAdded}`);
+  console.log(`series relations added: ${seriesStage.seriesStats.relationsAdded}`);
+  console.log(`series relations awaiting registered target: ${seriesStage.seriesStats.unresolvedRelations}`);
   if (mode === 'initial') console.log(`pending initial records: ${remainingStaged.length}`);
   console.log(`discovery candidates not ready: ${input.discoverySkipped}`);
   console.log(`safe-stopped API sources: ${input.safeStoppedSources}`);

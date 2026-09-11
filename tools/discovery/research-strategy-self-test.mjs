@@ -5,6 +5,7 @@ import {
   learnSourceTrustFromKnownRecord,
   recordResearchOperation,
   recordSourceTrustOutcome,
+  sanitizeResearchStrategyState,
   scoreResearchRoute,
   scoreSourceCredibility
 } from './research-strategy.mjs';
@@ -152,9 +153,26 @@ const officialAgainstBad = resolveEvidenceWithTrust([
 assert.equal(officialAgainstBad.release_start.status, 'confirmed', 'a learned trusted primary source must not be overturned by a learned low-credibility site');
 assert.equal(officialAgainstBad.release_start.value, '2027-04-03');
 
+const largeStrategy = emptyResearchStrategyState();
+for (let index = 0; index < 20001; index += 1) {
+  largeStrategy.operations[`host-${index}.test\u0000general`] = {
+    attempts: 1, fetched: 1, evidencePages: 0, evidenceClaims: 0, failures: 0, blocked: 0, lastUpdated: ''
+  };
+}
+for (let index = 0; index < 50001; index += 1) {
+  largeStrategy.trust[`host\u0000source-${index}.test`] = {
+    strongMatches: 0, weakMatches: 1, strongConflicts: 0, weakConflicts: 0, samples: 1, lastUpdated: ''
+  };
+}
+const preservedStrategy = sanitizeResearchStrategyState(largeStrategy);
+assert.equal(Object.keys(preservedStrategy.operations).length, 20001, 'operation learning beyond 20k must not be truncated');
+assert.equal(Object.keys(preservedStrategy.trust).length, 50001, 'source trust learning beyond 50k must not be truncated');
+
 console.log('Research strategy self-test: PASS');
 console.log('site/family/route/field credibility learning: PASS');
 console.log('registered CSV teacher feedback: PASS');
 console.log('unknown official self-claim auto-confirmation: BLOCKED');
 console.log('independent secondary cold-start corroboration: PASS');
 console.log('low-trust conflict overriding trusted primary: BLOCKED');
+console.log('research operations over 20k: PRESERVED');
+console.log('source trust entries over 50k: PRESERVED');

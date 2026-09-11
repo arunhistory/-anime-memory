@@ -46,14 +46,27 @@ jobs:
         run: |
           set -euo pipefail
           node tools/collect/self-test.mjs
+          node tools/collect/enrichment-self-test.mjs
+          node tools/collect/series-enrichment-self-test.mjs
           node tools/collect/initial-pending-self-test.mjs
           node tools/collect/package-integration-self-test.mjs
           node tools/discovery/cycle-self-test.mjs
+          node tools/discovery/state-sharding-self-test.mjs
+          node tools/discovery/frontier-priority-self-test.mjs
           node tools/discovery/known-work-wasm-self-test.mjs
           node tools/discovery/known-work-skip-self-test.mjs
           node tools/discovery/research-strategy-self-test.mjs
+          node tools/discovery/research-completion-self-test.mjs
+          node tools/discovery/information-routing-self-test.mjs
+          node tools/discovery/readiness-report-self-test.mjs
           node tools/discovery/trust-calibration-self-test.mjs
+          node tools/discovery/learned-source-self-test.mjs
+          node tools/discovery/cold-start-self-test.mjs
           node tools/discovery/wikidata-bootstrap-self-test.mjs
+          node tools/discovery/wikidata-series-expansion-self-test.mjs
+          node tools/discovery/series-learning-self-test.mjs
+          node tools/discovery/series-record-self-test.mjs
+          node tools/discovery/publishable-readiness-self-test.mjs
           node tools/discovery/self-test.mjs
           node tools/discovery/candidate-title-self-test.mjs
           node tools/discovery/verification-link-self-test.mjs
@@ -96,10 +109,6 @@ jobs:
         id: collect
         run: node tools/collect/run.mjs --input discovery --mode initial --gemini false
 
-      - name: Stop after publishing one complete package
-        if: ${{ steps.collect.outputs.csv_created == 'true' }}
-        run: node tools/discovery/cycle.mjs stop --reason package-complete
-
       - name: Read final cycle state
         id: cycle_final
         run: node tools/discovery/cycle.mjs status
@@ -117,11 +126,12 @@ jobs:
         run: |
           set -euo pipefail
           base_sha="$(git rev-parse HEAD)"
-          git add crawler/state.json crawler/research-cycle.json
+          git add -A crawler/state.json crawler/research-cycle.json
+          if [[ -d crawler/state-shards ]]; then git add -A crawler/state-shards; fi
           if [[ -f crawler/pending-initial.json ]]; then git add crawler/pending-initial.json; fi
           if [[ -d data ]]; then git add data; fi
 
-          unexpected="$(git status --porcelain | awk '$2 != "crawler/state.json" && $2 != "crawler/research-cycle.json" && $2 != "crawler/pending-initial.json" && $2 !~ /^data\// {print}')"
+          unexpected="$(git status --porcelain | awk '$2 != "crawler/state.json" && $2 !~ /^crawler\/state-shards\// && $2 != "crawler/research-cycle.json" && $2 != "crawler/pending-initial.json" && $2 !~ /^data\// {print}')"
           if [[ -n "${unexpected}" ]]; then
             echo 'Unexpected files changed; refusing production commit.' >&2
             echo "${unexpected}" >&2
@@ -141,7 +151,7 @@ jobs:
             git fetch origin main
             remote_head="$(git rev-parse origin/main)"
             if [[ "${remote_head}" != "${base_sha}" ]]; then
-              if ! git diff --quiet "${base_sha}..${remote_head}" -- crawler/state.json crawler/research-cycle.json crawler/pending-initial.json data; then
+              if ! git diff --quiet "${base_sha}..${remote_head}" -- crawler/state.json crawler/state-shards crawler/research-cycle.json crawler/pending-initial.json data; then
                 echo 'Production state/data advanced concurrently; refusing overwrite.' >&2
                 exit 1
               fi
@@ -156,6 +166,12 @@ jobs:
           echo 'Could not publish production checkpoint without force push.' >&2
           exit 1
 
+      - name: Dispatch next bounded batch while research work remains
+        if: ${{ steps.cycle_final.outputs.active == 'true' && steps.checkpoint.outputs.work_remaining == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run research-production.yml --ref main -f cycle_action=continue
+
       - name: Verify published CSV is reachable from Pages
         if: ${{ steps.collect.outputs.csv_created == 'true' }}
         shell: bash
@@ -165,17 +181,12 @@ jobs:
           set -euo pipefail
           for attempt in $(seq 1 20); do
             if curl --fail --silent --show-error --location "${MANIFEST_URL}" --output /tmp/manifest.csv; then
-              grep -Eq '^(initial-[0-9]{3}|[0-9]{4}-Q[1-4])\.csv\r?$' /tmp/manifest.csv
-              echo "Pages data manifest is reachable: ${MANIFEST_URL}"
-              exit 0
+              if grep -Eq '^(initial-[0-9]{3}|[0-9]{4}-Q[1-4])\.csv\r?$' /tmp/manifest.csv; then
+                echo "Pages data manifest is reachable: ${MANIFEST_URL}"
+                exit 0
+              fi
             fi
             sleep 15
           done
           echo "Pages did not expose the committed manifest within five minutes: ${MANIFEST_URL}" >&2
           exit 1
-
-      - name: Dispatch next bounded batch only while active
-        if: ${{ steps.cycle_final.outputs.active == 'true' && steps.collect.outputs.csv_created != 'true' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh workflow run research-production.yml --ref main -f cycle_action=continue

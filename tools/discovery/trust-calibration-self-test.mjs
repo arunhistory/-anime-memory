@@ -69,6 +69,16 @@ const subjective = {
 result = calibrateSourceTrustFromConsensus({ candidates: [subjective], strategyState: emptyResearchStrategyState(), seen: [] });
 assert.equal(result.trained, 0, 'subjective taxonomy must not bootstrap source trust');
 
+const historicalSeen = Array.from({ length: 100001 }, (_, index) => index.toString(16).padStart(32, '0'));
+const preservedSeen = calibrateSourceTrustFromConsensus({
+  candidates: [],
+  strategyState: emptyResearchStrategyState(),
+  seen: historicalSeen
+});
+assert.equal(preservedSeen.seen.length, 100001, 'calibration history beyond 100k must not be forgotten');
+assert.equal(preservedSeen.seen[0], historicalSeen[0]);
+assert.equal(preservedSeen.seen.at(-1), historicalSeen.at(-1));
+
 console.log('Cold-start trust calibration self-test: PASS');
 console.log('primary + independent corroboration bootstrap: PASS');
 console.log('four-secondary bootstrap: PASS');
@@ -76,3 +86,4 @@ console.log('two-secondary bootstrap: BLOCKED');
 console.log('conflicted-field calibration: BLOCKED');
 console.log('subjective taxonomy calibration: BLOCKED');
 console.log('repeat calibration inflation: BLOCKED');
+console.log('calibration history over 100k: PRESERVED');

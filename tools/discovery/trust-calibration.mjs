@@ -67,8 +67,7 @@ export function calibrateSourceTrustFromConsensus({
   candidates = [],
   strategyState,
   seen = [],
-  observedAt = new Date().toISOString(),
-  maxSeen = 100000
+  observedAt = new Date().toISOString()
 } = {}) {
   const seenSet = new Set((Array.isArray(seen) ? seen : []).map(String));
   let trained = 0;
@@ -111,12 +110,11 @@ export function calibrateSourceTrustFromConsensus({
     }
   }
 
-  const nextSeen = [...seenSet];
   return {
     trained,
     consensusFields,
     conflictedFieldsSkipped,
-    seen: nextSeen.slice(Math.max(0, nextSeen.length - Math.max(1000, Number(maxSeen) || 100000)))
+    seen: [...seenSet]
   };
 }
 

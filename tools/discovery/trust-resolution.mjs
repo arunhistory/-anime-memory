@@ -15,6 +15,9 @@ const MULTI_VALUE_FIELDS = new Set([
   ...ADDITIONAL_MULTI_FIELDS,
   ...STRUCTURED_MULTI_FIELDS
 ]);
+const LEARNED_SINGLE_SOURCE_MIN_CREDIBILITY = 82;
+const LEARNED_SINGLE_SOURCE_MIN_SAMPLES = 40;
+const LEARNED_SINGLE_SOURCE_MIN_DIRECTNESS = 90;
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, Number(value) || 0));
@@ -31,11 +34,10 @@ function evidenceDirectness(item) {
 
 function legacyRuleDirectness(item) {
   const stored = evidenceDirectness(item);
-  if (stored > 0 && Number.isFinite(Number(item?.directness))) return stored;
   const rule = String(item?.rule || '');
-  if (/^origin-country-labeled-/.test(rule)) return 92;
-  if (/^event-date-/.test(rule)) return 84;
-  if (/^label-/.test(rule)) return 88;
+  if (/^origin-country-labeled-/.test(rule)) return Math.max(stored, 92);
+  if (/^event-date-/.test(rule)) return Math.max(stored, 84);
+  if (/^label-/.test(rule)) return Math.max(stored, 88);
   return stored;
 }
 
@@ -45,7 +47,7 @@ function scoreItem(model, item) {
     field: item?.field,
     sourceClass: normalizeSourceClass(item?.sourceClass),
     directness: evidenceDirectness(item)
-  }).credibility;
+  });
 }
 
 function buildAlternatives(evidence, model) {
@@ -68,11 +70,13 @@ function buildAlternatives(evidence, model) {
         directFamilies: new Set(),
         credibilityTotal: 0,
         credibilityMax: 0,
-        evidenceCount: 0
+        evidenceCount: 0,
+        trainingSamples: 0
       });
     }
     const bucket = values.get(value);
-    const credibility = scoreItem(model, item);
+    const score = scoreItem(model, item);
+    const credibility = Number(score.credibility || 0);
     const directness = legacyRuleDirectness(item);
     const family = sourceFamilyKey(sourceUrl) || sourceUrl;
     bucket.sources.add(sourceUrl);
@@ -80,7 +84,8 @@ function buildAlternatives(evidence, model) {
     bucket.credibilityTotal += credibility;
     bucket.credibilityMax = Math.max(bucket.credibilityMax, credibility);
     bucket.evidenceCount += 1;
-    if (directness >= 82) bucket.directFamilies.add(family);
+    bucket.trainingSamples = Math.max(bucket.trainingSamples, Number(score.samples || 0));
+    if (directness >= LEARNED_SINGLE_SOURCE_MIN_DIRECTNESS) bucket.directFamilies.add(family);
     if (normalizeSourceClass(item?.sourceClass) === 'primary') {
       if (credibility >= 60) bucket.primarySources.add(sourceUrl);
     } else if (credibility >= 60) {
@@ -102,29 +107,33 @@ function alternativeSummary(entry) {
     trustedSecondaryCount: entry.trustedSecondaryFamilies.size,
     credibility: Math.round(average),
     maxCredibility: Math.round(entry.credibilityMax),
-    evidenceCount: entry.evidenceCount
+    evidenceCount: entry.evidenceCount,
+    trainingSamples: Math.max(0, Math.trunc(Number(entry.trainingSamples || 0)))
   };
 }
 
 function isConfirmed(entry, field) {
   const summary = alternativeSummary(entry);
-  // Cold start must not depend on trust learned from records that cannot yet
-  // exist. Independent agreement can establish a field. A direct labeled
-  // country claim is allowed, while final CSV admission still requires two
-  // independent families across the critical evidence set.
   if (summary.primarySourceCount >= 1 && summary.maxCredibility >= 75) return true;
   if (field === 'origin_country' && entry.directFamilies.size >= 1 && summary.maxCredibility >= 45) return true;
   if (entry.families.size >= 2) return true;
   if (summary.trustedSecondaryCount >= 2 && summary.credibility >= 65) return true;
   if (summary.trustedSecondaryCount >= 1 && summary.trustedSecondaryCount + entry.neutralSecondaryFamilies.size >= 3 && summary.credibility >= 60) return true;
+  if (entry.directFamilies.size >= 1
+    && summary.maxCredibility >= LEARNED_SINGLE_SOURCE_MIN_CREDIBILITY
+    && summary.trainingSamples >= LEARNED_SINGLE_SOURCE_MIN_SAMPLES) return true;
   return false;
 }
 
 function isCredibleConflict(entry, field) {
   const summary = alternativeSummary(entry);
-  // Unknown/self-declared primary pages start around the conservative prior and
-  // therefore cannot force a conflict against an already trusted value.
-  return (field === 'origin_country' && entry.directFamilies.size >= 1) || entry.families.size >= 2 || summary.maxCredibility >= 70 || (summary.trustedSecondaryCount >= 2 && summary.credibility >= 60);
+  return (field === 'origin_country' && entry.directFamilies.size >= 1)
+    || entry.families.size >= 2
+    || summary.maxCredibility >= 70
+    || (summary.trustedSecondaryCount >= 2 && summary.credibility >= 60)
+    || (entry.directFamilies.size >= 1
+      && summary.maxCredibility >= LEARNED_SINGLE_SOURCE_MIN_CREDIBILITY
+      && summary.trainingSamples >= LEARNED_SINGLE_SOURCE_MIN_SAMPLES);
 }
 
 function resolveMulti(field, values) {
@@ -139,6 +148,7 @@ function resolveMulti(field, values) {
   const confidence = selectedSummaries.length
     ? Math.round(selectedSummaries.reduce((sum, item) => sum + item.credibility, 0) / selectedSummaries.length)
     : 0;
+  const trainingSamples = selectedSummaries.reduce((max, item) => Math.max(max, Number(item.trainingSamples || 0)), 0);
   return {
     status: confirmed.length ? 'confirmed' : 'observed',
     value: valuesOut.join('|'),
@@ -146,6 +156,7 @@ function resolveMulti(field, values) {
     hostCount: new Set(selected.flatMap((entry) => [...entry.families])).size,
     primarySourceCount: selected.reduce((sum, entry) => sum + entry.primarySources.size, 0),
     confidence,
+    trainingSamples,
     alternatives: summaries.filter((item) => !valuesOut.includes(item.value)).slice(0, 10)
   };
 }
@@ -165,6 +176,7 @@ function resolveScalar(field, values) {
       hostCount: summary.hostCount,
       primarySourceCount: summary.primarySourceCount,
       confidence: summary.credibility,
+      trainingSamples: summary.trainingSamples,
       alternatives: summaries.filter((item) => item.value !== confirmed[0].value).slice(0, 5)
     };
   }
@@ -177,6 +189,7 @@ function resolveScalar(field, values) {
       hostCount: summaries[0]?.hostCount || 0,
       primarySourceCount: summaries[0]?.primarySourceCount || 0,
       confidence: summaries[0]?.credibility || 0,
+      trainingSamples: summaries[0]?.trainingSamples || 0,
       alternatives: summaries.slice(0, 5)
     };
   }
@@ -189,6 +202,7 @@ function resolveScalar(field, values) {
     hostCount: best?.hostCount || 0,
     primarySourceCount: best?.primarySourceCount || 0,
     confidence: best?.credibility || 0,
+    trainingSamples: best?.trainingSamples || 0,
     alternatives: summaries.slice(1, 5)
   };
 }

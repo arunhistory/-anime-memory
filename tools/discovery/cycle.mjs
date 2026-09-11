@@ -2,12 +2,14 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadColumns, readDataRecords } from '../csv/csv.mjs';
-import { deduplicateIncoming } from '../collect/deduplicate.mjs';
+import { externalIdSet } from '../normalize/record.mjs';
 import { loadDiscoveryState } from './state.mjs';
-import { candidateToCommonRecord, discoveryCandidateReadiness } from './to-record.mjs';
+import { publishableDiscoveryReadiness } from './to-record.mjs';
+import { discoveryExternalIdForKey } from './series-record.mjs';
+import { pendingWikidataSeriesRefs } from './wikidata-series-expansion.mjs';
+import { activeWikidataBackoffUntil } from './wikidata-backoff.mjs';
 
 export const RESEARCH_INACTIVITY_LIMIT_MS = 24 * 60 * 60 * 1000;
-const MAX_SEEN = 20000;
 
 function parseArgs(argv) {
   const args = {};
@@ -29,6 +31,12 @@ function validIso(value) {
   return typeof value === 'string' && Number.isFinite(Date.parse(value));
 }
 
+function inactivityMs(cycle, now) {
+  const anchor = cycle.lastNewDiscoveryAt || cycle.startedAt;
+  if (!validIso(anchor)) return 0;
+  return Math.max(0, now.getTime() - Date.parse(anchor));
+}
+
 export function emptyResearchCycle() {
   return {
     version: 1,
@@ -38,6 +46,8 @@ export function emptyResearchCycle() {
     lastNewDiscoveryAt: '',
     stoppedAt: '',
     stopReason: '',
+    waitingForInactivity: false,
+    resumeAfter: '',
     seenEligible: []
   };
 }
@@ -54,10 +64,11 @@ export function loadResearchCycle(filePath) {
     lastNewDiscoveryAt: validIso(input.lastNewDiscoveryAt) ? input.lastNewDiscoveryAt : '',
     stoppedAt: validIso(input.stoppedAt) ? input.stoppedAt : '',
     stopReason: String(input.stopReason || '').slice(0, 80),
+    waitingForInactivity: Boolean(input.waitingForInactivity),
+    resumeAfter: validIso(input.resumeAfter) ? input.resumeAfter : '',
     seenEligible: [...new Set((Array.isArray(input.seenEligible) ? input.seenEligible : [])
       .map(String)
       .filter((value) => /^[a-f0-9]{64}$/.test(value)))]
-      .slice(-MAX_SEEN)
   };
 }
 
@@ -72,25 +83,35 @@ function candidateFingerprint(candidate) {
   return crypto.createHash('sha256').update(`candidate:${String(candidate?.key || '')}`).digest('hex');
 }
 
+export function publishableCandidateFingerprints(state, registeredDiscoveryIds = new Set()) {
+  const fingerprints = [];
+  const expandedSeriesRefs = state?.wikidataSeriesExpansion?.expandedRefs || [];
+  for (const candidate of state?.candidates || []) {
+    if (!publishableDiscoveryReadiness(candidate, { expandedSeriesRefs }).ready) continue;
+    const discoveryId = discoveryExternalIdForKey(candidate?.key);
+    if (discoveryId && registeredDiscoveryIds.has(discoveryId)) continue;
+    fingerprints.push(candidateFingerprint(candidate));
+  }
+  return [...new Set(fingerprints)];
+}
+
 export function eligibleDiscoveryRecords({ root = process.cwd(), now = new Date() } = {}) {
   const columns = loadColumns(root);
   const state = loadDiscoveryState(path.join(root, 'crawler', 'state.json'));
   const existing = readDataRecords(path.join(root, 'data'), columns);
-  const accepted = [];
-  const fingerprints = [];
-  for (const candidate of state.candidates) {
-    if (!discoveryCandidateReadiness(candidate).ready) continue;
-    const record = candidateToCommonRecord(candidate, columns, now.toISOString().slice(0, 10));
-    const known = [...existing, ...accepted.map((item) => ({ fileName: 'pending', record: item }))];
-    const result = deduplicateIncoming([record], known, columns, { warn: () => {} });
-    if (!result.accepted.length) continue;
-    accepted.push(result.accepted[0]);
-    fingerprints.push(candidateFingerprint(candidate));
+  const registeredDiscoveryIds = new Set();
+  for (const { record } of existing) {
+    for (const externalId of externalIdSet(record)) {
+      if (/^discovery-key::[a-f0-9]{64}$/.test(externalId)) registeredDiscoveryIds.add(externalId);
+    }
   }
+
   return {
-    records: accepted,
-    fingerprints,
-    frontier: state.frontier.length
+    fingerprints: publishableCandidateFingerprints(state, registeredDiscoveryIds),
+    frontier: state.frontier.length,
+    bootstrapIncomplete: !Boolean(state.wikidataBootstrap?.completed),
+    pendingSeries: pendingWikidataSeriesRefs(state, Number.POSITIVE_INFINITY, now).length,
+    wikidataBackoffUntil: activeWikidataBackoffUntil(state, now)
   };
 }
 
@@ -104,31 +125,69 @@ export function startResearchCycle(fingerprints, now = new Date()) {
     lastNewDiscoveryAt: iso,
     stoppedAt: '',
     stopReason: '',
-    seenEligible: [...new Set(fingerprints)].slice(-MAX_SEEN)
+    waitingForInactivity: false,
+    resumeAfter: '',
+    seenEligible: [...new Set(fingerprints)]
   };
 }
 
-export function checkpointResearchCycle(cycle, fingerprints, { now = new Date(), frontier = 1 } = {}) {
-  if (!cycle.active) return { cycle, newConfirmed: 0, inactiveMs: 0 };
+export function checkpointResearchCycle(cycle, fingerprints, {
+  now = new Date(),
+  frontier = 1,
+  bootstrapIncomplete = false,
+  pendingSeries = 0,
+  wikidataBackoffUntil = ''
+} = {}) {
+  const backoffMs = Date.parse(String(wikidataBackoffUntil || ''));
+  const backoffActive = Number.isFinite(backoffMs) && backoffMs > now.getTime();
+  const wikidataWork = Boolean(bootstrapIncomplete) || Number(pendingSeries || 0) > 0;
+  const workRemaining = frontier > 0 || (wikidataWork && !backoffActive);
+  const resumeAfter = frontier === 0 && wikidataWork && backoffActive
+    ? new Date(backoffMs).toISOString()
+    : '';
+  if (!cycle.active) return { cycle, newConfirmed: 0, inactiveMs: 0, workRemaining, resumeAfter };
+
   const seen = new Set(cycle.seenEligible);
   const additions = [...new Set(fingerprints)].filter((value) => !seen.has(value));
   for (const value of additions) seen.add(value);
   const next = {
     ...cycle,
-    seenEligible: [...seen].slice(-MAX_SEEN)
+    waitingForInactivity: !workRemaining,
+    resumeAfter,
+    seenEligible: [...seen]
   };
   if (additions.length) next.lastNewDiscoveryAt = now.toISOString();
-  const inactiveMs = Math.max(0, now.getTime() - Date.parse(next.lastNewDiscoveryAt || next.startedAt));
-  if (frontier === 0) {
+  const inactiveMs = inactivityMs(next, now);
+
+  if (inactiveMs >= RESEARCH_INACTIVITY_LIMIT_MS) {
     next.active = false;
     next.stoppedAt = now.toISOString();
-    next.stopReason = 'frontier-empty';
-  } else if (inactiveMs >= RESEARCH_INACTIVITY_LIMIT_MS) {
-    next.active = false;
-    next.stoppedAt = now.toISOString();
-    next.stopReason = 'no-new-confirmed-work-24h';
+    next.stopReason = 'no-new-publishable-work-24h';
+    next.waitingForInactivity = false;
+    next.resumeAfter = '';
   }
-  return { cycle: next, newConfirmed: additions.length, inactiveMs };
+  return { cycle: next, newConfirmed: additions.length, inactiveMs, workRemaining, resumeAfter: next.resumeAfter };
+}
+
+export function timeoutResearchCycle(cycle, { now = new Date() } = {}) {
+  const inactiveMs = inactivityMs(cycle, now);
+  if (!cycle.active || !cycle.waitingForInactivity) {
+    return { cycle, inactiveMs, stopped: false, resumeResearch: false };
+  }
+  if (inactiveMs >= RESEARCH_INACTIVITY_LIMIT_MS) {
+    const next = {
+      ...cycle,
+      active: false,
+      stoppedAt: now.toISOString(),
+      stopReason: 'no-new-publishable-work-24h',
+      waitingForInactivity: false,
+      resumeAfter: ''
+    };
+    return { cycle: next, inactiveMs, stopped: true, resumeResearch: false };
+  }
+  const resumeMs = Date.parse(String(cycle.resumeAfter || ''));
+  const resumeResearch = Number.isFinite(resumeMs) && now.getTime() >= resumeMs;
+  return { cycle, inactiveMs, stopped: false, resumeResearch };
 }
 
 function setGithubOutput(name, value) {
@@ -145,33 +204,63 @@ async function main() {
   if (!Number.isFinite(now.getTime())) throw new Error('--now must be an ISO date');
   let cycle = loadResearchCycle(filePath);
   let newConfirmed = 0;
-  let inactiveMs = 0;
+  let inactiveMs = inactivityMs(cycle, now);
+  let workRemaining = !cycle.waitingForInactivity;
+  let resumeResearch = false;
 
   if (command === 'start') {
     const eligible = eligibleDiscoveryRecords({ root, now });
     cycle = startResearchCycle(eligible.fingerprints, now);
+    const backoffMs = Date.parse(String(eligible.wikidataBackoffUntil || ''));
+    const backoffActive = Number.isFinite(backoffMs) && backoffMs > now.getTime();
+    workRemaining = eligible.frontier > 0 || ((eligible.bootstrapIncomplete || eligible.pendingSeries > 0) && !backoffActive);
     saveResearchCycle(filePath, cycle);
   } else if (command === 'checkpoint') {
     const eligible = eligibleDiscoveryRecords({ root, now });
-    const result = checkpointResearchCycle(cycle, eligible.fingerprints, { now, frontier: eligible.frontier });
+    const result = checkpointResearchCycle(cycle, eligible.fingerprints, {
+      now,
+      frontier: eligible.frontier,
+      bootstrapIncomplete: eligible.bootstrapIncomplete,
+      pendingSeries: eligible.pendingSeries,
+      wikidataBackoffUntil: eligible.wikidataBackoffUntil
+    });
     cycle = result.cycle;
     newConfirmed = result.newConfirmed;
     inactiveMs = result.inactiveMs;
+    workRemaining = result.workRemaining;
     saveResearchCycle(filePath, cycle);
+  } else if (command === 'timeout') {
+    const result = timeoutResearchCycle(cycle, { now });
+    cycle = result.cycle;
+    inactiveMs = result.inactiveMs;
+    resumeResearch = result.resumeResearch;
+    if (result.stopped) saveResearchCycle(filePath, cycle);
   } else if (command === 'stop') {
     cycle.active = false;
     cycle.stoppedAt = now.toISOString();
     cycle.stopReason = String(args.reason || 'manual-stop').slice(0, 80);
+    cycle.waitingForInactivity = false;
+    cycle.resumeAfter = '';
     saveResearchCycle(filePath, cycle);
   } else if (command !== 'status') {
-    throw new Error('cycle command must be start, checkpoint, stop, or status');
+    throw new Error('cycle command must be start, checkpoint, timeout, stop, or status');
   }
 
   setGithubOutput('active', cycle.active ? 'true' : 'false');
   setGithubOutput('new_confirmed', newConfirmed);
   setGithubOutput('inactive_seconds', Math.floor(inactiveMs / 1000));
   setGithubOutput('stop_reason', cycle.stopReason);
-  console.log(JSON.stringify({ ...cycle, newConfirmed, inactiveSeconds: Math.floor(inactiveMs / 1000) }));
+  setGithubOutput('waiting_for_inactivity', cycle.waitingForInactivity ? 'true' : 'false');
+  setGithubOutput('work_remaining', workRemaining ? 'true' : 'false');
+  setGithubOutput('resume_research', resumeResearch ? 'true' : 'false');
+  setGithubOutput('resume_after', cycle.resumeAfter || '');
+  console.log(JSON.stringify({
+    ...cycle,
+    newConfirmed,
+    inactiveSeconds: Math.floor(inactiveMs / 1000),
+    workRemaining,
+    resumeResearch
+  }));
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

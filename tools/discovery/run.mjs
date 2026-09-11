@@ -6,6 +6,8 @@ import { loadDiscoveryState, saveDiscoveryState, seedFrontier } from './state.mj
 import { loadKnownWorkWasmSearch } from './known-work-wasm.mjs';
 import { normalizeUrl } from './url.mjs';
 import { bootstrapFromWikidata } from './wikidata-bootstrap.mjs';
+import { expandSeriesFromWikidata } from './wikidata-series-expansion.mjs';
+import { buildReadinessReport } from './readiness-report.mjs';
 
 function parseArgs(argv) {
   const args = {};
@@ -52,6 +54,42 @@ function validateNumber(value, name, min, max, fallback) {
   return parsed;
 }
 
+function emptyDiscoveryStats() {
+  return {
+    attempted: 0,
+    fetched: 0,
+    relevant: 0,
+    discoveryOnlyPages: 0,
+    candidatesFound: 0,
+    entityMerges: 0,
+    evidenceClaims: 0,
+    verificationPages: 0,
+    verificationEvidenceClaims: 0,
+    verificationLinksPromoted: 0,
+    sourceTrustTrainingClaims: 0,
+    coldStartTrustTrainingClaims: 0,
+    coldStartConsensusFields: 0,
+    coldStartConflictedFieldsSkipped: 0,
+    researchStrategyBoostedLinks: 0,
+    informationPriorityLinks: 0,
+    seriesPriorityLinks: 0,
+    seriesShellCandidates: 0,
+    newLinks: 0,
+    robotsSkipped: 0,
+    otherSkipped: 0,
+    hostFiltered: 0,
+    failed: 0,
+    sitemapLinks: 0,
+    knownWorkCandidatesSeen: 0,
+    knownWorkEvidenceReused: 0,
+    knownStateCandidatesRetained: 0,
+    knownWorkCandidatesSkipped: 0,
+    knownStateCandidatesPruned: 0,
+    frontierPriorityGroups: 0,
+    frontierPriorityGroupEvaluations: 0
+  };
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const root = process.cwd();
@@ -64,7 +102,16 @@ async function main() {
   const allowedHosts = readAllowedHosts();
 
   const state = loadDiscoveryState(statePath);
-  let wikidata = { fetched: 0, candidatesAdded: 0, evidenceAdded: 0, officialFrontierAdded: 0, completed: Boolean(state.wikidataBootstrap?.completed), offset: state.wikidataBootstrap?.offset || 0 };
+  const before = JSON.stringify(state);
+  let wikidata = {
+    fetched: 0,
+    candidatesAdded: 0,
+    evidenceAdded: 0,
+    officialFrontierAdded: 0,
+    seriesFrontierAdded: 0,
+    completed: Boolean(state.wikidataBootstrap?.completed),
+    offset: state.wikidataBootstrap?.offset || 0
+  };
   if (String(process.env.WIKIDATA_BOOTSTRAP_DISABLED || '').toLowerCase() !== 'true') {
     try {
       wikidata = await bootstrapFromWikidata(state, {
@@ -74,34 +121,54 @@ async function main() {
       console.warn(`Wikidata bootstrap deferred: ${error.message}`);
     }
   }
+
+  let seriesExpansion = {
+    seriesRequested: 0,
+    rows: 0,
+    seriesExpanded: 0,
+    candidatesAdded: 0,
+    evidenceAdded: 0,
+    officialFrontierAdded: 0,
+    memberCount: 0
+  };
+  if (String(process.env.WIKIDATA_SERIES_EXPANSION_DISABLED || '').toLowerCase() !== 'true') {
+    try {
+      seriesExpansion = await expandSeriesFromWikidata(state, {
+        limit: validateNumber(process.env.WIKIDATA_SERIES_EXPANSION_LIMIT, 'WIKIDATA_SERIES_EXPANSION_LIMIT', 1, 50, 12)
+      });
+    } catch (error) {
+      console.warn(`Wikidata full-series expansion deferred: ${error.message}`);
+    }
+  }
+
   const rawSeeds = [...readSeedFile(seedPath), ...readInputSeeds()];
   const seeds = [...new Set(rawSeeds.map((value) => normalizeUrl(value)).filter(Boolean))];
   seedFrontier(state, seeds, 100);
 
-  if (state.frontier.length === 0) {
-    throw new Error('探索開始URLがありません。crawler/seeds.txt または DISCOVERY_SEED_URLS に最低1件の公開Web URLが必要です。');
+  let knownWorkSearch = { fileCount: 0 };
+  let result = { state, stats: emptyDiscoveryStats() };
+  if (state.frontier.length > 0) {
+    knownWorkSearch = await loadKnownWorkWasmSearch({ root });
+    const fetcher = new PoliteFetcher({
+      timeoutMs: process.env.DISCOVERY_TIMEOUT_MS || 12000,
+      maxBytes: process.env.DISCOVERY_MAX_BYTES || 1048576,
+      minDelayMs: process.env.DISCOVERY_MIN_DELAY_MS || 500,
+      allowedHosts
+    });
+
+    result = await runDiscovery({
+      state,
+      fetcher,
+      knownWorkSearch,
+      maxPages,
+      maxDepth,
+      perHostLimit
+    });
   }
-
-  const knownWorkSearch = await loadKnownWorkWasmSearch({ root });
-  const fetcher = new PoliteFetcher({
-    timeoutMs: process.env.DISCOVERY_TIMEOUT_MS || 12000,
-    maxBytes: process.env.DISCOVERY_MAX_BYTES || 1048576,
-    minDelayMs: process.env.DISCOVERY_MIN_DELAY_MS || 500,
-    allowedHosts
-  });
-
-  const before = JSON.stringify(state);
-  const result = await runDiscovery({
-    state,
-    fetcher,
-    knownWorkSearch,
-    maxPages,
-    maxDepth,
-    perHostLimit
-  });
 
   if (!dryRun) saveDiscoveryState(statePath, result.state);
   const changed = before !== JSON.stringify(result.state);
+  const readiness = buildReadinessReport(result.state);
 
   console.log('Web discovery engine: PASS');
   console.log(`mode: ${dryRun ? 'dry-run' : 'persist'}`);
@@ -113,15 +180,28 @@ async function main() {
   console.log(`Wikidata bootstrap candidates added: ${wikidata.candidatesAdded}`);
   console.log(`Wikidata bootstrap evidence added: ${wikidata.evidenceAdded}`);
   console.log(`Wikidata official verification URLs added: ${wikidata.officialFrontierAdded}`);
+  console.log(`Wikidata series verification URLs added: ${wikidata.seriesFrontierAdded || 0}`);
   console.log(`Wikidata bootstrap offset: ${wikidata.offset}`);
   console.log(`Wikidata bootstrap completed: ${wikidata.completed}`);
+  console.log(`Wikidata full-series requests: ${seriesExpansion.seriesRequested}`);
+  console.log(`Wikidata full-series rows: ${seriesExpansion.rows}`);
+  console.log(`Wikidata full-series expanded: ${seriesExpansion.seriesExpanded}`);
+  console.log(`Wikidata full-series members learned: ${seriesExpansion.memberCount}`);
+  console.log(`Wikidata full-series candidates added: ${seriesExpansion.candidatesAdded}`);
+  console.log(`Wikidata full-series official URLs added: ${seriesExpansion.officialFrontierAdded}`);
   console.log(`attempted: ${result.stats.attempted}`);
   console.log(`fetched: ${result.stats.fetched}`);
   console.log(`relevant pages: ${result.stats.relevant}`);
   console.log(`discovery-only pages: ${result.stats.discoveryOnlyPages}`);
   console.log(`new anime candidates: ${result.stats.candidatesFound}`);
-  console.log(`registered-work candidates skipped: ${result.stats.knownWorkCandidatesSkipped}`);
-  console.log(`registered candidates pruned from saved state: ${result.stats.knownStateCandidatesPruned}`);
+  console.log(`registered-work candidates seen: ${result.stats.knownWorkCandidatesSeen}`);
+  console.log(`registered-work evidence reused: ${result.stats.knownWorkEvidenceReused}`);
+  console.log(`registered candidates retained for enrichment: ${result.stats.knownStateCandidatesRetained}`);
+  console.log(`series member shells added: ${result.stats.seriesShellCandidates}`);
+  console.log(`series-priority links detected: ${result.stats.seriesPriorityLinks}`);
+  console.log(`missing-information priority links: ${result.stats.informationPriorityLinks}`);
+  console.log(`frontier priority groups: ${result.stats.frontierPriorityGroups}`);
+  console.log(`frontier group-head evaluations: ${result.stats.frontierPriorityGroupEvaluations}`);
   console.log(`entity merges: ${result.stats.entityMerges}`);
   console.log(`evidence claims: ${result.stats.evidenceClaims}`);
   console.log(`candidate verification pages: ${result.stats.verificationPages}`);
@@ -134,8 +214,17 @@ async function main() {
   console.log(`failed: ${result.stats.failed}`);
   console.log(`frontier remaining: ${result.state.frontier.length}`);
   console.log(`known candidates: ${result.state.candidates.length}`);
+  console.log(`identity-ready candidates: ${readiness.identityReady} (${readiness.identityReadyRate})`);
+  console.log(`information-ready candidates: ${readiness.informationReady}`);
+  console.log(`publishable-ready candidates: ${readiness.publishableReady} (${readiness.publishableReadyRate})`);
+  console.log(`average confirmed information fields: ${readiness.averageConfirmedInformationFields}`);
+  console.log(`series-learned candidates: ${readiness.seriesLearned} (${readiness.seriesLearnedRate})`);
+  console.log(`identity blocked reasons: ${JSON.stringify(readiness.identityBlockedReasons)}`);
+  console.log(`publication blocked reasons: ${JSON.stringify(readiness.publicationBlockedReasons)}`);
   console.log(`changed: ${changed}`);
-  console.log('Existing-work lookup: search.wasm');
+  if (result.stats.attempted === 0) console.log('Web frontier empty: bootstrap/series progress persisted without treating this batch as an error');
+  console.log('Existing-work lookup: search.wasm + enrichment reuse');
+  console.log('Series-first research: FULL-SERIES PRE-EXPANSION ENABLED');
   console.log('External search API: NONE');
   console.log('Gemini: DISCONNECTED');
 }

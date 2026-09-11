@@ -34,7 +34,14 @@ assert.equal(loadInitialPending(filePath, columns).records.length, 1);
 assert.equal(saveInitialPending(filePath, [fixture(1)], columns, new Date('2026-09-10T01:00:00Z')), false);
 assert.equal(loadInitialPending(filePath, columns).records[0].id, '');
 
+const largePath = path.join(tempRoot, 'crawler', 'pending-large.json');
+const smallColumns = ['id', 'title_ja', 'media_type'];
+const largePending = Array.from({ length: 20001 }, (_, index) => ({ id: '', title_ja: `大量作品${index}`, media_type: 'TV' }));
+assert.equal(saveInitialPending(largePath, largePending, smallColumns, new Date('2026-09-10T02:00:00Z')), true);
+assert.equal(loadInitialPending(largePath, smallColumns).records.length, 20001, 'pending records must not silently stop at 20,000');
+
 fs.rmSync(tempRoot, { recursive: true, force: true });
 console.log('Initial pending self-test: PASS');
 console.log('CSV package size: 500');
 console.log('partial records persist without public CSV: PASS');
+console.log('pending state over 20k: PRESERVED');
