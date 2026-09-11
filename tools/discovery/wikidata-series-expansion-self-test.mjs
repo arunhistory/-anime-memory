@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { emptyDiscoveryState } from './state.mjs';
 import {
+  SERIES_EXPANSION_RETRY_DELAY_MS,
   expandSeriesFromWikidata,
   pendingWikidataSeriesRefs,
   sanitizeWikidataSeriesExpansionState
@@ -77,6 +78,7 @@ assert.equal(result.seriesExpanded, 1);
 assert.equal(result.memberCount, 5);
 assert.equal(state.candidates.length, 5);
 assert.equal(state.wikidataSeriesExpansion.expandedRefs.includes('https://www.wikidata.org/entity/Q456'), true);
+assert.equal(state.wikidataSeriesExpansion.deferredRefs.length, 0);
 
 for (const title of titles.map((item) => item[1])) {
   const candidate = state.candidates.find((item) => item.title === title);
@@ -115,9 +117,10 @@ for (const [key, title, ref] of [
     lastSeen: '2026-09-11T00:00:00.000Z'
   });
 }
+const attemptedAt = new Date('2026-09-11T00:00:00.000Z');
 const partial = await expandSeriesFromWikidata(partialState, {
   limit: 12,
-  observedAt: '2026-09-11T00:00:00.000Z',
+  observedAt: attemptedAt.toISOString(),
   fetchImpl: async (url) => {
     const query = new URL(url).searchParams.get('query') || '';
     assert.match(query, /wd:Q456/);
@@ -131,7 +134,20 @@ const partial = await expandSeriesFromWikidata(partialState, {
 assert.equal(partial.seriesRequested, 2);
 assert.equal(partial.seriesExpanded, 1, 'only series with valid returned members may be marked expanded');
 assert.deepEqual(partialState.wikidataSeriesExpansion.expandedRefs, ['https://www.wikidata.org/entity/Q456']);
-assert.deepEqual(pendingWikidataSeriesRefs(partialState), ['https://www.wikidata.org/entity/Q999'], 'zero-result series must remain pending for retry');
+assert.deepEqual(partialState.wikidataSeriesExpansion.deferredRefs, [{
+  ref: 'https://www.wikidata.org/entity/Q999',
+  retryAfter: new Date(attemptedAt.getTime() + SERIES_EXPANSION_RETRY_DELAY_MS).toISOString()
+}]);
+assert.deepEqual(
+  pendingWikidataSeriesRefs(partialState, Number.POSITIVE_INFINITY, new Date(attemptedAt.getTime() + SERIES_EXPANSION_RETRY_DELAY_MS - 1)),
+  [],
+  'zero-result series must not busy-loop before retry delay expires'
+);
+assert.deepEqual(
+  pendingWikidataSeriesRefs(partialState, Number.POSITIVE_INFINITY, new Date(attemptedAt.getTime() + SERIES_EXPANSION_RETRY_DELAY_MS)),
+  ['https://www.wikidata.org/entity/Q999'],
+  'zero-result series must become retryable after the delay'
+);
 
 const manyRefs = Array.from({ length: 20001 }, (_, index) => `https://www.wikidata.org/entity/Q${index + 1}`);
 const preservedProgress = sanitizeWikidataSeriesExpansionState({ version: 1, expandedRefs: manyRefs, lastRunAt: '2026-09-11T00:00:00.000Z' });
@@ -141,5 +157,5 @@ console.log('Wikidata full-series expansion self-test: PASS');
 console.log('DR.STONE five-title expansion: PASS');
 console.log('reciprocal prequel/sequel graph: PASS');
 console.log('expanded-series repeat suppression: PASS');
-console.log('zero-result series retry: PASS');
+console.log('zero-result series retry defer: PASS');
 console.log('expanded-series progress over 20k: PRESERVED');
