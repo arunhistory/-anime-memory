@@ -24,8 +24,10 @@ jobs:
           DISCOVERY_MIN_DELAY_MS: '1000'
           WIKIDATA_SERIES_EXPANSION_DISABLED: 'true'
         run: |
+          node tools/discovery/legacy-evidence-migration-self-test.mjs
           rm -rf /tmp/crawler-diag
           cp -R crawler /tmp/crawler-diag
+          node tools/discovery/legacy-evidence-migration.mjs --state /tmp/crawler-diag/state.json
           echo '=== BATCH 1 ==='
           node tools/discovery/run.mjs --state /tmp/crawler-diag/state.json --max-pages 30 --max-depth 12 --per-host-limit 30
           echo '=== BATCH 2 ==='
