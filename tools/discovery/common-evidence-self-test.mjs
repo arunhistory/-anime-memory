@@ -32,7 +32,12 @@ const official = extractDocument(`<!doctype html><html><head>
 <p>音楽制作：Star Music</p>
 <p>放送局：TOKYO MX、BS11</p>
 <a href="https://x.com/star_anime">公式X</a>
+<a href="https://x.com/intent/post?text=share">シェア</a>
+<a href="https://x.com/star_anime/status/123">投稿</a>
+<a href="https://x.com/cast_member">出演者X</a>
 <a href="https://www.youtube.com/@star_anime">公式YouTube</a>
+<a href="https://www.youtube.com/watch?v=abc123">本PV</a>
+<a href="https://youtu.be/abc123">PV</a>
 </body></html>`, 'https://star.example.jp/');
 
 const candidate = official.candidates.find((item) => item.title === '星の旅');
@@ -58,6 +63,25 @@ assert.ok(facts.producers.value.includes('佐藤一郎'));
 assert.ok(facts.producers.value.includes('鈴木二郎'));
 assert.ok(facts.broadcast_networks.value.includes('TOKYO MX'));
 assert.ok(facts.broadcast_networks.value.includes('BS11'));
+assert.equal(facts.official_url.value, 'https://star.example.jp/');
+assert.equal(facts.official_x.value, 'https://x.com/star_anime');
+assert.equal(facts.official_youtube.value, 'https://www.youtube.com/@star_anime');
+assert.equal(evidence.filter((item) => item.field === 'official_x').length, 1, 'share/status/cast X links must not become official X evidence');
+assert.equal(evidence.filter((item) => item.field === 'official_youtube').length, 1, 'video links must not become official YouTube channel evidence');
+
+const detailPage = extractDocument(`<!doctype html><html><head>
+<title>星の旅 STAFF | TVアニメ公式サイト</title>
+<link rel="canonical" href="https://star.example.jp/staff/">
+</head><body>
+<p>日本のTVアニメ「星の旅」スタッフ情報。</p>
+<p>監督：田中三郎</p>
+<a href="https://x.com/star_anime">公式X</a>
+</body></html>`, 'https://star.example.jp/staff/');
+const detailCandidate = detailPage.candidates.find((item) => item.title === '星の旅');
+assert.ok(detailCandidate);
+const detailEvidence = extractCandidateEvidence(detailPage, detailCandidate, '2026-09-10T00:00:00.000Z');
+assert.equal(detailEvidence.some((item) => item.field === 'official_url'), false, 'detail subpage must not become a competing official_url value');
+assert.ok(detailEvidence.some((item) => item.field === 'official_x' && item.value === 'https://x.com/star_anime'));
 
 const columns = loadColumns(process.cwd());
 const corroboratingEvidence = [
@@ -108,5 +132,7 @@ console.log('Common evidence self-test: PASS');
 console.log('primary source directness: PASS');
 console.log('single secondary source remains observed: PASS');
 console.log('broad common-field extraction: PASS');
-console.log('official URL extraction: PASS');
+console.log('official landing URL extraction: PASS');
+console.log('official social profile filtering: PASS');
+console.log('detail-page official URL contamination: BLOCKED');
 console.log('conflict overrides majority/directness: PASS');
