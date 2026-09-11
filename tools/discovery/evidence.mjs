@@ -249,11 +249,19 @@ function evidenceKey(item) {
   return `${item.field}\u0000${normalizeEvidenceValue(item.field, item.value)}\u0000${item.sourceUrl}`;
 }
 
+function isExternallyVerifiedPrimary(candidate, sourceUrl) {
+  const normalized = normalizeUrl(sourceUrl);
+  if (!normalized) return false;
+  return (Array.isArray(candidate?.verifiedPrimaryUrls) ? candidate.verifiedPrimaryUrls : [])
+    .some((value) => normalizeUrl(value) === normalized);
+}
+
 export function extractCandidateEvidence(document, candidate, observedAt = new Date().toISOString()) {
   const sourceUrl = normalizeUrl(document.canonical || document.url);
   if (!sourceUrl || !candidate?.title) return [];
   const context = candidateContext(document, candidate.title);
-  const sourceClass = classifyEvidenceSource(document, candidate);
+  const verifiedPrimary = isExternallyVerifiedPrimary(candidate, sourceUrl);
+  const sourceClass = verifiedPrimary ? 'primary' : classifyEvidenceSource(document, candidate);
   const directness = evidenceDirectness(document, candidate);
   const rawClaims = [
     { field: 'title_ja', value: candidate.title, rule: 'anime-title-candidate' },
@@ -280,6 +288,7 @@ export function extractCandidateEvidence(document, candidate, observedAt = new D
       sourceUrl,
       sourceClass,
       directness,
+      verifiedPrimary,
       rule: String(claim.rule || 'unknown').slice(0, 80),
       observedAt: String(observedAt || '').slice(0, 40)
     };
@@ -303,13 +312,16 @@ export function mergeEvidence(existing = [], incoming = []) {
       value,
       sourceUrl,
       sourceClass: normalizeSourceClass(item?.sourceClass),
+      verifiedPrimary: Boolean(item?.verifiedPrimary),
       rule: String(item?.rule || '').slice(0, 80),
       observedAt: String(item?.observedAt || '').slice(0, 40)
     };
     if (item?.directness !== undefined && Number.isFinite(Number(item.directness))) {
       clean.directness = Math.max(0, Math.min(100, Number(item.directness)));
     }
-    map.set(evidenceKey(clean), clean);
+    const key = evidenceKey(clean);
+    if (map.get(key)?.verifiedPrimary) clean.verifiedPrimary = true;
+    map.set(key, clean);
   }
   return [...map.values()].slice(-700);
 }

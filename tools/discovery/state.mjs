@@ -321,10 +321,14 @@ function sanitizeCandidates(values, trustModel) {
       const evidence = collapseSameFamilyEvidence(mergeEvidence(candidate?.evidence || []));
       const resolved = resolveEvidenceWithTrust(evidence, trustModel);
       const sources = [...new Set((candidate?.sources || []).map((value) => normalizeUrl(value)).filter(Boolean))].slice(0, 50);
+      const verifiedPrimaryUrls = [...new Set((candidate?.verifiedPrimaryUrls || [])
+        .map((value) => normalizeUrl(value))
+        .filter(Boolean))].slice(0, 50);
       return {
         key: normalizeTitleKey(candidate?.title || candidate?.key),
         title: String(candidate?.title || '').slice(0, 120),
         sources,
+        verifiedPrimaryUrls,
         evidence,
         facts: sanitizeFacts(resolved),
         series: sanitizeSeriesKnowledge(candidate?.series),

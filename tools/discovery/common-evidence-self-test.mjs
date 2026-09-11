@@ -41,6 +41,14 @@ assert.equal(official.subjectCandidate?.title, '星の旅');
 const evidence = extractCandidateEvidence(official, candidate, '2026-09-10T00:00:00.000Z');
 assert.ok(evidence.length > 15);
 assert.ok(evidence.every((item) => item.sourceClass === 'primary'));
+assert.ok(evidence.every((item) => item.verifiedPrimary === false), 'self-declared official page must not gain external verification automatically');
+const verifiedEvidence = extractCandidateEvidence(official, {
+  ...candidate,
+  verifiedPrimaryUrls: ['https://star.example.jp/']
+}, '2026-09-10T00:00:00.000Z');
+assert.ok(verifiedEvidence.length > 15);
+assert.ok(verifiedEvidence.every((item) => item.sourceClass === 'primary'));
+assert.ok(verifiedEvidence.every((item) => item.verifiedPrimary === true), 'exact externally verified official URL must mark extracted evidence as verified primary');
 const facts = resolveEvidence(evidence);
 
 for (const field of ['title_ja', 'media_type', 'origin_country', 'title_kana', 'title_en', 'release_start', 'release_end', 'episode_count', 'runtime_min', 'animation_studio', 'director', 'series_composition', 'character_design', 'music', 'sound_director', 'official_url', 'official_x', 'official_youtube']) {
@@ -105,6 +113,8 @@ assert.equal(conflict.release_start.status, 'conflict');
 assert.equal(conflict.release_start.value, '');
 
 console.log('Common evidence self-test: PASS');
+console.log('self-declared primary external verification: BLOCKED');
+console.log('externally verified primary evidence marking: PASS');
 console.log('primary source directness: PASS');
 console.log('single secondary source remains observed: PASS');
 console.log('broad common-field extraction: PASS');

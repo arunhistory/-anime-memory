@@ -2,6 +2,7 @@ import { normalizeTitleKey } from './html.mjs';
 import { mergeEvidence, resolveEvidence } from './evidence.mjs';
 import { mergeCandidateResearch } from './research-completion.mjs';
 import { mergeSeriesKnowledge } from './series-learning.mjs';
+import { normalizeUrl } from './url.mjs';
 
 function fact(candidate, field) {
   const value = candidate?.facts?.[field];
@@ -87,6 +88,13 @@ function alternateTitleEvidence(primary, secondary) {
   });
 }
 
+function mergeVerifiedPrimaryUrls(left, right) {
+  return [...new Set([
+    ...(Array.isArray(left?.verifiedPrimaryUrls) ? left.verifiedPrimaryUrls : []),
+    ...(Array.isArray(right?.verifiedPrimaryUrls) ? right.verifiedPrimaryUrls : [])
+  ].map((value) => normalizeUrl(value)).filter(Boolean))].slice(0, 50);
+}
+
 function mergePair(left, right, resolveFacts) {
   const primary = titlePreference(left) >= titlePreference(right) ? left : right;
   const secondary = primary === left ? right : left;
@@ -96,6 +104,7 @@ function mergePair(left, right, resolveFacts) {
     key: normalizeTitleKey(primary.title || primary.key),
     title: primary.title,
     sources,
+    verifiedPrimaryUrls: mergeVerifiedPrimaryUrls(primary, secondary),
     evidence,
     facts: resolveFacts(evidence),
     series: mergeSeriesKnowledge(primary.series, secondary.series),
