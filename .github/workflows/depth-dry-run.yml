@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Diagnose focused candidate and corroboration URLs
+      - name: Diagnose focused candidate and corroboration URLs after commerce filter
         run: |
           node --input-type=module <<'NODE'
           import { loadDiscoveryState } from './tools/discovery/state.mjs';
