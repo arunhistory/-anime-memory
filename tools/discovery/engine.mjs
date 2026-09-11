@@ -61,6 +61,22 @@ function pageFocusesCandidate(document, title) {
   return normalizeTitleKey(headline).includes(key);
 }
 
+function linkExplicitlyNamesCandidate(link, hints) {
+  const haystack = `${link?.url || ''} ${link?.anchor || ''}`
+    .normalize('NFKC')
+    .toLocaleLowerCase('ja')
+    .replace(/\s+/g, '');
+  if (!haystack) return false;
+  for (const hint of normalizeCandidateHints(hints)) {
+    const normalized = String(hint || '')
+      .normalize('NFKC')
+      .toLocaleLowerCase('ja')
+      .replace(/\s+/g, '');
+    if (normalized.length >= 2 && haystack.includes(normalized)) return true;
+  }
+  return false;
+}
+
 function addCandidate(candidateMap, candidate, sourceUrl, now, evidence, trustModel, onStored = null) {
   const key = normalizeTitleKey(candidate.title || candidate.key);
   if (!key) return false;
@@ -502,15 +518,26 @@ export async function runDiscovery(options) {
       );
       if (informationBoost > 0) stats.informationPriorityLinks += 1;
       const sameSite = linkOrigin === sameOrigin;
+      const candidateRelevant = verificationHintsForLinks.length > 0 && (
+        seriesBoost > 0
+        || informationBoost >= 85
+        || linkExplicitlyNamesCandidate(link, verificationHintsForLinks)
+      );
+      if (sameSite && verificationHintsForLinks.length > 0 && !candidateRelevant) continue;
       const discoveryScore = rawLinkScore + seriesBoost + informationBoost;
 
       const minScore = relevant ? (sameSite ? 0 : 18) : (sameSite ? 25 : 55);
       if (discoveryScore < minScore) continue;
-      const verificationBoost = verificationHintsForLinks.length ? (sameSite ? 25 : 45) : 0;
+      const verificationBoost = candidateRelevant ? (sameSite ? 25 : 45) : 0;
       const learned = scoreResearchRoute(trustModel, { url: linkUrl, anchor: link.anchor });
       if (learned.boost !== 0) stats.researchStrategyBoostedLinks += 1;
       const linkScore = Math.max(-100, Math.min(500, discoveryScore + verificationBoost + learned.boost));
-      rankedLinks.push({ linkUrl, linkScore, sameSite, candidateHints: verificationHintsForLinks });
+      rankedLinks.push({
+        linkUrl,
+        linkScore,
+        sameSite,
+        candidateHints: candidateRelevant ? verificationHintsForLinks : []
+      });
     }
 
     rankedLinks.sort((a, b) => b.linkScore - a.linkScore);
