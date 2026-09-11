@@ -11,6 +11,7 @@ import {
 
 const ENDPOINT = 'https://query.wikidata.org/sparql';
 const DEFAULT_LIMIT = 200;
+const EXACT_ARTICLE_PRIORITY = 1000;
 
 function mediaTypeFromLabel(value) {
   const label = String(value || '').normalize('NFKC').toLocaleLowerCase('ja');
@@ -234,7 +235,7 @@ export async function bootstrapFromWikidata(state, {
 
     if (addFrontierUrl(state, frontierSeen, visited, {
       url: jaArticleUrl,
-      priority: 940,
+      priority: EXACT_ARTICLE_PRIORITY,
       discoveredFrom: sourceUrl,
       candidateHints: [title],
       allowWikipedia: true
