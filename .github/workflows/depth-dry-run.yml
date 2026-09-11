@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Run eight bounded information-depth batches
+      - name: Run eight bounded batches after centralized landing filter
         env:
           DISCOVERY_MIN_DELAY_MS: '1000'
           WIKIDATA_SERIES_EXPANSION_DISABLED: 'true'
