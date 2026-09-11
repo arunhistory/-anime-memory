@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Run two bounded batches against temporary crawler state
+      - name: Run two bounded batches after official-link filtering
         env:
           DISCOVERY_MIN_DELAY_MS: '1000'
           WIKIDATA_SERIES_EXPANSION_DISABLED: 'true'
