@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { normalizeUrl, urlHash } from './url.mjs';
@@ -16,7 +17,11 @@ import { sanitizeWikidataBootstrapState } from './wikidata-bootstrap.mjs';
 import { sanitizeWikidataSeriesExpansionState } from './wikidata-series-expansion.mjs';
 
 const MAX_CANDIDATE_HINTS = 32;
-const MAX_DOCUMENT_METADATA = 20000;
+const SHARDED_STATE_VERSION = 2;
+const SHARDED_STATE_STORAGE = 'sharded-v1';
+const SHARD_DIRECTORY = 'state-shards';
+const TARGET_SHARD_BYTES = 4 * 1024 * 1024;
+const SHARD_KINDS = ['frontier', 'visited', 'documents', 'candidates', 'calibrationSeen'];
 
 export function emptyDiscoveryState() {
   return {
@@ -54,9 +59,122 @@ function sanitizeState(input) {
   return state;
 }
 
+function sha256(text) {
+  return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+function atomicWriteText(filePath, text) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const temp = `${filePath}.tmp-${process.pid}-${Math.random().toString(16).slice(2)}`;
+  fs.writeFileSync(temp, text, { encoding: 'utf8', mode: 0o600 });
+  fs.renameSync(temp, filePath);
+}
+
+function generationName() {
+  const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
+  return `g-${stamp}-${crypto.randomBytes(6).toString('hex')}`;
+}
+
+function descriptorPath(generation, kind, index) {
+  return `${SHARD_DIRECTORY}/${generation}/${kind}-${String(index).padStart(5, '0')}.json`;
+}
+
+function shardDescriptorsFor(generation, kind, values, baseDir) {
+  const source = Array.isArray(values) ? values : [];
+  const descriptors = [];
+  let jsonItems = [];
+  let bytes = 2;
+
+  const flush = () => {
+    if (!jsonItems.length) return;
+    const index = descriptors.length;
+    const relative = descriptorPath(generation, kind, index);
+    const text = `[${jsonItems.join(',')}]\n`;
+    const descriptor = {
+      file: relative,
+      count: jsonItems.length,
+      bytes: Buffer.byteLength(text, 'utf8'),
+      sha256: sha256(text)
+    };
+    atomicWriteText(path.join(baseDir, relative), text);
+    descriptors.push(descriptor);
+    jsonItems = [];
+    bytes = 2;
+  };
+
+  for (const item of source) {
+    const itemJson = JSON.stringify(item);
+    if (itemJson === undefined) continue;
+    const itemBytes = Buffer.byteLength(itemJson, 'utf8');
+    const projected = bytes + itemBytes + (jsonItems.length ? 1 : 0) + 1;
+    if (jsonItems.length && projected > TARGET_SHARD_BYTES) flush();
+    jsonItems.push(itemJson);
+    bytes += itemBytes + (jsonItems.length > 1 ? 1 : 0);
+  }
+  flush();
+  return descriptors;
+}
+
+function validateShardDescriptor(generation, kind, descriptor, index) {
+  if (!descriptor || typeof descriptor !== 'object' || Array.isArray(descriptor)) {
+    throw new Error(`state-shard-descriptor-invalid:${kind}:${index}`);
+  }
+  const expectedFile = descriptorPath(generation, kind, index);
+  if (descriptor.file !== expectedFile) throw new Error(`state-shard-path-invalid:${kind}:${index}`);
+  if (!Number.isInteger(descriptor.count) || descriptor.count < 0) throw new Error(`state-shard-count-invalid:${kind}:${index}`);
+  if (!Number.isInteger(descriptor.bytes) || descriptor.bytes < 3) throw new Error(`state-shard-bytes-invalid:${kind}:${index}`);
+  if (!/^[a-f0-9]{64}$/.test(String(descriptor.sha256 || ''))) throw new Error(`state-shard-hash-invalid:${kind}:${index}`);
+}
+
+function readShardKind(baseDir, generation, kind, descriptors, expectedCount) {
+  if (!Array.isArray(descriptors)) throw new Error(`state-shard-list-invalid:${kind}`);
+  const output = [];
+  for (let index = 0; index < descriptors.length; index += 1) {
+    const descriptor = descriptors[index];
+    validateShardDescriptor(generation, kind, descriptor, index);
+    const absolute = path.resolve(baseDir, descriptor.file);
+    const shardRoot = `${path.resolve(baseDir, SHARD_DIRECTORY)}${path.sep}`;
+    if (!absolute.startsWith(shardRoot)) throw new Error(`state-shard-path-escape:${kind}:${index}`);
+    if (!fs.existsSync(absolute)) throw new Error(`state-shard-missing:${kind}:${index}`);
+    const text = fs.readFileSync(absolute, 'utf8');
+    if (Buffer.byteLength(text, 'utf8') !== descriptor.bytes) throw new Error(`state-shard-size-mismatch:${kind}:${index}`);
+    if (sha256(text) !== descriptor.sha256) throw new Error(`state-shard-hash-mismatch:${kind}:${index}`);
+    const values = JSON.parse(text);
+    if (!Array.isArray(values) || values.length !== descriptor.count) throw new Error(`state-shard-content-mismatch:${kind}:${index}`);
+    output.push(...values);
+  }
+  if (Number.isInteger(expectedCount) && output.length !== expectedCount) {
+    throw new Error(`state-shard-total-count-mismatch:${kind}`);
+  }
+  return output;
+}
+
+function loadShardedState(filePath, manifest) {
+  if (manifest.storage !== SHARDED_STATE_STORAGE || manifest.version !== SHARDED_STATE_VERSION) {
+    throw new Error('discovery-state-storage-unsupported');
+  }
+  const baseDir = path.dirname(filePath);
+  const generation = String(manifest.generation || '');
+  if (!/^g-\d{14}-[a-f0-9]{12}$/.test(generation)) throw new Error('discovery-state-generation-invalid');
+  const shards = manifest.shards;
+  const counts = manifest.counts;
+  if (!shards || typeof shards !== 'object' || Array.isArray(shards)) throw new Error('discovery-state-shards-missing');
+  if (!counts || typeof counts !== 'object' || Array.isArray(counts)) throw new Error('discovery-state-counts-missing');
+  const reconstructed = {
+    version: 1,
+    researchStrategy: manifest.researchStrategy,
+    wikidataBootstrap: manifest.wikidataBootstrap,
+    wikidataSeriesExpansion: manifest.wikidataSeriesExpansion,
+    updatedAt: manifest.updatedAt
+  };
+  for (const kind of SHARD_KINDS) reconstructed[kind] = readShardKind(baseDir, generation, kind, shards[kind], counts[kind]);
+  return sanitizeState(reconstructed);
+}
+
 export function loadDiscoveryState(filePath) {
   if (!fs.existsSync(filePath)) return emptyDiscoveryState();
   const input = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  if (input?.version === SHARDED_STATE_VERSION) return loadShardedState(filePath, input);
   return sanitizeState(input);
 }
 
@@ -146,6 +264,82 @@ function deriveCandidateResearch(candidate, evidence, sources) {
   return research;
 }
 
+function sanitizeDocuments(values) {
+  return (Array.isArray(values) ? values : [])
+    .map((doc) => ({
+      url: normalizeUrl(doc?.url),
+      title: String(doc?.title || '').slice(0, 500),
+      score: Number(doc?.score || 0),
+      candidateTitles: [...new Set((doc?.candidateTitles || []).map(String))].slice(0, 30),
+      discoveryOnly: Boolean(doc?.discoveryOnly),
+      lastChecked: String(doc?.lastChecked || '')
+    }))
+    .filter((doc) => doc.url)
+    .sort((a, b) => b.score - a.score);
+}
+
+function sanitizeCandidates(values, trustModel) {
+  return (Array.isArray(values) ? values : [])
+    .map((candidate) => {
+      const evidence = collapseSameFamilyEvidence(mergeEvidence(candidate?.evidence || []));
+      const resolved = resolveEvidenceWithTrust(evidence, trustModel);
+      const sources = [...new Set((candidate?.sources || []).map((value) => normalizeUrl(value)).filter(Boolean))].slice(0, 50);
+      return {
+        key: normalizeTitleKey(candidate?.title || candidate?.key),
+        title: String(candidate?.title || '').slice(0, 120),
+        sources,
+        evidence,
+        facts: sanitizeFacts(resolved),
+        series: sanitizeSeriesKnowledge(candidate?.series),
+        research: deriveCandidateResearch(candidate, evidence, sources),
+        lastSeen: String(candidate?.lastSeen || '')
+      };
+    })
+    .filter((candidate) => candidate.key && candidate.title);
+}
+
+function cleanStaleShardGenerations(baseDir, activeGeneration) {
+  const shardDir = path.join(baseDir, SHARD_DIRECTORY);
+  if (!fs.existsSync(shardDir)) return;
+  for (const name of fs.readdirSync(shardDir)) {
+    if (!/^g-\d{14}-[a-f0-9]{12}$/.test(name) || name === activeGeneration) continue;
+    const absolute = path.join(shardDir, name);
+    if (fs.statSync(absolute).isDirectory()) fs.rmSync(absolute, { recursive: true, force: true });
+  }
+}
+
+function writeShardedState(filePath, clean) {
+  const baseDir = path.dirname(filePath);
+  fs.mkdirSync(baseDir, { recursive: true });
+  const generation = generationName();
+  const shards = {};
+  const counts = {};
+  for (const kind of SHARD_KINDS) {
+    counts[kind] = Array.isArray(clean[kind]) ? clean[kind].length : 0;
+    shards[kind] = shardDescriptorsFor(generation, kind, clean[kind], baseDir);
+  }
+
+  const manifest = {
+    version: SHARDED_STATE_VERSION,
+    storage: SHARDED_STATE_STORAGE,
+    generation,
+    shardTargetBytes: TARGET_SHARD_BYTES,
+    counts,
+    shards,
+    researchStrategy: clean.researchStrategy,
+    wikidataBootstrap: clean.wikidataBootstrap,
+    wikidataSeriesExpansion: clean.wikidataSeriesExpansion,
+    updatedAt: clean.updatedAt
+  };
+
+  // All new-generation shards are durable before the manifest switches readers to them.
+  // If the process stops before this atomic rename, the previous manifest and generation
+  // remain valid. Old generations are removed only after the new manifest is committed.
+  atomicWriteText(filePath, `${JSON.stringify(manifest, null, 2)}\n`);
+  cleanStaleShardGenerations(baseDir, generation);
+  return manifest;
+}
+
 export function saveDiscoveryState(filePath, state) {
   const clean = sanitizeState(state);
   clean.updatedAt = new Date().toISOString();
@@ -157,40 +351,9 @@ export function saveDiscoveryState(filePath, state) {
 
   clean.frontier = sanitizeFrontier(clean.frontier);
   clean.visited = [...new Set(clean.visited.map(String))];
-  clean.documents = clean.documents
-    .map((doc) => ({
-      url: normalizeUrl(doc.url),
-      title: String(doc.title || '').slice(0, 500),
-      score: Number(doc.score || 0),
-      candidateTitles: [...new Set((doc.candidateTitles || []).map(String))].slice(0, 30),
-      discoveryOnly: Boolean(doc.discoveryOnly),
-      lastChecked: String(doc.lastChecked || '')
-    }))
-    .filter((doc) => doc.url)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, MAX_DOCUMENT_METADATA);
-  clean.candidates = clean.candidates
-    .map((candidate) => {
-      const evidence = collapseSameFamilyEvidence(mergeEvidence(candidate.evidence || []));
-      const resolved = resolveEvidenceWithTrust(evidence, trustModel);
-      const sources = [...new Set((candidate.sources || []).map((value) => normalizeUrl(value)).filter(Boolean))].slice(0, 50);
-      return {
-        key: normalizeTitleKey(candidate.title || candidate.key),
-        title: String(candidate.title || '').slice(0, 120),
-        sources,
-        evidence,
-        facts: sanitizeFacts(resolved),
-        series: sanitizeSeriesKnowledge(candidate.series),
-        research: deriveCandidateResearch(candidate, evidence, sources),
-        lastSeen: String(candidate.lastSeen || '')
-      };
-    })
-    .filter((candidate) => candidate.key && candidate.title);
-
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const temp = `${filePath}.tmp-${process.pid}`;
-  fs.writeFileSync(temp, `${JSON.stringify(clean, null, 2)}\n`, 'utf8');
-  fs.renameSync(temp, filePath);
+  clean.documents = sanitizeDocuments(clean.documents);
+  clean.candidates = sanitizeCandidates(clean.candidates, trustModel);
+  return writeShardedState(filePath, clean);
 }
 
 export function seedFrontier(state, urls, priority = 100) {
