@@ -86,15 +86,15 @@ const detailCandidate = detailPage.candidates.find((item) => item.title === '星
 assert.ok(detailCandidate);
 const detailEvidence = extractCandidateEvidence(detailPage, detailCandidate, '2026-09-10T00:00:00.000Z');
 assert.equal(detailEvidence.some((item) => item.field === 'official_url'), false, 'detail subpage must not become a competing official_url value');
-assert.deepEqual(
-  detailEvidence.filter((item) => item.field === 'official_x').map((item) => item.value),
-  ['https://x.com/star_anime'],
-  'detail page must only accept explicitly labeled official X profile'
+assert.equal(
+  detailEvidence.filter((item) => item.field === 'official_x').length,
+  0,
+  'detail subpage must not create official X evidence, even from social links labeled on the detail page'
 );
-assert.deepEqual(
-  detailEvidence.filter((item) => item.field === 'official_youtube').map((item) => item.value),
-  ['https://www.youtube.com/@star_anime'],
-  'detail page must only accept explicitly labeled official YouTube channel'
+assert.equal(
+  detailEvidence.filter((item) => item.field === 'official_youtube').length,
+  0,
+  'detail subpage must not create official YouTube evidence, even from social links labeled on the detail page'
 );
 
 const columns = loadColumns(process.cwd());
@@ -149,6 +149,5 @@ console.log('broad common-field extraction: PASS');
 console.log('official landing URL extraction: PASS');
 console.log('official social profile filtering: PASS');
 console.log('detail-page official URL contamination: BLOCKED');
-console.log('detail-page unrelated social profiles: BLOCKED');
-console.log('detail-page explicit official social profiles: PASS');
+console.log('detail-page social evidence contamination: BLOCKED');
 console.log('conflict overrides majority/directness: PASS');
