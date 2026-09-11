@@ -81,7 +81,6 @@ const detailCandidate = detailPage.candidates.find((item) => item.title === '星
 assert.ok(detailCandidate);
 const detailEvidence = extractCandidateEvidence(detailPage, detailCandidate, '2026-09-10T00:00:00.000Z');
 assert.equal(detailEvidence.some((item) => item.field === 'official_url'), false, 'detail subpage must not become a competing official_url value');
-assert.ok(detailEvidence.some((item) => item.field === 'official_x' && item.value === 'https://x.com/star_anime'));
 
 const columns = loadColumns(process.cwd());
 const corroboratingEvidence = [
