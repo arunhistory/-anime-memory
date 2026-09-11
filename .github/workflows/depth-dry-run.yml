@@ -23,6 +23,7 @@ jobs:
         env:
           DISCOVERY_MIN_DELAY_MS: '1000'
           WIKIDATA_SERIES_EXPANSION_DISABLED: 'true'
+          WIKIDATA_ARTICLE_BACKFILL_LIMIT: '10'
         run: |
           rm -rf /tmp/crawler-diag
           cp -R crawler /tmp/crawler-diag
@@ -71,11 +72,9 @@ jobs:
 
             const statusCounts = { confirmed: 0, observed: 0, conflict: 0 };
             for (const [field, fact] of Object.entries(candidate.facts || {})) {
-              if (identityFields.has(field) || !factStatuses[fact?.status] && fact?.status !== 'confirmed') continue;
-              if (fact?.status in factStatuses) {
-                factStatuses[fact.status] += 1;
-                statusCounts[fact.status] += 1;
-              }
+              if (identityFields.has(field) || !Object.hasOwn(factStatuses, fact?.status)) continue;
+              factStatuses[fact.status] += 1;
+              statusCounts[fact.status] += 1;
             }
             ranked.push({
               title: candidate.title,
