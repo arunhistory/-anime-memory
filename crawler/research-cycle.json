@@ -7,5 +7,6 @@
   "stoppedAt": "",
   "stopReason": "",
   "waitingForInactivity": false,
+  "resumeAfter": "",
   "seenEligible": []
 }
