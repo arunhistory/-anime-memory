@@ -7,7 +7,6 @@ import { loadKnownWorkWasmSearch } from './known-work-wasm.mjs';
 import { normalizeUrl } from './url.mjs';
 import { bootstrapFromWikidata } from './wikidata-bootstrap.mjs';
 import { expandSeriesFromWikidata } from './wikidata-series-expansion.mjs';
-import { backfillCandidateWikipediaSitelinks } from './wikidata-article-backfill.mjs';
 import { buildReadinessReport } from './readiness-report.mjs';
 import { buildInformationDepthPlan, promoteCorroborationFrontier } from './depth-control.mjs';
 
@@ -105,26 +104,8 @@ async function main() {
 
   const state = loadDiscoveryState(statePath);
   const before = JSON.stringify(state);
-  let depthPlan = buildInformationDepthPlan(state);
-  let articleBackfill = {
-    requested: 0,
-    resolved: 0,
-    frontierAdded: 0,
-    noArticle: 0
-  };
-  const articleBackfillDisabled = String(process.env.WIKIDATA_ARTICLE_BACKFILL_DISABLED || '').toLowerCase() === 'true';
-  if (!articleBackfillDisabled && depthPlan.pendingCandidates > 0) {
-    try {
-      articleBackfill = await backfillCandidateWikipediaSitelinks(state, {
-        limit: validateNumber(process.env.WIKIDATA_ARTICLE_BACKFILL_LIMIT, 'WIKIDATA_ARTICLE_BACKFILL_LIMIT', 1, 200, 100)
-      });
-    } catch (error) {
-      console.warn(`Wikidata article backfill deferred: ${error.message}`);
-    }
-  }
-
   const corroborationFrontier = promoteCorroborationFrontier(state);
-  depthPlan = buildInformationDepthPlan(state);
+  const depthPlan = buildInformationDepthPlan(state);
 
   let wikidata = {
     fetched: 0,
@@ -137,7 +118,7 @@ async function main() {
     offset: state.wikidataBootstrap?.offset || 0
   };
   const bootstrapDisabled = String(process.env.WIKIDATA_BOOTSTRAP_DISABLED || '').toLowerCase() === 'true';
-  if (!bootstrapDisabled && !depthPlan.pauseBootstrap) {
+  if (!bootstrapDisabled) {
     try {
       wikidata = await bootstrapFromWikidata(state, {
         limit: validateNumber(process.env.WIKIDATA_BOOTSTRAP_LIMIT, 'WIKIDATA_BOOTSTRAP_LIMIT', 1, 500, 200)
@@ -202,19 +183,12 @@ async function main() {
   console.log(`allowed hosts: ${allowedHosts.length ? allowedHosts.join(',') : 'unrestricted-public-web'}`);
   console.log(`registered CSV files loaded into search.wasm: ${knownWorkSearch.fileCount}`);
   console.log(`information-depth pending candidates: ${depthPlan.pendingCandidates}`);
-  console.log(`information-depth actionable frontier: ${depthPlan.actionableFrontier}`);
-  console.log(`corroboration frontier examined: ${corroborationFrontier.examined}`);
-  console.log(`corroboration frontier promoted: ${corroborationFrontier.promoted}`);
-  console.log(`Wikidata article backfill requested: ${articleBackfill.requested}`);
-  console.log(`Wikidata article backfill resolved: ${articleBackfill.resolved}`);
-  console.log(`Wikidata article backfill frontier added: ${articleBackfill.frontierAdded}`);
-  console.log(`Wikidata article backfill no article: ${articleBackfill.noArticle}`);
-  console.log(`Wikidata bootstrap paused for information depth: ${depthPlan.pauseBootstrap}`);
+  console.log(`discovery bootstrap paused for information depth: ${depthPlan.pauseBootstrap}`);
+  console.log(`discovery-side corroboration promoted: ${corroborationFrontier.promoted}`);
   console.log(`Wikidata bootstrap rows: ${wikidata.fetched}`);
   console.log(`Wikidata bootstrap candidates added: ${wikidata.candidatesAdded}`);
   console.log(`Wikidata bootstrap evidence added: ${wikidata.evidenceAdded}`);
   console.log(`Wikidata official verification URLs added: ${wikidata.officialFrontierAdded}`);
-  console.log(`Wikidata article verification URLs added: ${wikidata.articleFrontierAdded || 0}`);
   console.log(`Wikidata series verification URLs added: ${wikidata.seriesFrontierAdded || 0}`);
   console.log(`Wikidata bootstrap offset: ${wikidata.offset}`);
   console.log(`Wikidata bootstrap completed: ${wikidata.completed}`);
@@ -258,9 +232,11 @@ async function main() {
   console.log(`publication blocked reasons: ${JSON.stringify(readiness.publicationBlockedReasons)}`);
   console.log(`changed: ${changed}`);
   if (result.stats.attempted === 0) console.log('Web frontier empty: bootstrap/series progress persisted without treating this batch as an error');
+  console.log('Discovery responsibility: BROAD NEW-WORK DISCOVERY');
+  console.log('Deep research handoff: SEPARATE ENGINE');
   console.log('Existing-work lookup: search.wasm + enrichment reuse');
-  console.log('Series-first research: FULL-SERIES PRE-EXPANSION ENABLED');
-  console.log('External search API: NONE');
+  console.log('Series-first discovery: FULL-SERIES PRE-EXPANSION ENABLED');
+  console.log('External general-search API: NONE');
   console.log('Gemini: DISCONNECTED');
 }
 
