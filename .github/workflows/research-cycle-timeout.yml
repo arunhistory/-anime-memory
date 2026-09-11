@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: anime-production-cycle
@@ -32,7 +33,8 @@ jobs:
         id: cycle
         run: node tools/discovery/cycle.mjs status
 
-      - name: Apply 24-hour inactivity timeout
+      - name: Apply inactivity timeout or release expired backoff
+        id: timeout
         if: ${{ steps.cycle.outputs.active == 'true' && steps.cycle.outputs.waiting_for_inactivity == 'true' }}
         run: node tools/discovery/cycle.mjs timeout
 
@@ -43,7 +45,7 @@ jobs:
           set -euo pipefail
           git add crawler/research-cycle.json
           if git diff --cached --quiet; then
-            echo '24-hour timeout not reached; no change.'
+            echo 'No timeout state change.'
             exit 0
           fi
 
@@ -70,3 +72,9 @@ jobs:
 
           echo 'Could not publish inactivity timeout without force push.' >&2
           exit 1
+
+      - name: Resume bounded research after backoff
+        if: ${{ steps.cycle.outputs.active == 'true' && steps.cycle.outputs.waiting_for_inactivity == 'true' && steps.timeout.outputs.resume_research == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run research-production.yml --ref main -f cycle_action=continue
