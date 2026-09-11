@@ -15,11 +15,14 @@
     "version": 1,
     "offset": 0,
     "completed": false,
+    "retryAfter": "",
     "lastRunAt": ""
   },
   "wikidataSeriesExpansion": {
     "version": 1,
     "expandedRefs": [],
+    "deferredRefs": [],
+    "retryAfter": "",
     "lastRunAt": ""
   },
   "updatedAt": ""
