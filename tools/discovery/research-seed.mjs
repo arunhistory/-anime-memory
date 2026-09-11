@@ -2,24 +2,46 @@ import { normalizeTitleKey } from './html.mjs';
 import { discoveryCandidateReadiness } from './to-record.mjs';
 import { candidateInformationReadiness } from './research-completion.mjs';
 import { sourceFamilyKey } from './source-family.mjs';
-import { normalizeUrl } from './url.mjs';
+import { normalizeUrl, urlHash } from './url.mjs';
 import { addResearchFrontier, recordTitleSearch } from './research-lane-state.mjs';
 
 const WIKIPEDIA_API = 'https://ja.wikipedia.org/w/api.php';
 const TITLE_RECHECK_MS = 24 * 60 * 60 * 1000;
-const MEDIAWIKI_TITLE_BATCH = 50;
+const SEARCH_WINDOW = 20;
+
+function rankCandidate(candidate) {
+  const readiness = candidateInformationReadiness(candidate);
+  return [
+    Number(readiness.confirmedFields || 0),
+    Number(readiness.groups || 0),
+    Number(readiness.sourceFamilies || 0),
+    Number(readiness.routes || 0),
+    Number(readiness.pages || 0)
+  ];
+}
+
+function compareCandidates(left, right) {
+  const a = rankCandidate(left);
+  const b = rankCandidate(right);
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] !== b[index]) return b[index] - a[index];
+  }
+  return normalizeTitleKey(left?.title || left?.key).localeCompare(
+    normalizeTitleKey(right?.title || right?.key),
+    'ja'
+  );
+}
 
 function pendingCandidates(state) {
   return (Array.isArray(state?.candidates) ? state.candidates : [])
     .filter((candidate) => discoveryCandidateReadiness(candidate).ready)
     .filter((candidate) => !candidateInformationReadiness(candidate).ready)
-    .filter((candidate) => normalizeTitleKey(candidate?.title || candidate?.key));
+    .filter((candidate) => normalizeTitleKey(candidate?.title || candidate?.key))
+    .sort(compareCandidates);
 }
 
 function candidateUrls(candidate) {
-  const values = [
-    ...(Array.isArray(candidate?.sources) ? candidate.sources : [])
-  ];
+  const values = [...(Array.isArray(candidate?.sources) ? candidate.sources : [])];
   const official = String(candidate?.facts?.official_url?.value || '').trim();
   if (official) values.push(...official.split('|'));
   return [...new Set(values.map((value) => normalizeUrl(value)).filter(Boolean))];
@@ -84,6 +106,7 @@ function resolveMappedTitle(title, map) {
 }
 
 async function resolveWikipediaTitles(titles, { fetchImpl, timeoutMs }) {
+  if (!titles.length) return new Map();
   const url = new URL(WIKIPEDIA_API);
   url.searchParams.set('action', 'query');
   url.searchParams.set('format', 'json');
@@ -124,31 +147,49 @@ async function resolveWikipediaTitles(titles, { fetchImpl, timeoutMs }) {
   return resolved;
 }
 
-export function seedKnownResearchRoots(state, researchState) {
-  const entries = [];
-  for (const candidate of pendingCandidates(state)) {
-    const title = String(candidate.title || candidate.key || '').trim();
-    for (const url of representativeRoots(candidate)) {
-      entries.push({
-        url,
-        priority: 700,
-        depth: 0,
-        discoveredFrom: '',
-        candidateHints: [title]
-      });
-    }
-    const titleSearchUrl = researchState?.titleSearch?.[normalizeTitleKey(title)]?.url;
-    if (titleSearchUrl) {
-      entries.push({
-        url: titleSearchUrl,
-        priority: 900,
-        depth: 0,
-        discoveredFrom: WIKIPEDIA_API,
-        candidateHints: [title]
-      });
+function existingLaneCandidate(candidates, researchState) {
+  const byKey = new Map(candidates.map((candidate) => [normalizeTitleKey(candidate?.title || candidate?.key), candidate]));
+  for (const entry of Array.isArray(researchState?.frontier) ? researchState.frontier : []) {
+    for (const hint of Array.isArray(entry?.candidateHints) ? entry.candidateHints : []) {
+      const candidate = byKey.get(normalizeTitleKey(hint));
+      if (candidate) return candidate;
     }
   }
-  return addResearchFrontier(researchState, entries);
+  return null;
+}
+
+function candidateResearchRoots(candidate, researchState) {
+  const title = String(candidate?.title || candidate?.key || '').trim();
+  const entries = representativeRoots(candidate).map((url) => ({
+    url,
+    priority: 700,
+    depth: 0,
+    discoveredFrom: '',
+    candidateHints: [title]
+  }));
+  const titleSearchUrl = researchState?.titleSearch?.[normalizeTitleKey(title)]?.url;
+  if (titleSearchUrl) {
+    entries.push({
+      url: titleSearchUrl,
+      priority: 900,
+      depth: 0,
+      discoveredFrom: WIKIPEDIA_API,
+      candidateHints: [title]
+    });
+  }
+  return entries;
+}
+
+function hasUnvisitedRoot(candidate, researchState) {
+  const visited = new Set(researchState?.visited || []);
+  return candidateResearchRoots(candidate, researchState)
+    .some((entry) => !visited.has(urlHash(entry.url)));
+}
+
+export function seedKnownResearchRoots(state, researchState, selectedCandidate = null) {
+  const candidate = selectedCandidate || existingLaneCandidate(pendingCandidates(state), researchState);
+  if (!candidate) return 0;
+  return addResearchFrontier(researchState, candidateResearchRoots(candidate, researchState));
 }
 
 export async function seedTitleBasedResearchRoots(state, researchState, {
@@ -156,33 +197,49 @@ export async function seedTitleBasedResearchRoots(state, researchState, {
   observedAt = new Date().toISOString(),
   timeoutMs = 15000
 } = {}) {
-  const selected = pendingCandidates(state)
-    .map((candidate) => String(candidate.title || candidate.key || '').trim())
-    .filter((title) => title && !recentlySearched(researchState, title, observedAt));
+  const candidates = pendingCandidates(state);
+  const existing = existingLaneCandidate(candidates, researchState);
+  if (existing) {
+    const frontierAdded = seedKnownResearchRoots(state, researchState, existing);
+    return {
+      searched: 0,
+      resolved: 0,
+      frontierAdded,
+      pendingCandidates: candidates.length,
+      selectedTitle: String(existing.title || existing.key || '')
+    };
+  }
 
   let searched = 0;
   let resolved = 0;
-  let frontierAdded = 0;
+  let selectedCandidate = null;
 
-  for (let offset = 0; offset < selected.length; offset += MEDIAWIKI_TITLE_BATCH) {
-    const batch = selected.slice(offset, offset + MEDIAWIKI_TITLE_BATCH);
-    const results = await resolveWikipediaTitles(batch, { fetchImpl, timeoutMs });
-    searched += batch.length;
-    for (const title of batch) {
+  for (let offset = 0; offset < candidates.length && !selectedCandidate; offset += SEARCH_WINDOW) {
+    const window = candidates.slice(offset, offset + SEARCH_WINDOW);
+    const toSearch = window
+      .map((candidate) => String(candidate.title || candidate.key || '').trim())
+      .filter((title) => title && !recentlySearched(researchState, title, observedAt));
+    const results = await resolveWikipediaTitles(toSearch, { fetchImpl, timeoutMs });
+    searched += toSearch.length;
+
+    for (const title of toSearch) {
       const url = results.get(normalizeTitleKey(title)) || '';
       recordTitleSearch(researchState, title, { checkedAt: observedAt, url });
-      if (!url) continue;
-      resolved += 1;
-      frontierAdded += addResearchFrontier(researchState, [{
-        url,
-        priority: 900,
-        depth: 0,
-        discoveredFrom: WIKIPEDIA_API,
-        candidateHints: [title]
-      }]);
+      if (url) resolved += 1;
     }
+
+    selectedCandidate = window.find((candidate) => hasUnvisitedRoot(candidate, researchState)) || null;
   }
 
-  frontierAdded += seedKnownResearchRoots(state, researchState);
-  return { searched, resolved, frontierAdded, pendingCandidates: pendingCandidates(state).length };
+  const frontierAdded = selectedCandidate
+    ? addResearchFrontier(researchState, candidateResearchRoots(selectedCandidate, researchState))
+    : 0;
+
+  return {
+    searched,
+    resolved,
+    frontierAdded,
+    pendingCandidates: candidates.length,
+    selectedTitle: selectedCandidate ? String(selectedCandidate.title || selectedCandidate.key || '') : ''
+  };
 }
