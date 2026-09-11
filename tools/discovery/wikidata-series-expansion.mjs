@@ -5,6 +5,7 @@ import { normalizeUrl, urlHash } from './url.mjs';
 
 const ENDPOINT = 'https://query.wikidata.org/sparql';
 const DEFAULT_SERIES_LIMIT = 12;
+export const SERIES_EXPANSION_RETRY_DELAY_MS = 24 * 60 * 60 * 1000;
 
 function cleanTitle(value) {
   const title = String(value || '').normalize('NFKC').replace(/\s+/g, ' ').trim().slice(0, 120);
@@ -37,8 +38,23 @@ function refFromQid(qid) {
   return `https://www.wikidata.org/entity/${qid}`;
 }
 
+function sanitizeDeferredRefs(values) {
+  const byRef = new Map();
+  for (const item of Array.isArray(values) ? values : []) {
+    const qid = qidFromRef(item?.ref);
+    const retryAt = Date.parse(String(item?.retryAfter || ''));
+    if (!qid || !Number.isFinite(retryAt)) continue;
+    const ref = refFromQid(qid);
+    const current = byRef.get(ref);
+    if (!current || retryAt > Date.parse(current.retryAfter)) {
+      byRef.set(ref, { ref, retryAfter: new Date(retryAt).toISOString() });
+    }
+  }
+  return [...byRef.values()];
+}
+
 export function emptyWikidataSeriesExpansionState() {
-  return { version: 1, expandedRefs: [], lastRunAt: '' };
+  return { version: 1, expandedRefs: [], deferredRefs: [], lastRunAt: '' };
 }
 
 export function sanitizeWikidataSeriesExpansionState(value) {
@@ -51,13 +67,18 @@ export function sanitizeWikidataSeriesExpansionState(value) {
     seen.add(refFromQid(qid));
   }
   state.expandedRefs = [...seen];
+  state.deferredRefs = sanitizeDeferredRefs(value.deferredRefs)
+    .filter((item) => !seen.has(item.ref));
   state.lastRunAt = String(value.lastRunAt || '').slice(0, 40);
   return state;
 }
 
-export function pendingWikidataSeriesRefs(state, limit = Number.POSITIVE_INFINITY) {
+export function pendingWikidataSeriesRefs(state, limit = Number.POSITIVE_INFINITY, now = new Date()) {
   const progress = sanitizeWikidataSeriesExpansionState(state?.wikidataSeriesExpansion);
   const expanded = new Set(progress.expandedRefs);
+  const nowMs = now instanceof Date ? now.getTime() : Date.parse(String(now || ''));
+  const effectiveNow = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const deferred = new Map(progress.deferredRefs.map((item) => [item.ref, Date.parse(item.retryAfter)]));
   const refs = [];
   const seen = new Set();
   const bounded = Number.isFinite(Number(limit)) ? Math.max(0, Math.trunc(Number(limit))) : Number.POSITIVE_INFINITY;
@@ -66,6 +87,8 @@ export function pendingWikidataSeriesRefs(state, limit = Number.POSITIVE_INFINIT
     if (!qid) continue;
     const ref = refFromQid(qid);
     if (expanded.has(ref) || seen.has(ref)) continue;
+    const retryAt = deferred.get(ref);
+    if (Number.isFinite(retryAt) && retryAt > effectiveNow) continue;
     seen.add(ref);
     refs.push(ref);
     if (refs.length >= bounded) break;
@@ -138,8 +161,10 @@ export async function expandSeriesFromWikidata(state, {
   }
   const progress = sanitizeWikidataSeriesExpansionState(state.wikidataSeriesExpansion);
   state.wikidataSeriesExpansion = progress;
+  const observedMs = Date.parse(observedAt);
+  const observedDate = Number.isFinite(observedMs) ? new Date(observedMs) : new Date();
   const boundedLimit = Math.max(1, Math.min(50, Math.trunc(Number(limit) || DEFAULT_SERIES_LIMIT)));
-  const refs = pendingWikidataSeriesRefs(state, boundedLimit);
+  const refs = pendingWikidataSeriesRefs(state, boundedLimit, observedDate);
   if (!refs.length) {
     return { seriesRequested: 0, rows: 0, seriesExpanded: 0, candidatesAdded: 0, evidenceAdded: 0, officialFrontierAdded: 0, memberCount: 0 };
   }
@@ -239,10 +264,21 @@ export async function expandSeriesFromWikidata(state, {
 
   state.candidates = [...candidateMap.values()];
   const expanded = new Set(progress.expandedRefs);
+  const expandedThisRunSet = new Set(expandedThisRun);
   for (const ref of expandedThisRun) expanded.add(ref);
   progress.expandedRefs = [...expanded];
+
+  const deferred = new Map(progress.deferredRefs.map((item) => [item.ref, item]));
+  for (const ref of expandedThisRun) deferred.delete(ref);
+  const retryAfter = new Date(observedDate.getTime() + SERIES_EXPANSION_RETRY_DELAY_MS).toISOString();
+  for (const ref of refs) {
+    if (!expandedThisRunSet.has(ref)) deferred.set(ref, { ref, retryAfter });
+  }
+  progress.deferredRefs = [...deferred.values()]
+    .filter((item) => candidatesBySeriesRef.has(item.ref) && !expanded.has(item.ref));
   progress.lastRunAt = observedAt;
   state.wikidataSeriesExpansion = progress;
+
   const memberCount = [...groups.values()].reduce((sum, group) => sum + group.members.length, 0);
   return {
     seriesRequested: refs.length,
