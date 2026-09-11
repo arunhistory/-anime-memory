@@ -15,6 +15,7 @@ let cycle = startResearchCycle([hashA], start);
 assert.equal(cycle.active, true);
 assert.equal(cycle.lastNewDiscoveryAt, start.toISOString());
 assert.equal(cycle.waitingForInactivity, false);
+assert.equal(cycle.resumeAfter, '');
 
 let result = checkpointResearchCycle(cycle, [hashA], {
   now: new Date(start.getTime() + RESEARCH_INACTIVITY_LIMIT_MS - 1),
@@ -51,18 +52,51 @@ assert.equal(result.cycle.active, true, 'empty web frontier must not stop while 
 assert.equal(result.workRemaining, true);
 assert.equal(result.cycle.waitingForInactivity, false);
 
+const backoffUntil = new Date(start.getTime() + 5 * 60 * 1000).toISOString();
+cycle = startResearchCycle([], start);
+result = checkpointResearchCycle(cycle, [], {
+  now: start,
+  frontier: 0,
+  bootstrapIncomplete: true,
+  pendingSeries: 0,
+  wikidataBackoffUntil: backoffUntil
+});
+assert.equal(result.cycle.active, true);
+assert.equal(result.workRemaining, false, 'Wikidata-only work must not trigger immediate redispatch during Retry-After');
+assert.equal(result.cycle.waitingForInactivity, true);
+assert.equal(result.cycle.resumeAfter, backoffUntil);
+let backoffTimeout = timeoutResearchCycle(result.cycle, { now: new Date(start.getTime() + 4 * 60 * 1000) });
+assert.equal(backoffTimeout.resumeResearch, false, 'watcher must not resume before Retry-After');
+backoffTimeout = timeoutResearchCycle(result.cycle, { now: new Date(start.getTime() + 5 * 60 * 1000) });
+assert.equal(backoffTimeout.resumeResearch, true, 'watcher must resume research when Retry-After expires');
+assert.equal(backoffTimeout.stopped, false);
+
+cycle = startResearchCycle([], start);
+result = checkpointResearchCycle(cycle, [], {
+  now: start,
+  frontier: 2,
+  bootstrapIncomplete: true,
+  pendingSeries: 0,
+  wikidataBackoffUntil: backoffUntil
+});
+assert.equal(result.workRemaining, true, 'web frontier work must continue while Wikidata is throttled');
+assert.equal(result.cycle.waitingForInactivity, false);
+assert.equal(result.cycle.resumeAfter, '');
+
 cycle = startResearchCycle([], start);
 result = checkpointResearchCycle(cycle, [], { now: start, frontier: 0, bootstrapIncomplete: false, pendingSeries: 0 });
 assert.equal(result.cycle.active, true, 'research exhaustion must wait for the 24-hour no-new-work condition');
 assert.equal(result.cycle.stopReason, '');
 assert.equal(result.workRemaining, false);
 assert.equal(result.cycle.waitingForInactivity, true);
+assert.equal(result.cycle.resumeAfter, '');
 
 let timeout = timeoutResearchCycle(result.cycle, {
   now: new Date(start.getTime() + RESEARCH_INACTIVITY_LIMIT_MS - 1)
 });
 assert.equal(timeout.cycle.active, true, 'timeout watcher must not stop before 24 hours');
 assert.equal(timeout.stopped, false);
+assert.equal(timeout.resumeResearch, false);
 
 timeout = timeoutResearchCycle(result.cycle, {
   now: new Date(start.getTime() + RESEARCH_INACTIVITY_LIMIT_MS)
@@ -70,16 +104,19 @@ timeout = timeoutResearchCycle(result.cycle, {
 assert.equal(timeout.cycle.active, false);
 assert.equal(timeout.cycle.stopReason, 'no-new-publishable-work-24h');
 assert.equal(timeout.stopped, true);
+assert.equal(timeout.resumeResearch, false);
 
 cycle = startResearchCycle([], start);
 result = checkpointResearchCycle(cycle, [], {
   now: new Date(start.getTime() + RESEARCH_INACTIVITY_LIMIT_MS),
   frontier: 0,
   bootstrapIncomplete: true,
-  pendingSeries: 0
+  pendingSeries: 0,
+  wikidataBackoffUntil: new Date(start.getTime() + RESEARCH_INACTIVITY_LIMIT_MS + 60_000).toISOString()
 });
-assert.equal(result.cycle.active, false);
+assert.equal(result.cycle.active, false, '24-hour inactivity stop must take precedence over future Retry-After');
 assert.equal(result.cycle.stopReason, 'no-new-publishable-work-24h');
+assert.equal(result.cycle.resumeAfter, '');
 
 const manyFingerprints = Array.from({ length: 20001 }, (_, index) => index.toString(16).padStart(64, '0'));
 cycle = startResearchCycle(manyFingerprints, start);
@@ -162,5 +199,7 @@ console.log('Research cycle self-test: PASS');
 console.log('24-hour no-new-publishable-work stop: PASS');
 console.log('new publishable work resets inactivity timer: PASS');
 console.log('identity-only sparse work does not reset inactivity: PASS');
+console.log('Wikidata Retry-After pause/resume: PASS');
+console.log('web work continues during Wikidata backoff: PASS');
 console.log('exhausted research waits without redispatch until inactivity timeout: PASS');
 console.log('eligible history over 20k: PRESERVED');
