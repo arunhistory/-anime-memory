@@ -13,20 +13,22 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Run bounded probe against temporary crawler state
+      - name: Run two bounded batches against temporary crawler state
         env:
           DISCOVERY_MIN_DELAY_MS: '1000'
           WIKIDATA_SERIES_EXPANSION_DISABLED: 'true'
-          WIKIDATA_ARTICLE_BACKFILL_LIMIT: '10'
         run: |
           rm -rf /tmp/crawler-diag
           cp -R crawler /tmp/crawler-diag
+          echo '=== BATCH 1 ==='
+          node tools/discovery/run.mjs --state /tmp/crawler-diag/state.json --max-pages 30 --max-depth 12 --per-host-limit 30
+          echo '=== BATCH 2 ==='
           node tools/discovery/run.mjs --state /tmp/crawler-diag/state.json --max-pages 30 --max-depth 12 --per-host-limit 30
 
       - name: Diagnose information evidence convergence
