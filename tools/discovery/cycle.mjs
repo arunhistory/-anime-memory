@@ -7,6 +7,7 @@ import { loadDiscoveryState } from './state.mjs';
 import { publishableDiscoveryReadiness } from './to-record.mjs';
 import { discoveryExternalIdForKey } from './series-record.mjs';
 import { pendingWikidataSeriesRefs } from './wikidata-series-expansion.mjs';
+import { activeWikidataBackoffUntil } from './wikidata-backoff.mjs';
 
 export const RESEARCH_INACTIVITY_LIMIT_MS = 24 * 60 * 60 * 1000;
 
@@ -46,6 +47,7 @@ export function emptyResearchCycle() {
     stoppedAt: '',
     stopReason: '',
     waitingForInactivity: false,
+    resumeAfter: '',
     seenEligible: []
   };
 }
@@ -63,6 +65,7 @@ export function loadResearchCycle(filePath) {
     stoppedAt: validIso(input.stoppedAt) ? input.stoppedAt : '',
     stopReason: String(input.stopReason || '').slice(0, 80),
     waitingForInactivity: Boolean(input.waitingForInactivity),
+    resumeAfter: validIso(input.resumeAfter) ? input.resumeAfter : '',
     seenEligible: [...new Set((Array.isArray(input.seenEligible) ? input.seenEligible : [])
       .map(String)
       .filter((value) => /^[a-f0-9]{64}$/.test(value)))]
@@ -92,7 +95,7 @@ export function publishableCandidateFingerprints(state, registeredDiscoveryIds =
   return [...new Set(fingerprints)];
 }
 
-export function eligibleDiscoveryRecords({ root = process.cwd() } = {}) {
+export function eligibleDiscoveryRecords({ root = process.cwd(), now = new Date() } = {}) {
   const columns = loadColumns(root);
   const state = loadDiscoveryState(path.join(root, 'crawler', 'state.json'));
   const existing = readDataRecords(path.join(root, 'data'), columns);
@@ -107,7 +110,8 @@ export function eligibleDiscoveryRecords({ root = process.cwd() } = {}) {
     fingerprints: publishableCandidateFingerprints(state, registeredDiscoveryIds),
     frontier: state.frontier.length,
     bootstrapIncomplete: !Boolean(state.wikidataBootstrap?.completed),
-    pendingSeries: pendingWikidataSeriesRefs(state).length
+    pendingSeries: pendingWikidataSeriesRefs(state, Number.POSITIVE_INFINITY, now).length,
+    wikidataBackoffUntil: activeWikidataBackoffUntil(state, now)
   };
 }
 
@@ -122,6 +126,7 @@ export function startResearchCycle(fingerprints, now = new Date()) {
     stoppedAt: '',
     stopReason: '',
     waitingForInactivity: false,
+    resumeAfter: '',
     seenEligible: [...new Set(fingerprints)]
   };
 }
@@ -130,10 +135,17 @@ export function checkpointResearchCycle(cycle, fingerprints, {
   now = new Date(),
   frontier = 1,
   bootstrapIncomplete = false,
-  pendingSeries = 0
+  pendingSeries = 0,
+  wikidataBackoffUntil = ''
 } = {}) {
-  const workRemaining = frontier > 0 || Boolean(bootstrapIncomplete) || Number(pendingSeries || 0) > 0;
-  if (!cycle.active) return { cycle, newConfirmed: 0, inactiveMs: 0, workRemaining };
+  const backoffMs = Date.parse(String(wikidataBackoffUntil || ''));
+  const backoffActive = Number.isFinite(backoffMs) && backoffMs > now.getTime();
+  const wikidataWork = Boolean(bootstrapIncomplete) || Number(pendingSeries || 0) > 0;
+  const workRemaining = frontier > 0 || (wikidataWork && !backoffActive);
+  const resumeAfter = frontier === 0 && wikidataWork && backoffActive
+    ? new Date(backoffMs).toISOString()
+    : '';
+  if (!cycle.active) return { cycle, newConfirmed: 0, inactiveMs: 0, workRemaining, resumeAfter };
 
   const seen = new Set(cycle.seenEligible);
   const additions = [...new Set(fingerprints)].filter((value) => !seen.has(value));
@@ -141,6 +153,7 @@ export function checkpointResearchCycle(cycle, fingerprints, {
   const next = {
     ...cycle,
     waitingForInactivity: !workRemaining,
+    resumeAfter,
     seenEligible: [...seen]
   };
   if (additions.length) next.lastNewDiscoveryAt = now.toISOString();
@@ -151,26 +164,30 @@ export function checkpointResearchCycle(cycle, fingerprints, {
     next.stoppedAt = now.toISOString();
     next.stopReason = 'no-new-publishable-work-24h';
     next.waitingForInactivity = false;
+    next.resumeAfter = '';
   }
-  return { cycle: next, newConfirmed: additions.length, inactiveMs, workRemaining };
+  return { cycle: next, newConfirmed: additions.length, inactiveMs, workRemaining, resumeAfter: next.resumeAfter };
 }
 
 export function timeoutResearchCycle(cycle, { now = new Date() } = {}) {
-  if (!cycle.active || !cycle.waitingForInactivity) {
-    return { cycle, inactiveMs: inactivityMs(cycle, now), stopped: false };
-  }
   const inactiveMs = inactivityMs(cycle, now);
-  if (inactiveMs < RESEARCH_INACTIVITY_LIMIT_MS) {
-    return { cycle, inactiveMs, stopped: false };
+  if (!cycle.active || !cycle.waitingForInactivity) {
+    return { cycle, inactiveMs, stopped: false, resumeResearch: false };
   }
-  const next = {
-    ...cycle,
-    active: false,
-    stoppedAt: now.toISOString(),
-    stopReason: 'no-new-publishable-work-24h',
-    waitingForInactivity: false
-  };
-  return { cycle: next, inactiveMs, stopped: true };
+  if (inactiveMs >= RESEARCH_INACTIVITY_LIMIT_MS) {
+    const next = {
+      ...cycle,
+      active: false,
+      stoppedAt: now.toISOString(),
+      stopReason: 'no-new-publishable-work-24h',
+      waitingForInactivity: false,
+      resumeAfter: ''
+    };
+    return { cycle: next, inactiveMs, stopped: true, resumeResearch: false };
+  }
+  const resumeMs = Date.parse(String(cycle.resumeAfter || ''));
+  const resumeResearch = Number.isFinite(resumeMs) && now.getTime() >= resumeMs;
+  return { cycle, inactiveMs, stopped: false, resumeResearch };
 }
 
 function setGithubOutput(name, value) {
@@ -189,19 +206,23 @@ async function main() {
   let newConfirmed = 0;
   let inactiveMs = inactivityMs(cycle, now);
   let workRemaining = !cycle.waitingForInactivity;
+  let resumeResearch = false;
 
   if (command === 'start') {
-    const eligible = eligibleDiscoveryRecords({ root });
+    const eligible = eligibleDiscoveryRecords({ root, now });
     cycle = startResearchCycle(eligible.fingerprints, now);
-    workRemaining = eligible.frontier > 0 || eligible.bootstrapIncomplete || eligible.pendingSeries > 0;
+    const backoffMs = Date.parse(String(eligible.wikidataBackoffUntil || ''));
+    const backoffActive = Number.isFinite(backoffMs) && backoffMs > now.getTime();
+    workRemaining = eligible.frontier > 0 || ((eligible.bootstrapIncomplete || eligible.pendingSeries > 0) && !backoffActive);
     saveResearchCycle(filePath, cycle);
   } else if (command === 'checkpoint') {
-    const eligible = eligibleDiscoveryRecords({ root });
+    const eligible = eligibleDiscoveryRecords({ root, now });
     const result = checkpointResearchCycle(cycle, eligible.fingerprints, {
       now,
       frontier: eligible.frontier,
       bootstrapIncomplete: eligible.bootstrapIncomplete,
-      pendingSeries: eligible.pendingSeries
+      pendingSeries: eligible.pendingSeries,
+      wikidataBackoffUntil: eligible.wikidataBackoffUntil
     });
     cycle = result.cycle;
     newConfirmed = result.newConfirmed;
@@ -212,12 +233,14 @@ async function main() {
     const result = timeoutResearchCycle(cycle, { now });
     cycle = result.cycle;
     inactiveMs = result.inactiveMs;
+    resumeResearch = result.resumeResearch;
     if (result.stopped) saveResearchCycle(filePath, cycle);
   } else if (command === 'stop') {
     cycle.active = false;
     cycle.stoppedAt = now.toISOString();
     cycle.stopReason = String(args.reason || 'manual-stop').slice(0, 80);
     cycle.waitingForInactivity = false;
+    cycle.resumeAfter = '';
     saveResearchCycle(filePath, cycle);
   } else if (command !== 'status') {
     throw new Error('cycle command must be start, checkpoint, timeout, stop, or status');
@@ -229,11 +252,14 @@ async function main() {
   setGithubOutput('stop_reason', cycle.stopReason);
   setGithubOutput('waiting_for_inactivity', cycle.waitingForInactivity ? 'true' : 'false');
   setGithubOutput('work_remaining', workRemaining ? 'true' : 'false');
+  setGithubOutput('resume_research', resumeResearch ? 'true' : 'false');
+  setGithubOutput('resume_after', cycle.resumeAfter || '');
   console.log(JSON.stringify({
     ...cycle,
     newConfirmed,
     inactiveSeconds: Math.floor(inactiveMs / 1000),
-    workRemaining
+    workRemaining,
+    resumeResearch
   }));
 }
 
