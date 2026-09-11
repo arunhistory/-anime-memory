@@ -1,3 +1,5 @@
+import { normalizeOfficialLandingUrl } from './official-page.mjs';
+
 const MAX_LABEL_VALUE = 180;
 
 export const ADDITIONAL_SCALAR_FIELDS = new Set([
@@ -46,7 +48,6 @@ export const ADDITIONAL_MULTI_FIELDS = new Set([
   'broadcast_networks'
 ]);
 
-const DETAIL_PATH_SEGMENT = /^(?:staff|cast|staffcast|cast-staff|character|characters|chara|music|song|theme|onair|broadcast|schedule|stream|streaming|delivery|vod|episode|episodes|story|news|article|press|topics?|contact|privacy|policy|terms|recruit|company)$/i;
 const X_RESERVED = new Set(['home', 'explore', 'search', 'i', 'intent', 'share', 'hashtag', 'messages', 'compose', 'settings', 'login', 'signup', 'tos', 'privacy', 'status']);
 
 function clean(value, max = MAX_LABEL_VALUE) {
@@ -137,21 +138,7 @@ function extractNumbers(context) {
 }
 
 function normalizedLandingUrl(document) {
-  const raw = document?.canonical || document?.url;
-  if (!raw) return '';
-  let parsed;
-  try {
-    parsed = new URL(raw);
-  } catch {
-    return '';
-  }
-  if (!['http:', 'https:'].includes(parsed.protocol)) return '';
-  parsed.hash = '';
-  parsed.search = '';
-  const segments = parsed.pathname.split('/').filter(Boolean);
-  if (segments.length > 2) return '';
-  if (segments.some((segment) => DETAIL_PATH_SEGMENT.test(segment))) return '';
-  return parsed.href;
+  return normalizeOfficialLandingUrl(document?.canonical || document?.url);
 }
 
 function socialAnchorAllowed(anchor, platform, { landingPage = false } = {}) {
