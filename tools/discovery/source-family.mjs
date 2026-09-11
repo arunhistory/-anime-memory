@@ -1,3 +1,5 @@
+import { sanitizeLegacyEvidenceItem } from './legacy-evidence.mjs';
+
 const JP_SECOND_LEVEL = new Set(['ac', 'ad', 'co', 'ed', 'go', 'gr', 'lg', 'ne', 'or']);
 
 function normalizedHost(url) {
@@ -40,7 +42,9 @@ export function collapseSameFamilyEvidence(evidence = []) {
   const selected = new Map();
   const passthrough = [];
 
-  for (const item of Array.isArray(evidence) ? evidence : []) {
+  for (const rawItem of Array.isArray(evidence) ? evidence : []) {
+    const item = sanitizeLegacyEvidenceItem(rawItem);
+    if (!item) continue;
     const family = sourceFamilyKey(item?.sourceUrl);
     const field = String(item?.field || '');
     const value = String(item?.value || '');
