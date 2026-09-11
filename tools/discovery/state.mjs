@@ -21,7 +21,9 @@ const SHARDED_STATE_VERSION = 2;
 const SHARDED_STATE_STORAGE = 'sharded-v1';
 const SHARD_DIRECTORY = 'state-shards';
 const TARGET_SHARD_BYTES = 4 * 1024 * 1024;
-const SHARD_KINDS = ['frontier', 'visited', 'documents', 'candidates', 'calibrationSeen'];
+const STATE_ARRAY_SHARD_KINDS = ['frontier', 'visited', 'documents', 'candidates', 'calibrationSeen'];
+const STRATEGY_SHARD_KINDS = ['researchOperations', 'researchTrust'];
+const ALL_SHARD_KINDS = [...STATE_ARRAY_SHARD_KINDS, ...STRATEGY_SHARD_KINDS];
 
 export function emptyDiscoveryState() {
   return {
@@ -70,16 +72,16 @@ function atomicWriteText(filePath, text) {
   fs.renameSync(temp, filePath);
 }
 
-function generationName() {
+function revisionName() {
   const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
-  return `g-${stamp}-${crypto.randomBytes(6).toString('hex')}`;
+  return `r-${stamp}-${crypto.randomBytes(6).toString('hex')}`;
 }
 
-function descriptorPath(generation, kind, index) {
-  return `${SHARD_DIRECTORY}/${generation}/${kind}-${String(index).padStart(5, '0')}.json`;
+function descriptorPath(kind, index) {
+  return `${SHARD_DIRECTORY}/${kind}-${String(index).padStart(5, '0')}.json`;
 }
 
-function shardDescriptorsFor(generation, kind, values, baseDir) {
+function shardDescriptorsFor(kind, values, baseDir) {
   const source = Array.isArray(values) ? values : [];
   const descriptors = [];
   let jsonItems = [];
@@ -88,7 +90,7 @@ function shardDescriptorsFor(generation, kind, values, baseDir) {
   const flush = () => {
     if (!jsonItems.length) return;
     const index = descriptors.length;
-    const relative = descriptorPath(generation, kind, index);
+    const relative = descriptorPath(kind, index);
     const text = `[${jsonItems.join(',')}]\n`;
     const descriptor = {
       file: relative,
@@ -115,23 +117,23 @@ function shardDescriptorsFor(generation, kind, values, baseDir) {
   return descriptors;
 }
 
-function validateShardDescriptor(generation, kind, descriptor, index) {
+function validateShardDescriptor(kind, descriptor, index) {
   if (!descriptor || typeof descriptor !== 'object' || Array.isArray(descriptor)) {
     throw new Error(`state-shard-descriptor-invalid:${kind}:${index}`);
   }
-  const expectedFile = descriptorPath(generation, kind, index);
+  const expectedFile = descriptorPath(kind, index);
   if (descriptor.file !== expectedFile) throw new Error(`state-shard-path-invalid:${kind}:${index}`);
   if (!Number.isInteger(descriptor.count) || descriptor.count < 0) throw new Error(`state-shard-count-invalid:${kind}:${index}`);
   if (!Number.isInteger(descriptor.bytes) || descriptor.bytes < 3) throw new Error(`state-shard-bytes-invalid:${kind}:${index}`);
   if (!/^[a-f0-9]{64}$/.test(String(descriptor.sha256 || ''))) throw new Error(`state-shard-hash-invalid:${kind}:${index}`);
 }
 
-function readShardKind(baseDir, generation, kind, descriptors, expectedCount) {
+function readShardKind(baseDir, kind, descriptors, expectedCount) {
   if (!Array.isArray(descriptors)) throw new Error(`state-shard-list-invalid:${kind}`);
   const output = [];
   for (let index = 0; index < descriptors.length; index += 1) {
     const descriptor = descriptors[index];
-    validateShardDescriptor(generation, kind, descriptor, index);
+    validateShardDescriptor(kind, descriptor, index);
     const absolute = path.resolve(baseDir, descriptor.file);
     const shardRoot = `${path.resolve(baseDir, SHARD_DIRECTORY)}${path.sep}`;
     if (!absolute.startsWith(shardRoot)) throw new Error(`state-shard-path-escape:${kind}:${index}`);
@@ -149,25 +151,60 @@ function readShardKind(baseDir, generation, kind, descriptors, expectedCount) {
   return output;
 }
 
+function entriesToRecord(entries, kind) {
+  const output = Object.create(null);
+  const seen = new Set();
+  for (let index = 0; index < entries.length; index += 1) {
+    const pair = entries[index];
+    if (!Array.isArray(pair) || pair.length !== 2) throw new Error(`state-shard-entry-invalid:${kind}:${index}`);
+    const key = String(pair[0] || '');
+    if (!key || seen.has(key)) throw new Error(`state-shard-entry-key-invalid:${kind}:${index}`);
+    seen.add(key);
+    output[key] = pair[1];
+  }
+  return output;
+}
+
 function loadShardedState(filePath, manifest) {
   if (manifest.storage !== SHARDED_STATE_STORAGE || manifest.version !== SHARDED_STATE_VERSION) {
     throw new Error('discovery-state-storage-unsupported');
   }
   const baseDir = path.dirname(filePath);
-  const generation = String(manifest.generation || '');
-  if (!/^g-\d{14}-[a-f0-9]{12}$/.test(generation)) throw new Error('discovery-state-generation-invalid');
+  const revision = String(manifest.revision || '');
+  if (!/^r-\d{14}-[a-f0-9]{12}$/.test(revision)) throw new Error('discovery-state-revision-invalid');
   const shards = manifest.shards;
   const counts = manifest.counts;
   if (!shards || typeof shards !== 'object' || Array.isArray(shards)) throw new Error('discovery-state-shards-missing');
   if (!counts || typeof counts !== 'object' || Array.isArray(counts)) throw new Error('discovery-state-counts-missing');
   const reconstructed = {
     version: 1,
-    researchStrategy: manifest.researchStrategy,
+    researchStrategy: {
+      version: 1,
+      operations: {},
+      trust: {},
+      updatedAt: String(manifest.researchStrategy?.updatedAt || '').slice(0, 40)
+    },
     wikidataBootstrap: manifest.wikidataBootstrap,
     wikidataSeriesExpansion: manifest.wikidataSeriesExpansion,
     updatedAt: manifest.updatedAt
   };
-  for (const kind of SHARD_KINDS) reconstructed[kind] = readShardKind(baseDir, generation, kind, shards[kind], counts[kind]);
+  for (const kind of STATE_ARRAY_SHARD_KINDS) {
+    reconstructed[kind] = readShardKind(baseDir, kind, shards[kind], counts[kind]);
+  }
+  const operationEntries = readShardKind(
+    baseDir,
+    'researchOperations',
+    shards.researchOperations,
+    counts.researchOperations
+  );
+  const trustEntries = readShardKind(
+    baseDir,
+    'researchTrust',
+    shards.researchTrust,
+    counts.researchTrust
+  );
+  reconstructed.researchStrategy.operations = entriesToRecord(operationEntries, 'researchOperations');
+  reconstructed.researchStrategy.trust = entriesToRecord(trustEntries, 'researchTrust');
   return sanitizeState(reconstructed);
 }
 
@@ -298,45 +335,66 @@ function sanitizeCandidates(values, trustModel) {
     .filter((candidate) => candidate.key && candidate.title);
 }
 
-function cleanStaleShardGenerations(baseDir, activeGeneration) {
+function cleanStaleShardFiles(baseDir, activeFiles) {
   const shardDir = path.join(baseDir, SHARD_DIRECTORY);
   if (!fs.existsSync(shardDir)) return;
+  const active = new Set(activeFiles);
   for (const name of fs.readdirSync(shardDir)) {
-    if (!/^g-\d{14}-[a-f0-9]{12}$/.test(name) || name === activeGeneration) continue;
-    const absolute = path.join(shardDir, name);
-    if (fs.statSync(absolute).isDirectory()) fs.rmSync(absolute, { recursive: true, force: true });
+    if (!/^(?:frontier|visited|documents|candidates|calibrationSeen|researchOperations|researchTrust)-\d{5}\.json$/.test(name)) continue;
+    const relative = `${SHARD_DIRECTORY}/${name}`;
+    if (!active.has(relative)) fs.rmSync(path.join(shardDir, name), { force: true });
   }
 }
 
 function writeShardedState(filePath, clean) {
   const baseDir = path.dirname(filePath);
   fs.mkdirSync(baseDir, { recursive: true });
-  const generation = generationName();
+  const revision = revisionName();
   const shards = {};
   const counts = {};
-  for (const kind of SHARD_KINDS) {
+  for (const kind of STATE_ARRAY_SHARD_KINDS) {
     counts[kind] = Array.isArray(clean[kind]) ? clean[kind].length : 0;
-    shards[kind] = shardDescriptorsFor(generation, kind, clean[kind], baseDir);
+    shards[kind] = shardDescriptorsFor(kind, clean[kind], baseDir);
+  }
+
+  const strategyArrays = {
+    researchOperations: Object.entries(clean.researchStrategy?.operations || {}),
+    researchTrust: Object.entries(clean.researchStrategy?.trust || {})
+  };
+  for (const kind of STRATEGY_SHARD_KINDS) {
+    counts[kind] = strategyArrays[kind].length;
+    shards[kind] = shardDescriptorsFor(kind, strategyArrays[kind], baseDir);
+  }
+
+  for (const kind of ALL_SHARD_KINDS) {
+    if (!Array.isArray(shards[kind])) throw new Error(`state-shard-write-missing:${kind}`);
   }
 
   const manifest = {
     version: SHARDED_STATE_VERSION,
     storage: SHARDED_STATE_STORAGE,
-    generation,
+    revision,
     shardTargetBytes: TARGET_SHARD_BYTES,
     counts,
     shards,
-    researchStrategy: clean.researchStrategy,
+    researchStrategy: {
+      version: 1,
+      updatedAt: String(clean.researchStrategy?.updatedAt || '').slice(0, 40)
+    },
     wikidataBootstrap: clean.wikidataBootstrap,
     wikidataSeriesExpansion: clean.wikidataSeriesExpansion,
     updatedAt: clean.updatedAt
   };
 
-  // All new-generation shards are durable before the manifest switches readers to them.
-  // If the process stops before this atomic rename, the previous manifest and generation
-  // remain valid. Old generations are removed only after the new manifest is committed.
+  // Each shard is written through a same-filesystem temporary file. The manifest is
+  // switched only after every shard write succeeds. Git workflows commit the manifest
+  // and all shard paths together, so an interrupted run never publishes a partial set.
   atomicWriteText(filePath, `${JSON.stringify(manifest, null, 2)}\n`);
-  cleanStaleShardGenerations(baseDir, generation);
+  // Verify the just-written manifest and every shard before callers can stage the state.
+  // A failed verification aborts the workflow, so Git never publishes an inconsistent set.
+  loadShardedState(filePath, manifest);
+  const activeFiles = Object.values(shards).flat().map((descriptor) => descriptor.file);
+  cleanStaleShardFiles(baseDir, activeFiles);
   return manifest;
 }
 
