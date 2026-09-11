@@ -27,11 +27,23 @@ import {
   emptyResearchStrategyState,
   learnSourceTrustFromKnownRecord,
   recordResearchOperation,
+  researchRouteKind,
   scoreResearchRoute
 } from './research-strategy.mjs';
 import { calibrateSourceTrustFromConsensus } from './trust-calibration.mjs';
 import { resolveEvidenceWithTrust } from './trust-resolution.mjs';
 import { normalizeUrl, urlHash, hostKey } from './url.mjs';
+
+const DISCOVERY_DEEP_ROUTES = new Set([
+  'staff',
+  'character',
+  'streaming',
+  'broadcast',
+  'music',
+  'original',
+  'episode',
+  'production'
+]);
 
 function normalizeCandidateHints(values) {
   const source = Array.isArray(values) ? values : [];
@@ -189,6 +201,7 @@ export async function runDiscovery(options) {
   } = options;
 
   if (!state || !fetcher) throw new Error('state and fetcher are required');
+  const researchMode = state?.engineMode === 'research';
   if (!state.researchStrategy || state.researchStrategy.version !== 1) state.researchStrategy = emptyResearchStrategyState();
   if (!Array.isArray(state.calibrationSeen)) state.calibrationSeen = [];
   let trustModel = buildResearchStrategyModel(state);
@@ -500,19 +513,18 @@ export async function runDiscovery(options) {
     );
     const titleBoostSet = [...new Set([...detectedTitles, ...seriesHints, ...recentCandidateTitles])].slice(0, 250);
     const sameOrigin = new URL(document.url).origin;
-    const verificationHintsForLinks = normalizeCandidateHints([
-      ...seriesHints,
-      ...validatedHints
-    ]);
-    const informationCandidates = informationCandidatesFromValidatedContext(
-      candidateMap,
-      subjectHint,
-      acceptedVerificationHints
+    const verificationHintsForLinks = normalizeCandidateHints(
+      researchMode ? [...seriesHints, ...validatedHints] : seriesHints
     );
+    const informationCandidates = researchMode
+      ? informationCandidatesFromValidatedContext(candidateMap, subjectHint, acceptedVerificationHints)
+      : [];
     const rankedLinks = [];
     for (const link of document.links) {
       const linkUrl = normalizeUrl(link.url, document.url);
       if (!linkUrl) continue;
+      const route = researchRouteKind(linkUrl, link.anchor || '');
+      if (!researchMode && DISCOVERY_DEEP_ROUTES.has(route)) continue;
       const linkOrigin = new URL(linkUrl).origin;
       const rawLinkScore = scoreDiscoveredLink(link, pageScore, titleBoostSet);
       const seriesBoost = seriesPriorityBoost(link, seriesHints);
