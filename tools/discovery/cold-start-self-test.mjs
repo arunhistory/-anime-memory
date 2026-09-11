@@ -97,10 +97,12 @@ corroborationState.frontier.push(
 );
 const corroborationPromotion = promoteCorroborationFrontier(corroborationState);
 assert.equal(corroborationPromotion.examined, 2, 'only candidate-scoped frontier entries should be examined for corroboration');
-assert.equal(corroborationPromotion.promoted, 1, 'only a new-family corroboration route should be promoted');
-assert.equal(corroborationState.frontier[0].priority, 1000);
-assert.equal(corroborationState.frontier[1].priority, 500, 'same-family route must not be promoted as independent corroboration');
-assert.equal(corroborationState.frontier[2].priority, 500, 'unscoped route must not be promoted');
+assert.equal(corroborationPromotion.promoted, 1, 'only a new-family corroboration route should enter the focus lane');
+assert.ok(corroborationPromotion.focusCandidateKey, 'corroboration focus must expose an ephemeral candidate key');
+assert.equal(corroborationState.frontier[0].priority, 500, 'focused route base priority must remain unchanged');
+assert.equal(corroborationState.frontier[1].priority, 500, 'same-family route base priority must remain unchanged');
+assert.equal(corroborationState.frontier[2].priority, 500, 'unscoped route base priority must remain unchanged');
+assert.equal(JSON.stringify(corroborationState).includes('focusCandidateKey'), false, 'ephemeral focus must not persist into crawler state');
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'anime-frontier-balance-'));
 const state = emptyDiscoveryState();
@@ -145,7 +147,7 @@ console.log('Cold-start trust bootstrap: PASS');
 console.log('single-family CSV admission: BLOCKED');
 console.log('credible origin conflict: BLOCKED');
 console.log('actionable information-depth bootstrap pause: PASS');
-console.log('independent corroboration frontier promotion: PASS');
-console.log('same-family corroboration promotion: BLOCKED');
+console.log('independent corroboration ephemeral focus: PASS');
+console.log('same-family corroboration focus: BLOCKED');
 console.log('frontier persistence per-host truncation: NONE');
 console.log('per-batch host limit without requeue loop: PASS');
