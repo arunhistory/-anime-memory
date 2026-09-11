@@ -1,0 +1,51 @@
+name: Temporary Two-Engine Dry Run
+
+on:
+  push:
+    branches:
+      - fix/anime-two-engine-20260912
+    paths:
+      - '.github/workflows/two-engine-dry-run.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run isolated deep-research lane on copied state
+        env:
+          DISCOVERY_MIN_DELAY_MS: '1000'
+        run: |
+          rm -rf /tmp/two-engine-crawler
+          cp -R crawler /tmp/two-engine-crawler
+          node tools/discovery/research-run.mjs \
+            --state /tmp/two-engine-crawler/state.json \
+            --research-state /tmp/two-engine-crawler/research-frontier.json \
+            --max-pages 30 \
+            --max-depth 6 \
+            --per-host-limit 10
+      - name: Diagnose lane separation
+        run: |
+          node --input-type=module <<'NODE'
+          import { loadDiscoveryState } from './tools/discovery/state.mjs';
+          import { loadResearchLaneState } from './tools/discovery/research-lane-state.mjs';
+          import { buildReadinessReport } from './tools/discovery/readiness-report.mjs';
+          const state = loadDiscoveryState('/tmp/two-engine-crawler/state.json');
+          const research = loadResearchLaneState('/tmp/two-engine-crawler/research-frontier.json');
+          const readiness = buildReadinessReport(state);
+          console.log(`DIAG discovery frontier=${state.frontier.length}`);
+          console.log(`DIAG research frontier=${research.frontier.length}`);
+          console.log(`DIAG research visited=${research.visited.length}`);
+          console.log(`DIAG title-search cache=${Object.keys(research.titleSearch || {}).length}`);
+          console.log(`DIAG identity-ready=${readiness.identityReady}`);
+          console.log(`DIAG information-ready=${readiness.informationReady}`);
+          console.log(`DIAG avg confirmed=${readiness.identityReadyAverageConfirmedInformationFields}`);
+          console.log(`DIAG max confirmed=${readiness.maxConfirmedInformationFields}`);
+          NODE
