@@ -46,6 +46,8 @@ const CORROBORATION_ROUTE_FIELDS = new Map([
 ]);
 
 const IDENTITY_FIELDS = new Set(['title_ja', 'media_type', 'origin_country']);
+const CORROBORATION_COMMERCE_PATH = /(?:^|\/)(?:product|products|shop|store|goods|merch|merchandise|themeshop)(?:\/|$)/i;
+const CORROBORATION_COMMERCE_ANCHOR = /(?:商品|グッズ|ストア|ショップ|着せかえ|merch(?:andise)?|products?\s*store)/i;
 
 function cleanList(values, max = MAX_TRACKED_VALUES) {
   return [...new Set((Array.isArray(values) ? values : [])
@@ -254,10 +256,24 @@ export function informationPriorityBoost(link, candidate) {
   return Math.min(110, boost);
 }
 
+export function isCorroborationEligibleUrl(url, anchor = '') {
+  const normalized = normalizeUrl(url);
+  if (!normalized) return false;
+  let pathname = '';
+  try {
+    pathname = new URL(normalized).pathname.normalize('NFKC');
+  } catch {
+    return false;
+  }
+  if (CORROBORATION_COMMERCE_PATH.test(pathname)) return false;
+  if (CORROBORATION_COMMERCE_ANCHOR.test(String(anchor || '').normalize('NFKC'))) return false;
+  return true;
+}
+
 export function corroborationPriorityBoost(link, candidate, { allowBroad = false } = {}) {
   if (!candidate || candidateInformationReadiness(candidate).ready) return 0;
   const url = normalizeUrl(link?.url);
-  if (!url) return 0;
+  if (!url || !isCorroborationEligibleUrl(url, link?.anchor || '')) return 0;
   const family = sourceFamilyKey(url);
   if (!family) return 0;
 
