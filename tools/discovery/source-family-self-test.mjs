@@ -85,8 +85,113 @@ const primaryPreferred = collapseSameFamilyEvidence([
 assert.equal(primaryPreferred.length, 1);
 assert.equal(primaryPreferred[0].sourceClass, 'primary', 'primary evidence should win within one family for the same value');
 
+const legacy = collapseSameFamilyEvidence([
+  {
+    field: 'official_url',
+    value: 'https://mobpsycho100.com/',
+    sourceUrl: 'https://mobpsycho100.com/',
+    sourceClass: 'primary',
+    directness: 100,
+    rule: 'primary-page-url',
+    observedAt: ''
+  },
+  {
+    field: 'official_url',
+    value: 'https://mobpsycho100.com/news/post-1',
+    sourceUrl: 'https://mobpsycho100.com/news/post-1',
+    sourceClass: 'primary',
+    directness: 100,
+    rule: 'primary-page-url',
+    observedAt: ''
+  },
+  {
+    field: 'official_x',
+    value: 'https://twitter.com/mobpsycho_anime',
+    sourceUrl: 'https://mobpsycho100.com/',
+    sourceClass: 'primary',
+    directness: 100,
+    rule: 'primary-page-social-x',
+    observedAt: ''
+  },
+  {
+    field: 'official_x',
+    value: 'https://twitter.com/mobpsycho_anime',
+    sourceUrl: 'https://mobpsycho100.com/news/post-2',
+    sourceClass: 'primary',
+    directness: 100,
+    rule: 'primary-page-social-x',
+    observedAt: ''
+  },
+  {
+    field: 'official_x',
+    value: 'https://twitter.com/parco_art',
+    sourceUrl: 'https://mobpsycho100.com/news/post-21',
+    sourceClass: 'primary',
+    directness: 100,
+    rule: 'primary-page-social-x',
+    observedAt: ''
+  },
+  {
+    field: 'official_x',
+    value: 'https://twitter.com/intent/tweet?text=share',
+    sourceUrl: 'https://mobpsycho100.com/',
+    sourceClass: 'primary',
+    directness: 100,
+    rule: 'primary-page-social-x',
+    observedAt: ''
+  },
+  {
+    field: 'official_x',
+    value: 'https://twitter.com/search?q=%23mobpsycho100',
+    sourceUrl: 'https://mobpsycho100.com/',
+    sourceClass: 'primary',
+    directness: 100,
+    rule: 'primary-page-social-x',
+    observedAt: ''
+  },
+  {
+    field: 'official_youtube',
+    value: 'https://www.youtube.com/channel/UCcjqSFXBg2cGQg5r0YooMiA',
+    sourceUrl: 'https://mobpsycho100.com/',
+    sourceClass: 'primary',
+    directness: 100,
+    rule: 'primary-page-youtube',
+    observedAt: ''
+  },
+  {
+    field: 'official_youtube',
+    value: 'https://www.youtube.com/playlist?list=bad',
+    sourceUrl: 'https://mobpsycho100.com/',
+    sourceClass: 'primary',
+    directness: 100,
+    rule: 'primary-page-youtube',
+    observedAt: ''
+  },
+  {
+    field: 'official_youtube',
+    value: 'https://www.youtube.com/watch?v=bad',
+    sourceUrl: 'https://mobpsycho100.com/',
+    sourceClass: 'primary',
+    directness: 100,
+    rule: 'primary-page-youtube',
+    observedAt: ''
+  }
+]);
+assert.deepEqual(
+  legacy.map((item) => [item.field, item.value]).sort(),
+  [
+    ['official_url', 'https://mobpsycho100.com/'],
+    ['official_x', 'https://twitter.com/mobpsycho_anime'],
+    ['official_youtube', 'https://www.youtube.com/channel/UCcjqSFXBg2cGQg5r0YooMiA']
+  ].sort(),
+  'legacy official evidence migration must preserve only landing URL and landing-page official profiles/channels'
+);
+assert.ok(legacy.every((item) => item.rule.startsWith('legacy-primary-')));
+
 console.log('Source family self-test: PASS');
 console.log('Wikimedia cross-host self-confirmation: BLOCKED');
 console.log('same registrable-family duplication: BLOCKED');
 console.log('independent-family corroboration: PASS');
 console.log('same-family conflicts preserved: PASS');
+console.log('legacy news/share/search/playlist official evidence: REMOVED');
+console.log('legacy landing official URL/profile/channel: PRESERVED');
