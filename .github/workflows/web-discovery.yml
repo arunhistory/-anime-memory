@@ -64,6 +64,7 @@ jobs:
 
       - name: Discovery preflight self-tests
         run: |
+          node tools/discovery/state-sharding-self-test.mjs
           node tools/discovery/known-work-wasm-self-test.mjs
           node tools/discovery/known-work-skip-self-test.mjs
           node tools/discovery/self-test.mjs
@@ -91,22 +92,22 @@ jobs:
 
       - name: Show dry-run result
         if: ${{ inputs.dry_run }}
-        run: git diff -- crawler/state.json || true
+        run: git diff -- crawler/state.json crawler/state-shards || true
 
       - name: Commit discovery state
         if: ${{ !inputs.dry_run }}
         shell: bash
         run: |
           set -euo pipefail
-          git add crawler/state.json
+          git add -A crawler/state.json crawler/state-shards
           if git diff --cached --quiet; then
             echo 'No discovery state changes to commit.'
             exit 0
           fi
 
-          unexpected="$(git status --porcelain | awk '$2 != "crawler/state.json" {print}')"
+          unexpected="$(git status --porcelain | awk '$2 != "crawler/state.json" && $2 !~ /^crawler\/state-shards\// {print}')"
           if [[ -n "${unexpected}" ]]; then
-            echo 'Discovery modified files outside crawler/state.json; refusing commit.' >&2
+            echo 'Discovery modified files outside crawler state; refusing commit.' >&2
             echo "${unexpected}" >&2
             exit 1
           fi
@@ -120,8 +121,8 @@ jobs:
             git fetch origin main
             remote_head="$(git rev-parse origin/main)"
             if [[ "${remote_head}" != "${base_sha}" ]]; then
-              if ! git diff --quiet "${base_sha}..${remote_head}" -- crawler/state.json; then
-                echo 'crawler/state.json advanced after discovery started; aborting to prevent lost state.' >&2
+              if ! git diff --quiet "${base_sha}..${remote_head}" -- crawler/state.json crawler/state-shards; then
+                echo 'crawler state advanced after discovery started; aborting to prevent lost state.' >&2
                 exit 1
               fi
               git rebase origin/main
