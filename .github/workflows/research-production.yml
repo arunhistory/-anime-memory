@@ -51,6 +51,7 @@ jobs:
           node tools/collect/initial-pending-self-test.mjs
           node tools/collect/package-integration-self-test.mjs
           node tools/discovery/cycle-self-test.mjs
+          node tools/discovery/state-sharding-self-test.mjs
           node tools/discovery/known-work-wasm-self-test.mjs
           node tools/discovery/known-work-skip-self-test.mjs
           node tools/discovery/research-strategy-self-test.mjs
@@ -122,11 +123,11 @@ jobs:
         run: |
           set -euo pipefail
           base_sha="$(git rev-parse HEAD)"
-          git add crawler/state.json crawler/research-cycle.json
+          git add -A crawler/state.json crawler/state-shards crawler/research-cycle.json
           if [[ -f crawler/pending-initial.json ]]; then git add crawler/pending-initial.json; fi
           if [[ -d data ]]; then git add data; fi
 
-          unexpected="$(git status --porcelain | awk '$2 != "crawler/state.json" && $2 != "crawler/research-cycle.json" && $2 != "crawler/pending-initial.json" && $2 !~ /^data\// {print}')"
+          unexpected="$(git status --porcelain | awk '$2 != "crawler/state.json" && $2 !~ /^crawler\/state-shards\// && $2 != "crawler/research-cycle.json" && $2 != "crawler/pending-initial.json" && $2 !~ /^data\// {print}')"
           if [[ -n "${unexpected}" ]]; then
             echo 'Unexpected files changed; refusing production commit.' >&2
             echo "${unexpected}" >&2
@@ -146,7 +147,7 @@ jobs:
             git fetch origin main
             remote_head="$(git rev-parse origin/main)"
             if [[ "${remote_head}" != "${base_sha}" ]]; then
-              if ! git diff --quiet "${base_sha}..${remote_head}" -- crawler/state.json crawler/research-cycle.json crawler/pending-initial.json data; then
+              if ! git diff --quiet "${base_sha}..${remote_head}" -- crawler/state.json crawler/state-shards crawler/research-cycle.json crawler/pending-initial.json data; then
                 echo 'Production state/data advanced concurrently; refusing overwrite.' >&2
                 exit 1
               fi
