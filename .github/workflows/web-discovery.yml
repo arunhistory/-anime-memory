@@ -99,7 +99,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git add -A crawler/state.json crawler/state-shards
+          git add -A crawler/state.json
+          if [[ -d crawler/state-shards ]]; then git add -A crawler/state-shards; fi
           if git diff --cached --quiet; then
             echo 'No discovery state changes to commit.'
             exit 0
