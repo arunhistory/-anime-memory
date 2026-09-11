@@ -66,6 +66,24 @@ export function sanitizeCandidateResearch(value) {
   return output;
 }
 
+export function mergeCandidateResearch(left, right) {
+  const a = sanitizeCandidateResearch(left);
+  const b = sanitizeCandidateResearch(right);
+  const evidenceTimes = [a.lastEvidenceAt, b.lastEvidenceAt]
+    .filter((value) => value && Number.isFinite(Date.parse(value)))
+    .sort();
+  return {
+    pageUrls: cleanList([...a.pageUrls, ...b.pageUrls], MAX_RESEARCH_PAGES)
+      .map((url) => normalizeUrl(url))
+      .filter(Boolean),
+    routes: cleanList([...a.routes, ...b.routes]),
+    sourceFamilies: cleanList([...a.sourceFamilies, ...b.sourceFamilies]),
+    evidenceFields: cleanList([...a.evidenceFields, ...b.evidenceFields], 96),
+    noGainPages: Math.min(a.noGainPages, b.noGainPages),
+    lastEvidenceAt: evidenceTimes.at(-1) || a.lastEvidenceAt || b.lastEvidenceAt || ''
+  };
+}
+
 export function recordCandidateResearch(current, {
   url,
   anchor = '',
