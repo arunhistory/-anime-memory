@@ -21,6 +21,7 @@ on:
       - '.github/workflows/manual-anime-correction.yml'
       - '.github/workflows/web-discovery.yml'
       - '.github/workflows/research-production.yml'
+      - '.github/workflows/research-cycle-timeout.yml'
   pull_request:
     paths:
       - 'tools/csv/**'
@@ -40,6 +41,7 @@ on:
       - '.github/workflows/manual-anime-correction.yml'
       - '.github/workflows/web-discovery.yml'
       - '.github/workflows/research-production.yml'
+      - '.github/workflows/research-cycle-timeout.yml'
 
 permissions:
   contents: read
