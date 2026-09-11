@@ -70,6 +70,9 @@ const focusState = emptyDiscoveryState();
 const at = '2026-09-11T00:00:00.000Z';
 const nearTitle = '近い作品';
 const farTitle = '遠い作品';
+const nearBroadcastUrl = 'https://broadcast-near.example.net/broadcast';
+const farBroadcastUrl = 'https://broadcast-far.example.net/broadcast';
+const nearCommerceUrl = 'https://catalog-near.example.jp/product/item-1';
 const identityEvidence = (title, host, corroboratorHost) => [
   { field: 'title_ja', value: title, sourceUrl: `https://${host}/work`, sourceClass: 'primary', directness: 100, rule: 'fixture-title', observedAt: at },
   { field: 'title_ja', value: title, sourceUrl: `https://${corroboratorHost}/title`, sourceClass: 'secondary', directness: 80, rule: 'fixture-title-corroboration', observedAt: at },
@@ -134,14 +137,21 @@ focusState.candidates.push(
 );
 focusState.frontier.push(
   {
-    url: 'https://broadcast-near.example.net/broadcast',
+    url: nearBroadcastUrl,
     priority: 500,
     depth: 1,
     discoveredFrom: '',
     candidateHints: [nearTitle]
   },
   {
-    url: 'https://broadcast-far.example.net/broadcast',
+    url: nearCommerceUrl,
+    priority: 900,
+    depth: 1,
+    discoveredFrom: '',
+    candidateHints: [nearTitle]
+  },
+  {
+    url: farBroadcastUrl,
     priority: 500,
     depth: 1,
     discoveredFrom: '',
@@ -152,17 +162,22 @@ focusState.frontier.push(
 const focusResult = promoteCorroborationFrontier(focusState);
 assert.equal(focusResult.focusCandidate, nearTitle, 'nearest-ready candidate must receive the focused corroboration slot');
 assert.ok(focusResult.focusCandidateKey, 'focused corroboration must expose the ephemeral normalized candidate key');
-assert.ok(focusResult.promoted >= 1, 'focused candidate must have at least one eligible corroboration frontier entry');
+assert.equal(focusResult.promoted, 1, 'only eligible URLs for the selected candidate may enter the focus lane');
+assert.equal(focusState.frontier.focusUrls instanceof Set, true, 'focus URL set must exist ephemerally on the frontier');
+assert.equal(focusState.frontier.focusUrls.has(nearBroadcastUrl), true, 'eligible independent broadcast URL must enter the focus lane');
+assert.equal(focusState.frontier.focusUrls.has(nearCommerceUrl), false, 'same-candidate commerce URL must not enter the focus lane');
 assert.equal(focusState.frontier[0].priority, 500, 'focused candidate base priority must not be persisted or mutated');
-assert.equal(focusState.frontier[1].priority, 500, 'other pending candidate base priority must remain unchanged');
+assert.equal(focusState.frontier[1].priority, 900, 'non-eligible same-candidate base priority must remain unchanged');
 assert.equal(focusState.candidates.length, 2, 'focus scheduling must not discard pending candidates');
-assert.equal(focusState.frontier.length, 2, 'focus scheduling must not discard frontier work');
+assert.equal(focusState.frontier.length, 3, 'focus scheduling must not discard frontier work');
 assert.equal(JSON.stringify(focusState).includes('focusCandidateKey'), false, 'ephemeral focus key must not serialize into crawler state');
+assert.equal(JSON.stringify(focusState).includes('focusUrls'), false, 'ephemeral focus URLs must not serialize into crawler state');
 
 console.log('Information routing integration self-test: PASS');
 console.log('missing staff route prioritization: PASS');
 console.log('candidate page research accounting: PASS');
 console.log('generic verification-hint fanout: BLOCKED');
 console.log('nearest-ready corroboration focus: PASS');
+console.log('same-candidate non-eligible focus lane: BLOCKED');
 console.log('focused priority persistence mutation: NONE');
 console.log('non-focused pending work preservation: PASS');
