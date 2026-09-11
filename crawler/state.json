@@ -1,71 +1,71 @@
 {
   "version": 2,
   "storage": "sharded-v1",
-  "revision": "r-20260911114034-3e4372488461",
+  "revision": "r-20260911114257-917300e9a8f2",
   "shardTargetBytes": 4194304,
   "counts": {
-    "frontier": 6604,
-    "visited": 800,
-    "documents": 499,
-    "candidates": 1329,
+    "frontier": 6936,
+    "visited": 900,
+    "documents": 552,
+    "candidates": 1529,
     "calibrationSeen": 0,
-    "researchOperations": 252,
+    "researchOperations": 259,
     "researchTrust": 0
   },
   "shards": {
     "frontier": [
       {
         "file": "state-shards/frontier-00000.json",
-        "count": 6604,
-        "bytes": 2318524,
-        "sha256": "ccdf374b9d89f44f03ed83beb90c418400a6b9ea154d01648eeb2cc3cc03b907"
+        "count": 6936,
+        "bytes": 2462658,
+        "sha256": "ecba432d57d0d1144ba26ac8b3ee0c101d8412dcf0bd89be1357c3959abd600b"
       }
     ],
     "visited": [
       {
         "file": "state-shards/visited-00000.json",
-        "count": 800,
-        "bytes": 53602,
-        "sha256": "e85196dd0c03c64ecd76421bb872848c27a12ccf2d2ee027787a27f9e4d28de4"
+        "count": 900,
+        "bytes": 60302,
+        "sha256": "2fca35087070ca8b5876572bd9e7daba1f52dd1fda154f20e4d7681d7102602e"
       }
     ],
     "documents": [
       {
         "file": "state-shards/documents-00000.json",
-        "count": 499,
-        "bytes": 161727,
-        "sha256": "395eb3608d8c5e65f00b815ec236cf98411b0f7f73a069d545e36f8bd29030ce"
+        "count": 552,
+        "bytes": 176879,
+        "sha256": "27f4e749218f6a7bae615c2684e74936b619f0022fa4c27bc5ab2ff4f04f5da4"
       }
     ],
     "candidates": [
       {
         "file": "state-shards/candidates-00000.json",
-        "count": 1329,
-        "bytes": 2996785,
-        "sha256": "4ac2a2d1a6e315e05af5417a190bafc60be15f560328d491ede7db12603db8a3"
+        "count": 1529,
+        "bytes": 3417409,
+        "sha256": "612854845748f1bf9a18d0e7a24675bfd58db3bedd6808458c1be14a948864c2"
       }
     ],
     "calibrationSeen": [],
     "researchOperations": [
       {
         "file": "state-shards/researchOperations-00000.json",
-        "count": 252,
-        "bytes": 41230,
-        "sha256": "b1ddfc95691122ed9999c91bf0abe0ae446ae425bc316d68109021570efb7d79"
+        "count": 259,
+        "bytes": 42419,
+        "sha256": "77e2957dbb4e29de89d7a92acd98a359ede30137b222549ab6cc17b8dccb14ab"
       }
     ],
     "researchTrust": []
   },
   "researchStrategy": {
     "version": 1,
-    "updatedAt": "2026-09-11T11:38:47.603Z"
+    "updatedAt": "2026-09-11T11:41:08.305Z"
   },
   "wikidataBootstrap": {
     "version": 1,
-    "offset": 1400,
+    "offset": 1600,
     "completed": false,
     "retryAfter": "",
-    "lastRunAt": "2026-09-11T11:38:43.669Z"
+    "lastRunAt": "2026-09-11T11:41:03.890Z"
   },
   "wikidataSeriesExpansion": {
     "version": 1,
@@ -74,5 +74,5 @@
     "retryAfter": "",
     "lastRunAt": ""
   },
-  "updatedAt": "2026-09-11T11:40:33.860Z"
+  "updatedAt": "2026-09-11T11:42:57.647Z"
 }
