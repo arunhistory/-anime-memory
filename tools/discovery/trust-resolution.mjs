@@ -18,6 +18,7 @@ const MULTI_VALUE_FIELDS = new Set([
 const LEARNED_SINGLE_SOURCE_MIN_CREDIBILITY = 82;
 const LEARNED_SINGLE_SOURCE_MIN_SAMPLES = 40;
 const LEARNED_SINGLE_SOURCE_MIN_DIRECTNESS = 90;
+const PRIMARY_SINGLE_SOURCE_MIN_CREDIBILITY = 70;
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, Number(value) || 0));
@@ -114,7 +115,7 @@ function alternativeSummary(entry) {
 
 function isConfirmed(entry, field) {
   const summary = alternativeSummary(entry);
-  if (summary.primarySourceCount >= 1 && summary.maxCredibility >= 75) return true;
+  if (summary.primarySourceCount >= 1 && summary.maxCredibility >= PRIMARY_SINGLE_SOURCE_MIN_CREDIBILITY) return true;
   if (field === 'origin_country' && entry.directFamilies.size >= 1 && summary.maxCredibility >= 45) return true;
   if (entry.families.size >= 2) return true;
   if (summary.trustedSecondaryCount >= 2 && summary.credibility >= 65) return true;
