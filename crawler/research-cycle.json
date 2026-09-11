@@ -6,5 +6,6 @@
   "lastNewDiscoveryAt": "",
   "stoppedAt": "",
   "stopReason": "",
+  "waitingForInactivity": false,
   "seenEligible": []
 }
