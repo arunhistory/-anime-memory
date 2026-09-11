@@ -48,6 +48,10 @@ const CORROBORATION_ROUTE_FIELDS = new Map([
 const IDENTITY_FIELDS = new Set(['title_ja', 'media_type', 'origin_country']);
 const CORROBORATION_COMMERCE_PATH = /(?:^|\/)(?:product|products|shop|store|goods|merch|merchandise|themeshop)(?:\/|$)/i;
 const CORROBORATION_COMMERCE_ANCHOR = /(?:商品|グッズ|ストア|ショップ|着せかえ|merch(?:andise)?|products?\s*store)/i;
+const WIKIPEDIA_UTILITY_QUERY_KEYS = new Set([
+  'action', 'oldid', 'diff', 'curid', 'direction', 'printable', 'mobileaction', 'useparsoid', 'veaction', 'redlink'
+]);
+const WIKIPEDIA_NON_ARTICLE_NAMESPACE = /^(?:special|template|template talk|file|file talk|category|category talk|portal|portal talk|help|help talk|wikipedia|wikipedia talk|mediawiki|mediawiki talk|module|module talk|draft|draft talk|book|book talk|user|user talk|talk|特別|テンプレート|テンプレート‐ノート|ファイル|ファイル‐ノート|カテゴリ|カテゴリ‐ノート|ポータル|ポータル‐ノート|ヘルプ|ヘルプ‐ノート|利用者|利用者‐会話|ノート|モジュール|モジュール‐ノート|下書き|下書き‐ノート):/i;
 
 function cleanList(values, max = MAX_TRACKED_VALUES) {
   return [...new Set((Array.isArray(values) ? values : [])
@@ -59,6 +63,32 @@ function cleanList(values, max = MAX_TRACKED_VALUES) {
 function cleanTimestamp(value) {
   const text = String(value || '').slice(0, 40);
   return Number.isFinite(Date.parse(text)) ? text : '';
+}
+
+function isWikipediaArticleCorroborationUrl(normalized) {
+  let parsed;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    return false;
+  }
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+  if (host !== 'wikipedia.org' && !host.endsWith('.wikipedia.org')) return true;
+  if (!parsed.pathname.startsWith('/wiki/')) return false;
+
+  let decodedPath = parsed.pathname;
+  try {
+    decodedPath = decodeURIComponent(decodedPath);
+  } catch {
+    // Malformed encoding must not be promoted as an article corroboration target.
+    return false;
+  }
+  const title = decodedPath.slice('/wiki/'.length).replace(/_/g, ' ').trim();
+  if (!title || WIKIPEDIA_NON_ARTICLE_NAMESPACE.test(title)) return false;
+  for (const key of WIKIPEDIA_UTILITY_QUERY_KEYS) {
+    if (parsed.searchParams.has(key)) return false;
+  }
+  return true;
 }
 
 export function emptyCandidateResearch() {
@@ -258,7 +288,7 @@ export function informationPriorityBoost(link, candidate) {
 
 export function isCorroborationEligibleUrl(url, anchor = '') {
   const normalized = normalizeUrl(url);
-  if (!normalized) return false;
+  if (!normalized || !isWikipediaArticleCorroborationUrl(normalized)) return false;
   let pathname = '';
   try {
     pathname = new URL(normalized).pathname.normalize('NFKC');
