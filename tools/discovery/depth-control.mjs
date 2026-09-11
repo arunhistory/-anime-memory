@@ -83,6 +83,17 @@ function setEphemeralFrontierFocus(frontier, focusCandidateKey, focusUrls = []) 
 
 export function promoteCorroborationFrontier(state) {
   const pending = pendingCandidateIndex(state);
+  if (state?.engineMode !== 'research') {
+    setEphemeralFrontierFocus(state?.frontier, '', []);
+    return {
+      pendingCandidates: pending.size,
+      examined: 0,
+      promoted: 0,
+      focusCandidate: '',
+      focusCandidateKey: ''
+    };
+  }
+
   const selection = corroborationFocus(state, pending);
   const focus = selection.focus;
   const focusUrls = focus?.urls || new Set();
@@ -110,6 +121,6 @@ export function buildInformationDepthPlan(state) {
   return {
     pendingCandidates: pending.size,
     actionableFrontier,
-    pauseBootstrap: pending.size > 0 && actionableFrontier > 0
+    pauseBootstrap: false
   };
 }
