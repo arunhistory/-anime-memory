@@ -31,6 +31,7 @@ const titles = [
   ['Q4', 'Dr.STONE NEW WORLD', 'anime television series', '2023-04-06T00:00:00Z', 'https://dr-stone.jp/3rd/'],
   ['Q5', 'Dr.STONE SCIENCE FUTURE', 'anime television series', '2025-01-09T00:00:00Z', 'https://dr-stone.jp/4th/']
 ];
+const officialByTitle = new Map(titles.map(([, title, , , official]) => [title, official]));
 
 function stoneCandidate() {
   return {
@@ -101,6 +102,7 @@ assert.equal(state.wikidataSeriesExpansion.deferredRefs.length, 0);
 for (const title of titles.map((item) => item[1])) {
   const candidate = state.candidates.find((item) => item.title === title);
   assert.ok(candidate, `series member candidate missing: ${title}`);
+  assert.deepEqual(candidate.verifiedPrimaryUrls, [officialByTitle.get(title)], `P856 primary provenance missing on ${title}`);
   assert.equal(candidate.series.title, 'Dr.STONE');
   assert.equal(candidate.series.members.length, 5, `full series knowledge missing on ${title}`);
   assert.ok(candidate.series.relations.length >= 8, `series relation graph missing on ${title}`);
@@ -187,6 +189,7 @@ assert.equal(preservedProgress.expandedRefs.length, 20001, 'expanded series prog
 
 console.log('Wikidata full-series expansion self-test: PASS');
 console.log('DR.STONE five-title expansion: PASS');
+console.log('P856 primary provenance per series member: PASS');
 console.log('reciprocal prequel/sequel graph: PASS');
 console.log('expanded-series repeat suppression: PASS');
 console.log('shared Retry-After backoff: PASS');
