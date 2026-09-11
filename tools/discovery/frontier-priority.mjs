@@ -16,7 +16,7 @@ function normalizedFocusCandidateKey(value) {
 
 function entryHasFocus(index, entry) {
   const focus = normalizedFocusCandidateKey(index?.focusCandidateKey);
-  if (!focus) return false;
+  if (!focus || !(index?.focusUrls instanceof Set) || !index.focusUrls.has(entry?.url)) return false;
   for (const hint of Array.isArray(entry?.candidateHints) ? entry.candidateHints : []) {
     if (normalizeTitleKey(hint) === focus) return true;
   }
@@ -55,7 +55,7 @@ function heapPop(heap) {
     let index = 0;
     while (true) {
       const left = index * 2 + 1;
-      const right = left + 1;
+      const right = index * 2 + 2;
       let best = index;
       if (left < heap.length && better(heap[left], heap[best])) best = left;
       if (right < heap.length && better(heap[right], heap[best])) best = right;
@@ -94,6 +94,7 @@ export function buildFrontierPriorityIndex(frontier = [], queued = new Map()) {
     sequenceByUrl: new Map(),
     nextSequence: 0,
     focusCandidateKey: normalizedFocusCandidateKey(frontier?.focusCandidateKey),
+    focusUrls: new Set(frontier?.focusUrls instanceof Set ? frontier.focusUrls : []),
     selectionStats: {
       pops: 0,
       groupEvaluations: 0,
