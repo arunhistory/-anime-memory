@@ -38,6 +38,7 @@ assert.equal(result.seriesFrontierAdded, 2);
 assert.equal(result.completed, true);
 assert.equal(state.wikidataBootstrap.offset, 1);
 assert.equal(state.candidates[0].title, 'Dr.STONE SCIENCE FUTURE');
+assert.deepEqual(state.candidates[0].verifiedPrimaryUrls, ['https://dr-stone.jp/'], 'P856 official URL must be preserved as externally verified primary provenance');
 assert.equal(state.candidates[0].series.title, 'Dr.STONE');
 assert.ok(state.candidates[0].series.members.some((item) => item.title === 'Dr.STONE NEW WORLD' && item.kind === 'PREQUEL'));
 assert.ok(state.candidates[0].series.members.some((item) => item.title === 'Dr.STONE SCIENCE FUTURE Part 2' && item.kind === 'SEQUEL'));
@@ -78,6 +79,7 @@ assert.equal(deferred.backoffUntil, '2026-09-11T00:02:00.000Z');
 
 console.log('Wikidata structured bootstrap: PASS');
 console.log('country-of-origin Japan gate: PASS');
+console.log('verified P856 primary provenance: PASS');
 console.log('reciprocal prequel/sequel graph: PASS');
 console.log('series-first relation expansion: PASS');
 console.log('bounded cursor completion: PASS');
