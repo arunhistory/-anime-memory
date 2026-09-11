@@ -70,12 +70,18 @@ const focusState = emptyDiscoveryState();
 const at = '2026-09-11T00:00:00.000Z';
 const nearTitle = '近い作品';
 const farTitle = '遠い作品';
+const identityEvidence = (title, host) => [
+  { field: 'title_ja', value: title, sourceUrl: `https://${host}/work`, sourceClass: 'primary', rule: 'fixture', observedAt: at },
+  { field: 'media_type', value: 'TV', sourceUrl: `https://${host}/work`, sourceClass: 'primary', rule: 'fixture', observedAt: at },
+  { field: 'origin_country', value: 'JP', sourceUrl: `https://${host}/work`, sourceClass: 'primary', rule: 'fixture', observedAt: at }
+];
 focusState.candidates.push(
   {
     key: nearTitle,
     title: nearTitle,
     sources: [],
     evidence: [
+      ...identityEvidence(nearTitle, 'catalog-near.example.jp'),
       { field: 'release_start', value: '2027-04-03', sourceUrl: 'https://catalog-near.example.jp/work', sourceClass: 'secondary', rule: 'fixture', observedAt: at }
     ],
     facts: {
@@ -104,6 +110,7 @@ focusState.candidates.push(
     title: farTitle,
     sources: [],
     evidence: [
+      ...identityEvidence(farTitle, 'catalog-far.example.jp'),
       { field: 'release_start', value: '2027-04-03', sourceUrl: 'https://catalog-far.example.jp/work', sourceClass: 'secondary', rule: 'fixture', observedAt: at }
     ],
     facts: {
