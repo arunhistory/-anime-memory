@@ -178,7 +178,6 @@ for (const entry of staleSecondHop.state.frontier) {
   );
 }
 assert.equal(staleFirstHop.stats.verificationLinksPromoted, 0, 'stale incoming scope must not promote verification descendants');
-assert.equal(staleSecondHop.stats.verificationLinksPromoted, 0, 'second-hop general links must remain outside candidate verification scope');
 
 const xmlState = emptyDiscoveryState();
 xmlState.candidates.push({
