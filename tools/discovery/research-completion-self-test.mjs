@@ -56,6 +56,17 @@ const richStatus = candidateInformationReadiness(rich);
 assert.equal(richStatus.ready, true, 'broad confirmed information from multiple source families should be publishable');
 assert.equal(richStatus.mode, 'information-rich');
 
+const marked = recordCandidateResearch({
+  wikidataArticleCheckedAt: '2026-09-11T00:00:00.000Z',
+  wikidataArticleUrl: 'https://ja.wikipedia.org/wiki/Dr.STONE'
+}, {
+  url: 'https://dr-stone.jp/staff/',
+  evidence: [{ field: 'director', value: 'fixture' }],
+  observedAt: '2026-09-11T00:01:00.000Z'
+});
+assert.equal(marked.wikidataArticleCheckedAt, '2026-09-11T00:00:00.000Z');
+assert.equal(marked.wikidataArticleUrl, 'https://ja.wikipedia.org/wiki/Dr.STONE');
+
 const scarce = {
   ...sparse,
   facts: {
@@ -91,5 +102,6 @@ assert.ok(detailScore > contactScore, 'information-rich detail routes must outra
 console.log('Information research completion self-test: PASS');
 console.log('name-only publication: BLOCKED');
 console.log('information-rich publication: PASS');
+console.log('Wikipedia backfill research metadata persistence: PASS');
 console.log('researched-to-exhaustion fallback: PASS');
 console.log('detailed information route priority: PASS');
