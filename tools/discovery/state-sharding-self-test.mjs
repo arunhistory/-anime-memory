@@ -55,6 +55,7 @@ for (let index = 0; index < count; index += 1) {
     key: `scale-work-${suffix}`,
     title: `Scale Work ${suffix}`,
     sources: [],
+    verifiedPrimaryUrls: index === 0 ? ['https://official.example.test/scale/0'] : [],
     evidence: [],
     facts: {},
     series: {},
@@ -126,6 +127,7 @@ assert.equal(roundTrip.calibrationSeen.length, count);
 assert.equal(Object.keys(roundTrip.researchStrategy.operations).length, operationCount);
 assert.equal(Object.keys(roundTrip.researchStrategy.trust).length, trustCount);
 assert.equal(roundTrip.candidates[0].title, 'Scale Work 00000');
+assert.deepEqual(roundTrip.candidates[0].verifiedPrimaryUrls, ['https://official.example.test/scale/0'], 'verified primary provenance must survive sharded save/load');
 assert.equal(roundTrip.candidates.at(-1).title, 'Scale Work 20000');
 assert.equal(roundTrip.documents[0].title, '資料作品20000');
 assert.equal(roundTrip.documents.at(-1).title, '資料作品00000');
@@ -157,6 +159,7 @@ fs.rmSync(temp, { recursive: true, force: true });
 console.log('Crawler state sharding self-test: PASS');
 console.log('legacy version-1 load compatibility: PASS');
 console.log('20k+ frontier/visited/documents/candidates/calibration state: PRESERVED');
+console.log('verified primary provenance: PRESERVED');
 console.log('20k+ research operations: PRESERVED');
 console.log('50k+ research trust entries: PRESERVED');
 console.log('4 MiB compact shard target: PASS');
