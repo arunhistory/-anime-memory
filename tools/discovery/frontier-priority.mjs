@@ -129,6 +129,7 @@ export function popBestFrontier(index, queued, trustModel, hostCounts = null, pe
   if (!best || !bestGroup) return null;
   heapPop(bestGroup.heap);
   queued.delete(best.url);
+  index.sequenceByUrl.delete(best.url);
   index.selectionStats.pops += 1;
   return best.entry;
 }
