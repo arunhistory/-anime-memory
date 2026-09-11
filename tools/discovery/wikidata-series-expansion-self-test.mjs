@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { emptyDiscoveryState } from './state.mjs';
 import {
   expandSeriesFromWikidata,
+  pendingWikidataSeriesRefs,
   sanitizeWikidataSeriesExpansionState
 } from './wikidata-series-expansion.mjs';
 
@@ -29,16 +30,9 @@ const titles = [
   ['Q4', 'Dr.STONE NEW WORLD', 'anime television series', '2023-04-06T00:00:00Z', 'https://dr-stone.jp/3rd/'],
   ['Q5', 'Dr.STONE SCIENCE FUTURE', 'anime television series', '2025-01-09T00:00:00Z', 'https://dr-stone.jp/4th/']
 ];
-let calls = 0;
-const fetchImpl = async (url, options) => {
-  calls += 1;
-  assert.equal(new URL(url).hostname, 'query.wikidata.org');
-  assert.match(String(options?.headers?.['user-agent']), /AnimeMemoryBot/);
-  const query = new URL(url).searchParams.get('query') || '';
-  assert.match(query, /VALUES \?series \{ wd:Q456 \}/);
-  assert.match(query, /\?item wdt:P179 \?series/);
-  assert.match(query, /\?item wdt:P495 wd:Q17/);
-  const bindings = titles.map(([qid, title, classLabel, date, official], index) => ({
+
+function stoneBindings() {
+  return titles.map(([qid, title, classLabel, date, official], index) => ({
     series: { value: 'https://www.wikidata.org/entity/Q456' },
     seriesLabel: { value: 'Dr.STONE' },
     item: { value: `https://www.wikidata.org/entity/${qid}` },
@@ -55,7 +49,18 @@ const fetchImpl = async (url, options) => {
       followedByLabel: { value: titles[index + 1][1] }
     } : {})
   }));
-  return new Response(JSON.stringify({ results: { bindings } }), {
+}
+
+let calls = 0;
+const fetchImpl = async (url, options) => {
+  calls += 1;
+  assert.equal(new URL(url).hostname, 'query.wikidata.org');
+  assert.match(String(options?.headers?.['user-agent']), /AnimeMemoryBot/);
+  const query = new URL(url).searchParams.get('query') || '';
+  assert.match(query, /VALUES \?series \{ wd:Q456 \}/);
+  assert.match(query, /\?item wdt:P179 \?series/);
+  assert.match(query, /\?item wdt:P495 wd:Q17/);
+  return new Response(JSON.stringify({ results: { bindings: stoneBindings() } }), {
     status: 200,
     headers: { 'content-type': 'application/sparql-results+json' }
   });
@@ -95,6 +100,39 @@ const second = await expandSeriesFromWikidata(state, {
 assert.equal(second.seriesRequested, 0);
 assert.equal(second.seriesExpanded, 0);
 
+const partialState = emptyDiscoveryState();
+for (const [key, title, ref] of [
+  ['stone', 'Dr.STONE', 'https://www.wikidata.org/entity/Q456'],
+  ['missing', 'Missing Series Work', 'https://www.wikidata.org/entity/Q999']
+]) {
+  partialState.candidates.push({
+    key,
+    title,
+    sources: [],
+    evidence: [],
+    facts: {},
+    series: { ref, title, inferredStem: title, members: [{ title, url: '', kind: 'OTHER' }], relations: [] },
+    lastSeen: '2026-09-11T00:00:00.000Z'
+  });
+}
+const partial = await expandSeriesFromWikidata(partialState, {
+  limit: 12,
+  observedAt: '2026-09-11T00:00:00.000Z',
+  fetchImpl: async (url) => {
+    const query = new URL(url).searchParams.get('query') || '';
+    assert.match(query, /wd:Q456/);
+    assert.match(query, /wd:Q999/);
+    return new Response(JSON.stringify({ results: { bindings: stoneBindings() } }), {
+      status: 200,
+      headers: { 'content-type': 'application/sparql-results+json' }
+    });
+  }
+});
+assert.equal(partial.seriesRequested, 2);
+assert.equal(partial.seriesExpanded, 1, 'only series with valid returned members may be marked expanded');
+assert.deepEqual(partialState.wikidataSeriesExpansion.expandedRefs, ['https://www.wikidata.org/entity/Q456']);
+assert.deepEqual(pendingWikidataSeriesRefs(partialState), ['https://www.wikidata.org/entity/Q999'], 'zero-result series must remain pending for retry');
+
 const manyRefs = Array.from({ length: 20001 }, (_, index) => `https://www.wikidata.org/entity/Q${index + 1}`);
 const preservedProgress = sanitizeWikidataSeriesExpansionState({ version: 1, expandedRefs: manyRefs, lastRunAt: '2026-09-11T00:00:00.000Z' });
 assert.equal(preservedProgress.expandedRefs.length, 20001, 'expanded series progress must not silently truncate at 20,000');
@@ -103,4 +141,5 @@ console.log('Wikidata full-series expansion self-test: PASS');
 console.log('DR.STONE five-title expansion: PASS');
 console.log('reciprocal prequel/sequel graph: PASS');
 console.log('expanded-series repeat suppression: PASS');
+console.log('zero-result series retry: PASS');
 console.log('expanded-series progress over 20k: PRESERVED');
