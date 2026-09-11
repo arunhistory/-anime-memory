@@ -41,6 +41,11 @@ function cleanList(values, max = MAX_TRACKED_VALUES) {
     .slice(-max);
 }
 
+function cleanTimestamp(value) {
+  const text = String(value || '').slice(0, 40);
+  return Number.isFinite(Date.parse(text)) ? text : '';
+}
+
 export function emptyCandidateResearch() {
   return {
     pageUrls: [],
@@ -48,7 +53,9 @@ export function emptyCandidateResearch() {
     sourceFamilies: [],
     evidenceFields: [],
     noGainPages: 0,
-    lastEvidenceAt: ''
+    lastEvidenceAt: '',
+    wikidataArticleCheckedAt: '',
+    wikidataArticleUrl: ''
   };
 }
 
@@ -62,7 +69,10 @@ export function sanitizeCandidateResearch(value) {
   output.sourceFamilies = cleanList(value.sourceFamilies);
   output.evidenceFields = cleanList(value.evidenceFields, 96);
   output.noGainPages = Math.max(0, Math.min(1000, Math.trunc(Number(value.noGainPages || 0))));
-  output.lastEvidenceAt = String(value.lastEvidenceAt || '').slice(0, 40);
+  output.lastEvidenceAt = cleanTimestamp(value.lastEvidenceAt);
+  output.wikidataArticleCheckedAt = cleanTimestamp(value.wikidataArticleCheckedAt);
+  const articleUrl = normalizeUrl(value.wikidataArticleUrl);
+  output.wikidataArticleUrl = articleUrl && new URL(articleUrl).hostname.toLowerCase().endsWith('wikipedia.org') ? articleUrl : '';
   return output;
 }
 
@@ -72,6 +82,12 @@ export function mergeCandidateResearch(left, right) {
   const evidenceTimes = [a.lastEvidenceAt, b.lastEvidenceAt]
     .filter((value) => value && Number.isFinite(Date.parse(value)))
     .sort();
+  const articleChecks = [a.wikidataArticleCheckedAt, b.wikidataArticleCheckedAt]
+    .filter((value) => value && Number.isFinite(Date.parse(value)))
+    .sort();
+  const articleEntries = [a, b]
+    .filter((value) => value.wikidataArticleUrl)
+    .sort((x, y) => Date.parse(y.wikidataArticleCheckedAt || 0) - Date.parse(x.wikidataArticleCheckedAt || 0));
   return {
     pageUrls: cleanList([...a.pageUrls, ...b.pageUrls], MAX_RESEARCH_PAGES)
       .map((url) => normalizeUrl(url))
@@ -80,7 +96,9 @@ export function mergeCandidateResearch(left, right) {
     sourceFamilies: cleanList([...a.sourceFamilies, ...b.sourceFamilies]),
     evidenceFields: cleanList([...a.evidenceFields, ...b.evidenceFields], 96),
     noGainPages: Math.min(a.noGainPages, b.noGainPages),
-    lastEvidenceAt: evidenceTimes.at(-1) || a.lastEvidenceAt || b.lastEvidenceAt || ''
+    lastEvidenceAt: evidenceTimes.at(-1) || a.lastEvidenceAt || b.lastEvidenceAt || '',
+    wikidataArticleCheckedAt: articleChecks.at(-1) || '',
+    wikidataArticleUrl: articleEntries[0]?.wikidataArticleUrl || ''
   };
 }
 
