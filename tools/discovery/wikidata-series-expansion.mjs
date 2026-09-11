@@ -144,6 +144,7 @@ export async function expandSeriesFromWikidata(state, {
     return { seriesRequested: 0, rows: 0, seriesExpanded: 0, candidatesAdded: 0, evidenceAdded: 0, officialFrontierAdded: 0, memberCount: 0 };
   }
 
+  const requestedRefs = new Set(refs);
   const sparql = seriesQuery(refs);
   const url = new URL(ENDPOINT);
   url.searchParams.set('query', sparql);
@@ -183,7 +184,7 @@ export async function expandSeriesFromWikidata(state, {
     const mediaType = mediaTypeFromLabel(binding?.classLabel?.value);
     if (!seriesQid || !itemRef || !title || !key || !mediaType) continue;
     const canonicalSeriesRef = refFromQid(seriesQid);
-    if (!refs.includes(canonicalSeriesRef)) continue;
+    if (!requestedRefs.has(canonicalSeriesRef)) continue;
     const seriesTitle = cleanTitle(binding?.seriesLabel?.value);
     const date = normalizedDate(binding?.date?.value);
     const officialUrl = normalizeUrl(binding?.official?.value);
@@ -217,17 +218,28 @@ export async function expandSeriesFromWikidata(state, {
     })) officialFrontierAdded += 1;
   }
 
+  const candidatesBySeriesRef = new Map();
+  for (const candidate of candidateMap.values()) {
+    const ref = normalizeUrl(candidate?.series?.ref);
+    if (!ref) continue;
+    const bucket = candidatesBySeriesRef.get(ref) || [];
+    bucket.push(candidate);
+    candidatesBySeriesRef.set(ref, bucket);
+  }
+
+  const expandedThisRun = [];
   for (const group of groups.values()) {
     const fullKnowledge = sanitizeSeriesKnowledge(group);
-    for (const candidate of candidateMap.values()) {
-      if (normalizeUrl(candidate?.series?.ref) !== fullKnowledge.ref) continue;
+    if (!fullKnowledge.ref || !fullKnowledge.members.length) continue;
+    for (const candidate of candidatesBySeriesRef.get(fullKnowledge.ref) || []) {
       candidate.series = mergeSeriesKnowledge(candidate.series, fullKnowledge);
     }
+    expandedThisRun.push(fullKnowledge.ref);
   }
 
   state.candidates = [...candidateMap.values()];
   const expanded = new Set(progress.expandedRefs);
-  for (const ref of refs) expanded.add(ref);
+  for (const ref of expandedThisRun) expanded.add(ref);
   progress.expandedRefs = [...expanded];
   progress.lastRunAt = observedAt;
   state.wikidataSeriesExpansion = progress;
@@ -235,7 +247,7 @@ export async function expandSeriesFromWikidata(state, {
   return {
     seriesRequested: refs.length,
     rows: bindings.length,
-    seriesExpanded: refs.length,
+    seriesExpanded: expandedThisRun.length,
     candidatesAdded,
     evidenceAdded,
     officialFrontierAdded,
