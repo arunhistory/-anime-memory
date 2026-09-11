@@ -123,7 +123,8 @@ jobs:
         run: |
           set -euo pipefail
           base_sha="$(git rev-parse HEAD)"
-          git add -A crawler/state.json crawler/state-shards crawler/research-cycle.json
+          git add -A crawler/state.json crawler/research-cycle.json
+          if [[ -d crawler/state-shards ]]; then git add -A crawler/state-shards; fi
           if [[ -f crawler/pending-initial.json ]]; then git add crawler/pending-initial.json; fi
           if [[ -d data ]]; then git add data; fi
 
