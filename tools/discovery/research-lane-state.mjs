@@ -11,6 +11,7 @@ export function emptyResearchLaneState() {
     version: VERSION,
     frontier: [],
     visited: [],
+    titleSearch: {},
     updatedAt: ''
   };
 }
@@ -55,6 +56,19 @@ function sanitizeFrontier(values) {
   return [...byUrl.values()].sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0));
 }
 
+function sanitizeTitleSearch(value) {
+  const output = {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return output;
+  for (const [rawKey, raw] of Object.entries(value)) {
+    const key = normalizeTitleKey(rawKey);
+    if (!key || !raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const checkedAt = Number.isFinite(Date.parse(raw.checkedAt)) ? String(raw.checkedAt) : '';
+    const url = normalizeUrl(raw.url) || '';
+    output[key] = { checkedAt, url };
+  }
+  return output;
+}
+
 function sanitizeState(input) {
   const state = emptyResearchLaneState();
   if (!input || input.version !== VERSION) return state;
@@ -62,6 +76,7 @@ function sanitizeState(input) {
   state.visited = [...new Set((Array.isArray(input.visited) ? input.visited : [])
     .map((value) => String(value || '').trim())
     .filter((value) => /^[a-f0-9]{64}$/.test(value)))];
+  state.titleSearch = sanitizeTitleSearch(input.titleSearch);
   state.updatedAt = Number.isFinite(Date.parse(input.updatedAt)) ? String(input.updatedAt) : '';
   return state;
 }
@@ -116,4 +131,14 @@ export function addResearchFrontier(state, entries = []) {
 
   state.frontier = [...byUrl.values()].sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0));
   return added;
+}
+
+export function recordTitleSearch(state, title, { checkedAt = new Date().toISOString(), url = '' } = {}) {
+  if (!state.titleSearch || typeof state.titleSearch !== 'object' || Array.isArray(state.titleSearch)) state.titleSearch = {};
+  const key = normalizeTitleKey(title);
+  if (!key) return;
+  state.titleSearch[key] = {
+    checkedAt: Number.isFinite(Date.parse(checkedAt)) ? String(checkedAt) : new Date().toISOString(),
+    url: normalizeUrl(url) || ''
+  };
 }
