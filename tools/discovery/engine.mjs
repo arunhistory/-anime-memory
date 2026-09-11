@@ -12,6 +12,13 @@ import {
   seriesPriorityBoost
 } from './series-learning.mjs';
 import {
+  addFrontierPriorityEntry,
+  buildFrontierPriorityIndex,
+  compactFrontier,
+  popBestFrontier,
+  touchFrontierPriorityEntry
+} from './frontier-priority.mjs';
+import {
   informationPriorityBoost,
   recordCandidateResearch
 } from './research-completion.mjs';
@@ -25,26 +32,6 @@ import {
 import { calibrateSourceTrustFromConsensus } from './trust-calibration.mjs';
 import { resolveEvidenceWithTrust } from './trust-resolution.mjs';
 import { normalizeUrl, urlHash, hostKey } from './url.mjs';
-
-function popBest(frontier, trustModel, hostCounts = null, perHostLimit = Number.POSITIVE_INFINITY) {
-  if (!frontier.length) return null;
-  let bestIndex = -1;
-  let bestScore = Number.NEGATIVE_INFINITY;
-  for (let i = 0; i < frontier.length; i += 1) {
-    const entry = frontier[i];
-    if (hostCounts instanceof Map && Number.isFinite(perHostLimit)) {
-      const host = hostKey(entry?.url);
-      if ((hostCounts.get(host) || 0) >= perHostLimit) continue;
-    }
-    const score = Number(entry?.priority || 0) + scoreResearchRoute(trustModel, { url: entry?.url }).boost;
-    if (bestIndex < 0 || score > bestScore) {
-      bestScore = score;
-      bestIndex = i;
-    }
-  }
-  if (bestIndex < 0) return null;
-  return frontier.splice(bestIndex, 1)[0];
-}
 
 function normalizeCandidateHints(values) {
   const source = Array.isArray(values) ? values : [];
@@ -108,7 +95,7 @@ function addCandidate(candidateMap, candidate, sourceUrl, now, evidence, trustMo
   return !existed;
 }
 
-function addFrontier(frontier, queued, visited, entry) {
+function addFrontier(frontier, queued, visited, entry, priorityIndex = null) {
   const url = normalizeUrl(entry.url);
   if (!url) return false;
   const hash = urlHash(url);
@@ -118,11 +105,15 @@ function addFrontier(frontier, queued, visited, entry) {
   const candidateHints = normalizeCandidateHints(entry.candidateHints);
   const existing = queued.get(url);
   if (existing) {
-    existing.priority = Math.max(Number(existing.priority || 0), priority);
+    const previousPriority = Number(existing.priority || 0);
+    existing.priority = Math.max(previousPriority, priority);
     existing.candidateHints = normalizeCandidateHints([
       ...(existing.candidateHints || []),
       ...candidateHints
     ]);
+    if (priorityIndex && Number(existing.priority || 0) !== previousPriority) {
+      touchFrontierPriorityEntry(priorityIndex, existing);
+    }
     return false;
   }
 
@@ -135,6 +126,7 @@ function addFrontier(frontier, queued, visited, entry) {
   };
   frontier.push(item);
   queued.set(url, item);
+  if (priorityIndex) addFrontierPriorityEntry(priorityIndex, item);
   return true;
 }
 
@@ -205,9 +197,11 @@ export async function runDiscovery(options) {
   for (const entry of frontier) {
     const url = normalizeUrl(entry?.url);
     if (!url) continue;
+    entry.url = url;
     queued.set(url, entry);
     entry.candidateHints = normalizeCandidateHints(entry.candidateHints);
   }
+  const frontierPriorityIndex = buildFrontierPriorityIndex(frontier, queued);
   const hostCounts = new Map();
   const deferredBlocked = [];
   const stats = {
@@ -239,7 +233,9 @@ export async function runDiscovery(options) {
     knownWorkEvidenceReused: 0,
     knownStateCandidatesRetained: 0,
     knownWorkCandidatesSkipped: 0,
-    knownStateCandidatesPruned: 0
+    knownStateCandidatesPruned: 0,
+    frontierPriorityGroups: frontierPriorityIndex.groups.size,
+    frontierPriorityGroupEvaluations: 0
   };
 
   const candidateMap = new Map();
@@ -281,10 +277,9 @@ export async function runDiscovery(options) {
     }
   );
 
-  while (frontier.length && stats.attempted < maxPages) {
-    const entry = popBest(frontier, trustModel, hostCounts, perHostLimit);
+  while (queued.size && stats.attempted < maxPages) {
+    const entry = popBestFrontier(frontierPriorityIndex, queued, trustModel, hostCounts, perHostLimit);
     if (!entry) break;
-    queued.delete(entry.url);
     const normalized = normalizeUrl(entry.url);
     if (!normalized) continue;
     const hash = urlHash(normalized);
@@ -299,7 +294,10 @@ export async function runDiscovery(options) {
 
     const host = hostKey(normalized);
     const hostCount = hostCounts.get(host) || 0;
-    if (hostCount >= perHostLimit) continue;
+    if (hostCount >= perHostLimit) {
+      deferredBlocked.push(entry);
+      continue;
+    }
     hostCounts.set(host, hostCount + 1);
     stats.attempted += 1;
 
@@ -341,7 +339,7 @@ export async function runDiscovery(options) {
           depth: entry.depth + 1,
           discoveredFrom: result.url,
           candidateHints: entry.candidateHints || []
-        })) stats.sitemapLinks += 1;
+        }, frontierPriorityIndex)) stats.sitemapLinks += 1;
       }
       recordResearchOperation(state.researchStrategy, { url: normalized, fetched: true, evidenceClaims: 0, observedAt: now });
       trustModel = buildResearchStrategyModel(state);
@@ -525,7 +523,7 @@ export async function runDiscovery(options) {
         depth: entry.depth + 1,
         discoveredFrom: document.url,
         candidateHints: item.candidateHints
-      });
+      }, frontierPriorityIndex);
       if (item.candidateHints.length) stats.verificationLinksPromoted += 1;
       if (added) {
         stats.newLinks += 1;
@@ -540,11 +538,11 @@ export async function runDiscovery(options) {
         depth: Math.min(entry.depth + 1, maxDepth),
         discoveredFrom: document.url,
         candidateHints: [...seriesHints, ...acceptedVerificationHints]
-      })) stats.sitemapLinks += 1;
+      }, frontierPriorityIndex)) stats.sitemapLinks += 1;
     }
   }
 
-  for (const entry of deferredBlocked) addFrontier(frontier, queued, visited, entry);
+  for (const entry of deferredBlocked) addFrontier(frontier, queued, visited, entry, frontierPriorityIndex);
 
   let resolved = resolveCandidateEntities(
     [...candidateMap.values()],
@@ -571,9 +569,11 @@ export async function runDiscovery(options) {
   }
 
   stats.entityMerges = resolved.merges;
+  stats.frontierPriorityGroups = frontierPriorityIndex.groups.size;
+  stats.frontierPriorityGroupEvaluations = frontierPriorityIndex.selectionStats.groupEvaluations;
   state.visited = [...visited];
   state.candidates = resolved.candidates;
-  state.frontier = frontier;
+  state.frontier = compactFrontier(frontier, queued);
   state.updatedAt = now;
   return { state, stats };
 }
