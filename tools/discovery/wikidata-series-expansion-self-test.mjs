@@ -32,6 +32,24 @@ const titles = [
   ['Q5', 'Dr.STONE SCIENCE FUTURE', 'anime television series', '2025-01-09T00:00:00Z', 'https://dr-stone.jp/4th/']
 ];
 
+function stoneCandidate() {
+  return {
+    key: 'drstonesciencefuture',
+    title: 'Dr.STONE SCIENCE FUTURE',
+    sources: [],
+    evidence: [],
+    facts: {},
+    series: {
+      ref: 'https://www.wikidata.org/entity/Q456',
+      title: 'Dr.STONE',
+      inferredStem: 'Dr.STONE',
+      members: [{ title: 'Dr.STONE SCIENCE FUTURE', url: 'https://www.wikidata.org/entity/Q5', kind: 'OTHER' }],
+      relations: []
+    },
+    lastSeen: '2026-09-11T00:00:00.000Z'
+  };
+}
+
 function stoneBindings() {
   return titles.map(([qid, title, classLabel, date, official], index) => ({
     series: { value: 'https://www.wikidata.org/entity/Q456' },
@@ -102,6 +120,20 @@ const second = await expandSeriesFromWikidata(state, {
 assert.equal(second.seriesRequested, 0);
 assert.equal(second.seriesExpanded, 0);
 
+const sharedBackoffState = emptyDiscoveryState();
+sharedBackoffState.candidates.push(stoneCandidate());
+sharedBackoffState.wikidataBootstrap.retryAfter = '2026-09-11T00:05:00.000Z';
+let sharedBackoffFetches = 0;
+const sharedDeferred = await expandSeriesFromWikidata(sharedBackoffState, {
+  observedAt: '2026-09-11T00:01:00.000Z',
+  fetchImpl: async () => {
+    sharedBackoffFetches += 1;
+    throw new Error('shared-backoff-must-prevent-fetch');
+  }
+});
+assert.equal(sharedBackoffFetches, 0, 'bootstrap Retry-After must also suppress series WDQS requests');
+assert.equal(sharedDeferred.backoffUntil, '2026-09-11T00:05:00.000Z');
+
 const partialState = emptyDiscoveryState();
 for (const [key, title, ref] of [
   ['stone', 'Dr.STONE', 'https://www.wikidata.org/entity/Q456'],
@@ -157,5 +189,6 @@ console.log('Wikidata full-series expansion self-test: PASS');
 console.log('DR.STONE five-title expansion: PASS');
 console.log('reciprocal prequel/sequel graph: PASS');
 console.log('expanded-series repeat suppression: PASS');
+console.log('shared Retry-After backoff: PASS');
 console.log('zero-result series retry defer: PASS');
 console.log('expanded-series progress over 20k: PRESERVED');
