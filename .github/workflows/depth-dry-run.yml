@@ -1,0 +1,27 @@
+name: Temporary Information Depth Dry Run
+
+on:
+  push:
+    branches:
+      - fix/anime-information-depth-20260911
+    paths:
+      - '.github/workflows/depth-dry-run.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run bounded non-persistent depth probe
+        env:
+          DISCOVERY_MIN_DELAY_MS: '1000'
+          WIKIDATA_SERIES_EXPANSION_DISABLED: 'true'
+        run: |
+          node tools/discovery/run.mjs --max-pages 30 --max-depth 12 --per-host-limit 30 --dry-run true
