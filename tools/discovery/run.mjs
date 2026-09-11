@@ -9,7 +9,7 @@ import { bootstrapFromWikidata } from './wikidata-bootstrap.mjs';
 import { expandSeriesFromWikidata } from './wikidata-series-expansion.mjs';
 import { backfillCandidateWikipediaSitelinks } from './wikidata-article-backfill.mjs';
 import { buildReadinessReport } from './readiness-report.mjs';
-import { buildInformationDepthPlan } from './depth-control.mjs';
+import { buildInformationDepthPlan, promoteCorroborationFrontier } from './depth-control.mjs';
 
 function parseArgs(argv) {
   const args = {};
@@ -121,8 +121,10 @@ async function main() {
     } catch (error) {
       console.warn(`Wikidata article backfill deferred: ${error.message}`);
     }
-    depthPlan = buildInformationDepthPlan(state);
   }
+
+  const corroborationFrontier = promoteCorroborationFrontier(state);
+  depthPlan = buildInformationDepthPlan(state);
 
   let wikidata = {
     fetched: 0,
@@ -201,6 +203,8 @@ async function main() {
   console.log(`registered CSV files loaded into search.wasm: ${knownWorkSearch.fileCount}`);
   console.log(`information-depth pending candidates: ${depthPlan.pendingCandidates}`);
   console.log(`information-depth actionable frontier: ${depthPlan.actionableFrontier}`);
+  console.log(`corroboration frontier examined: ${corroborationFrontier.examined}`);
+  console.log(`corroboration frontier promoted: ${corroborationFrontier.promoted}`);
   console.log(`Wikidata article backfill requested: ${articleBackfill.requested}`);
   console.log(`Wikidata article backfill resolved: ${articleBackfill.resolved}`);
   console.log(`Wikidata article backfill frontier added: ${articleBackfill.frontierAdded}`);
