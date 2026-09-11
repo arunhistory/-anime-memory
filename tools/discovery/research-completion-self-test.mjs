@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   candidateInformationReadiness,
+  corroborationPriorityBoost,
   recordCandidateResearch
 } from './research-completion.mjs';
 import { scoreDiscoveredLink } from './score.mjs';
@@ -67,6 +68,39 @@ const marked = recordCandidateResearch({
 assert.equal(marked.wikidataArticleCheckedAt, '2026-09-11T00:00:00.000Z');
 assert.equal(marked.wikidataArticleUrl, 'https://ja.wikipedia.org/wiki/Dr.STONE');
 
+const observedCandidate = {
+  ...sparse,
+  evidence: [
+    { field: 'release_start', value: '2025-01-09', sourceUrl: 'https://www.wikidata.org/entity/Q1' },
+    { field: 'animation_studio', value: 'TMS Entertainment', sourceUrl: 'https://www.wikidata.org/entity/Q1' }
+  ],
+  facts: {
+    ...sparse.facts,
+    release_start: { status: 'observed', value: '2025-01-09' },
+    animation_studio: { status: 'observed', value: 'TMS Entertainment' }
+  },
+  research: {}
+};
+const independentBroadcast = corroborationPriorityBoost(
+  { url: 'https://network.example.jp/broadcast/', anchor: '放送情報' },
+  observedCandidate
+);
+assert.ok(independentBroadcast >= 125, 'new-family route matching an observed field must receive strong corroboration priority');
+assert.equal(
+  corroborationPriorityBoost({ url: 'https://ja.wikipedia.org/wiki/Dr.STONE', anchor: '放送情報' }, observedCandidate),
+  0,
+  'same Wikimedia family must not count as independent corroboration'
+);
+assert.equal(
+  corroborationPriorityBoost({ url: 'https://news.example.jp/interview', anchor: 'インタビュー' }, observedCandidate),
+  0,
+  'broad news corroboration requires explicit candidate scope'
+);
+assert.ok(
+  corroborationPriorityBoost({ url: 'https://news.example.jp/interview', anchor: 'Dr.STONE インタビュー' }, observedCandidate, { allowBroad: true }) > 0,
+  'explicit candidate-scoped independent news may be used for corroboration research'
+);
+
 const scarce = {
   ...sparse,
   facts: {
@@ -103,5 +137,7 @@ console.log('Information research completion self-test: PASS');
 console.log('name-only publication: BLOCKED');
 console.log('information-rich publication: PASS');
 console.log('Wikipedia backfill research metadata persistence: PASS');
+console.log('independent observed-field corroboration priority: PASS');
+console.log('same-family corroboration: BLOCKED');
 console.log('researched-to-exhaustion fallback: PASS');
 console.log('detailed information route priority: PASS');
