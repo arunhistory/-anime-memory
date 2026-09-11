@@ -1,0 +1,72 @@
+name: Anime Research Inactivity Timeout
+
+on:
+  schedule:
+    - cron: '47 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: anime-production-cycle
+  cancel-in-progress: false
+
+jobs:
+  timeout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout latest main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Read cycle state
+        id: cycle
+        run: node tools/discovery/cycle.mjs status
+
+      - name: Apply 24-hour inactivity timeout
+        if: ${{ steps.cycle.outputs.active == 'true' && steps.cycle.outputs.waiting_for_inactivity == 'true' }}
+        run: node tools/discovery/cycle.mjs timeout
+
+      - name: Commit timeout only when state changed
+        if: ${{ steps.cycle.outputs.active == 'true' && steps.cycle.outputs.waiting_for_inactivity == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add crawler/research-cycle.json
+          if git diff --cached --quiet; then
+            echo '24-hour timeout not reached; no change.'
+            exit 0
+          fi
+
+          base_sha="$(git rev-parse HEAD)"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Stop anime research after 24h inactivity'
+
+          for attempt in 1 2 3; do
+            git fetch origin main
+            remote_head="$(git rev-parse origin/main)"
+            if [[ "${remote_head}" != "${base_sha}" ]]; then
+              if ! git diff --quiet "${base_sha}..${remote_head}" -- crawler/research-cycle.json; then
+                echo 'Research cycle changed concurrently; refusing timeout overwrite.' >&2
+                exit 1
+              fi
+              git rebase origin/main
+              base_sha="${remote_head}"
+            fi
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+          done
+
+          echo 'Could not publish inactivity timeout without force push.' >&2
+          exit 1
