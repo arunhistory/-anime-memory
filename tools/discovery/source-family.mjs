@@ -36,6 +36,12 @@ export function sourceFamilyKey(url) {
   return parts.slice(-2).join('.');
 }
 
+function evidenceRank(item) {
+  if (item?.verifiedPrimary === true) return 3;
+  if (item?.sourceClass === 'primary') return 2;
+  return 1;
+}
+
 export function collapseSameFamilyEvidence(evidence = []) {
   const selected = new Map();
   const passthrough = [];
@@ -56,10 +62,10 @@ export function collapseSameFamilyEvidence(evidence = []) {
       continue;
     }
 
-    const existingPrimary = existing?.sourceClass === 'primary';
-    const incomingPrimary = item?.sourceClass === 'primary';
-    if (!existingPrimary && incomingPrimary) selected.set(key, item);
-    else if (existingPrimary === incomingPrimary && Number(item?.directness || 0) > Number(existing?.directness || 0)) selected.set(key, item);
+    const existingRank = evidenceRank(existing);
+    const incomingRank = evidenceRank(item);
+    if (incomingRank > existingRank) selected.set(key, item);
+    else if (incomingRank === existingRank && Number(item?.directness || 0) > Number(existing?.directness || 0)) selected.set(key, item);
   }
 
   return [...selected.values(), ...passthrough];
