@@ -70,10 +70,11 @@ const focusState = emptyDiscoveryState();
 const at = '2026-09-11T00:00:00.000Z';
 const nearTitle = '近い作品';
 const farTitle = '遠い作品';
-const identityEvidence = (title, host) => [
-  { field: 'title_ja', value: title, sourceUrl: `https://${host}/work`, sourceClass: 'primary', rule: 'fixture', observedAt: at },
-  { field: 'media_type', value: 'TV', sourceUrl: `https://${host}/work`, sourceClass: 'primary', rule: 'fixture', observedAt: at },
-  { field: 'origin_country', value: 'JP', sourceUrl: `https://${host}/work`, sourceClass: 'primary', rule: 'fixture', observedAt: at }
+const identityEvidence = (title, host, corroboratorHost) => [
+  { field: 'title_ja', value: title, sourceUrl: `https://${host}/work`, sourceClass: 'primary', directness: 100, rule: 'fixture-title', observedAt: at },
+  { field: 'title_ja', value: title, sourceUrl: `https://${corroboratorHost}/title`, sourceClass: 'secondary', directness: 80, rule: 'fixture-title-corroboration', observedAt: at },
+  { field: 'media_type', value: 'TV', sourceUrl: `https://${host}/work`, sourceClass: 'primary', directness: 100, rule: 'fixture-media', observedAt: at },
+  { field: 'origin_country', value: 'JP', sourceUrl: `https://${host}/work`, sourceClass: 'primary', directness: 100, rule: 'origin-country-labeled-japan', observedAt: at }
 ];
 focusState.candidates.push(
   {
@@ -81,7 +82,7 @@ focusState.candidates.push(
     title: nearTitle,
     sources: [],
     evidence: [
-      ...identityEvidence(nearTitle, 'catalog-near.example.jp'),
+      ...identityEvidence(nearTitle, 'catalog-near.example.jp', 'identity-near.example.net'),
       { field: 'release_start', value: '2027-04-03', sourceUrl: 'https://catalog-near.example.jp/work', sourceClass: 'secondary', rule: 'fixture', observedAt: at }
     ],
     facts: {
@@ -110,7 +111,7 @@ focusState.candidates.push(
     title: farTitle,
     sources: [],
     evidence: [
-      ...identityEvidence(farTitle, 'catalog-far.example.jp'),
+      ...identityEvidence(farTitle, 'catalog-far.example.jp', 'identity-far.example.net'),
       { field: 'release_start', value: '2027-04-03', sourceUrl: 'https://catalog-far.example.jp/work', sourceClass: 'secondary', rule: 'fixture', observedAt: at }
     ],
     facts: {
