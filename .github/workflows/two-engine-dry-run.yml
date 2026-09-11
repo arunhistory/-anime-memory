@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Run isolated deep-research lane on copied state
+      - name: Run single-title isolated deep-research lane on copied state
         env:
           DISCOVERY_MIN_DELAY_MS: '1000'
         run: |
@@ -40,8 +40,10 @@ jobs:
           const state = loadDiscoveryState('/tmp/two-engine-crawler/state.json');
           const research = loadResearchLaneState('/tmp/two-engine-crawler/research-frontier.json');
           const readiness = buildReadinessReport(state);
+          const researchTitles = [...new Set((research.frontier || []).flatMap((entry) => entry.candidateHints || []))];
           console.log(`DIAG discovery frontier=${state.frontier.length}`);
           console.log(`DIAG research frontier=${research.frontier.length}`);
+          console.log(`DIAG research candidate titles=${JSON.stringify(researchTitles)}`);
           console.log(`DIAG research visited=${research.visited.length}`);
           console.log(`DIAG title-search cache=${Object.keys(research.titleSearch || {}).length}`);
           console.log(`DIAG identity-ready=${readiness.identityReady}`);
