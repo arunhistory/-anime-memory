@@ -7,7 +7,9 @@ import { loadKnownWorkWasmSearch } from './known-work-wasm.mjs';
 import { normalizeUrl } from './url.mjs';
 import { bootstrapFromWikidata } from './wikidata-bootstrap.mjs';
 import { expandSeriesFromWikidata } from './wikidata-series-expansion.mjs';
+import { backfillCandidateWikipediaSitelinks } from './wikidata-article-backfill.mjs';
 import { buildReadinessReport } from './readiness-report.mjs';
+import { buildInformationDepthPlan, promoteCorroborationFrontier } from './depth-control.mjs';
 
 function parseArgs(argv) {
   const args = {};
@@ -103,16 +105,39 @@ async function main() {
 
   const state = loadDiscoveryState(statePath);
   const before = JSON.stringify(state);
+  let depthPlan = buildInformationDepthPlan(state);
+  let articleBackfill = {
+    requested: 0,
+    resolved: 0,
+    frontierAdded: 0,
+    noArticle: 0
+  };
+  const articleBackfillDisabled = String(process.env.WIKIDATA_ARTICLE_BACKFILL_DISABLED || '').toLowerCase() === 'true';
+  if (!articleBackfillDisabled && depthPlan.pendingCandidates > 0) {
+    try {
+      articleBackfill = await backfillCandidateWikipediaSitelinks(state, {
+        limit: validateNumber(process.env.WIKIDATA_ARTICLE_BACKFILL_LIMIT, 'WIKIDATA_ARTICLE_BACKFILL_LIMIT', 1, 200, 100)
+      });
+    } catch (error) {
+      console.warn(`Wikidata article backfill deferred: ${error.message}`);
+    }
+  }
+
+  const corroborationFrontier = promoteCorroborationFrontier(state);
+  depthPlan = buildInformationDepthPlan(state);
+
   let wikidata = {
     fetched: 0,
     candidatesAdded: 0,
     evidenceAdded: 0,
     officialFrontierAdded: 0,
+    articleFrontierAdded: 0,
     seriesFrontierAdded: 0,
     completed: Boolean(state.wikidataBootstrap?.completed),
     offset: state.wikidataBootstrap?.offset || 0
   };
-  if (String(process.env.WIKIDATA_BOOTSTRAP_DISABLED || '').toLowerCase() !== 'true') {
+  const bootstrapDisabled = String(process.env.WIKIDATA_BOOTSTRAP_DISABLED || '').toLowerCase() === 'true';
+  if (!bootstrapDisabled && !depthPlan.pauseBootstrap) {
     try {
       wikidata = await bootstrapFromWikidata(state, {
         limit: validateNumber(process.env.WIKIDATA_BOOTSTRAP_LIMIT, 'WIKIDATA_BOOTSTRAP_LIMIT', 1, 500, 200)
@@ -176,10 +201,20 @@ async function main() {
   console.log(`seed URLs: ${seeds.length}`);
   console.log(`allowed hosts: ${allowedHosts.length ? allowedHosts.join(',') : 'unrestricted-public-web'}`);
   console.log(`registered CSV files loaded into search.wasm: ${knownWorkSearch.fileCount}`);
+  console.log(`information-depth pending candidates: ${depthPlan.pendingCandidates}`);
+  console.log(`information-depth actionable frontier: ${depthPlan.actionableFrontier}`);
+  console.log(`corroboration frontier examined: ${corroborationFrontier.examined}`);
+  console.log(`corroboration frontier promoted: ${corroborationFrontier.promoted}`);
+  console.log(`Wikidata article backfill requested: ${articleBackfill.requested}`);
+  console.log(`Wikidata article backfill resolved: ${articleBackfill.resolved}`);
+  console.log(`Wikidata article backfill frontier added: ${articleBackfill.frontierAdded}`);
+  console.log(`Wikidata article backfill no article: ${articleBackfill.noArticle}`);
+  console.log(`Wikidata bootstrap paused for information depth: ${depthPlan.pauseBootstrap}`);
   console.log(`Wikidata bootstrap rows: ${wikidata.fetched}`);
   console.log(`Wikidata bootstrap candidates added: ${wikidata.candidatesAdded}`);
   console.log(`Wikidata bootstrap evidence added: ${wikidata.evidenceAdded}`);
   console.log(`Wikidata official verification URLs added: ${wikidata.officialFrontierAdded}`);
+  console.log(`Wikidata article verification URLs added: ${wikidata.articleFrontierAdded || 0}`);
   console.log(`Wikidata series verification URLs added: ${wikidata.seriesFrontierAdded || 0}`);
   console.log(`Wikidata bootstrap offset: ${wikidata.offset}`);
   console.log(`Wikidata bootstrap completed: ${wikidata.completed}`);

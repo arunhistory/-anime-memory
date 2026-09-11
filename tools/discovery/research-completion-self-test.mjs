@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import {
   candidateInformationReadiness,
+  corroborationPriorityBoost,
+  isCorroborationEligibleUrl,
   recordCandidateResearch
 } from './research-completion.mjs';
+import { researchRouteKind } from './research-strategy.mjs';
 import { scoreDiscoveredLink } from './score.mjs';
 
 function confirmed(value) {
@@ -56,6 +59,88 @@ const richStatus = candidateInformationReadiness(rich);
 assert.equal(richStatus.ready, true, 'broad confirmed information from multiple source families should be publishable');
 assert.equal(richStatus.mode, 'information-rich');
 
+const marked = recordCandidateResearch({
+  wikidataArticleCheckedAt: '2026-09-11T00:00:00.000Z',
+  wikidataArticleUrl: 'https://ja.wikipedia.org/wiki/Dr.STONE'
+}, {
+  url: 'https://dr-stone.jp/staff/',
+  evidence: [{ field: 'director', value: 'fixture' }],
+  observedAt: '2026-09-11T00:01:00.000Z'
+});
+assert.equal(marked.wikidataArticleCheckedAt, '2026-09-11T00:00:00.000Z');
+assert.equal(marked.wikidataArticleUrl, 'https://ja.wikipedia.org/wiki/Dr.STONE');
+
+const observedCandidate = {
+  ...sparse,
+  evidence: [
+    { field: 'release_start', value: '2025-01-09', sourceUrl: 'https://www.wikidata.org/entity/Q1' },
+    { field: 'animation_studio', value: 'TMS Entertainment', sourceUrl: 'https://www.wikidata.org/entity/Q1' }
+  ],
+  facts: {
+    ...sparse.facts,
+    release_start: { status: 'observed', value: '2025-01-09' },
+    animation_studio: { status: 'observed', value: 'TMS Entertainment' }
+  },
+  research: {}
+};
+const independentBroadcast = corroborationPriorityBoost(
+  { url: 'https://network.example.jp/broadcast/', anchor: '放送情報' },
+  observedCandidate
+);
+assert.ok(independentBroadcast >= 125, 'new-family route matching an observed field must receive strong corroboration priority');
+assert.equal(
+  corroborationPriorityBoost({ url: 'https://ja.wikipedia.org/wiki/Dr.STONE', anchor: '放送情報' }, observedCandidate),
+  0,
+  'same Wikimedia family must not count as independent corroboration'
+);
+assert.equal(
+  corroborationPriorityBoost({ url: 'https://news.example.jp/interview', anchor: 'インタビュー' }, observedCandidate),
+  0,
+  'broad news corroboration requires explicit candidate scope'
+);
+assert.ok(
+  corroborationPriorityBoost({ url: 'https://news.example.jp/interview', anchor: 'Dr.STONE インタビュー' }, observedCandidate, { allowBroad: true }) > 0,
+  'explicit candidate-scoped independent news may be used for corroboration research'
+);
+
+assert.equal(isCorroborationEligibleUrl('https://ja.wikipedia.org/wiki/Dr.STONE'), true, 'canonical Wikipedia article must remain eligible');
+for (const url of [
+  'https://ja.wikipedia.org/w/index.php?title=Dr.STONE&action=history',
+  'https://ja.wikipedia.org/w/index.php?title=Dr.STONE&redirect=no',
+  'https://ja.wikipedia.org/wiki/Dr.STONE?action=edit',
+  'https://ja.wikipedia.org/wiki/Dr.STONE?oldid=123456',
+  'https://ja.wikipedia.org/wiki/Dr.STONE?printable=yes',
+  'https://ja.wikipedia.org/wiki/%E7%89%B9%E5%88%A5:%E3%83%AD%E3%82%B0%E3%82%A4%E3%83%B3',
+  'https://ja.wikipedia.org/wiki/Template:Anime',
+  'https://ja.wikipedia.org/wiki/%E3%83%86%E3%83%B3%E3%83%97%E3%83%AC%E3%83%BC%E3%83%88:Anime'
+]) {
+  assert.equal(isCorroborationEligibleUrl(url), false, `${url} must not become a corroboration target`);
+}
+assert.equal(
+  isCorroborationEligibleUrl('https://ja.wikipedia.org/wiki/Re:%E3%82%BC%E3%83%AD%E3%81%8B%E3%82%89%E5%A7%8B%E3%82%81%E3%82%8B%E7%95%B0%E4%B8%96%E7%95%8C%E7%94%9F%E6%B4%BB'),
+  true,
+  'a main-namespace article title containing a colon must remain eligible'
+);
+
+const kodanshaProduct = 'https://kc.kodansha.co.jp/product?item=0000042408';
+const lineThemeProduct = 'https://store.line.me/themeshop/product/fc75bb55-e804-41dc-937b-af3ca322378e';
+assert.equal(researchRouteKind(kodanshaProduct), 'works', 'commerce product pages remain available to normal discovery routing');
+assert.equal(researchRouteKind(lineThemeProduct), 'works', 'theme-store product pages remain available to normal discovery routing');
+assert.equal(
+  corroborationPriorityBoost({ url: kodanshaProduct, anchor: '' }, observedCandidate, { allowBroad: true }),
+  0,
+  'publisher product pages must not become focused independent corroboration sources'
+);
+assert.equal(
+  corroborationPriorityBoost({ url: lineThemeProduct, anchor: '' }, observedCandidate, { allowBroad: true }),
+  0,
+  'merchandise/theme-store pages must not become focused independent corroboration sources'
+);
+assert.ok(
+  corroborationPriorityBoost({ url: 'https://catalog.example.jp/works/dr-stone/', anchor: '作品情報' }, observedCandidate, { allowBroad: true }) > 0,
+  'non-commerce work overview pages must remain eligible for corroboration'
+);
+
 const scarce = {
   ...sparse,
   facts: {
@@ -91,5 +176,12 @@ assert.ok(detailScore > contactScore, 'information-rich detail routes must outra
 console.log('Information research completion self-test: PASS');
 console.log('name-only publication: BLOCKED');
 console.log('information-rich publication: PASS');
+console.log('Wikipedia backfill research metadata persistence: PASS');
+console.log('independent observed-field corroboration priority: PASS');
+console.log('same-family corroboration: BLOCKED');
+console.log('Wikipedia utility corroboration focus: BLOCKED');
+console.log('Wikipedia main-namespace article corroboration: PRESERVED');
+console.log('commerce corroboration focus: BLOCKED');
+console.log('commerce discovery routing: PRESERVED');
 console.log('researched-to-exhaustion fallback: PASS');
 console.log('detailed information route priority: PASS');

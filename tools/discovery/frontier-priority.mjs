@@ -1,10 +1,30 @@
+import { normalizeTitleKey } from './html.mjs';
 import { hostKey } from './url.mjs';
 import { researchRouteKind, scoreResearchRoute } from './research-strategy.mjs';
+
+const FOCUS_PRIORITY_BOOST = 10000;
 
 function groupKeyFor(url) {
   const host = hostKey(url);
   const route = researchRouteKind(url);
   return `${host}\u0000${route}`;
+}
+
+function normalizedFocusCandidateKey(value) {
+  return normalizeTitleKey(value);
+}
+
+function entryHasFocus(index, entry) {
+  const focus = normalizedFocusCandidateKey(index?.focusCandidateKey);
+  if (!focus || !(index?.focusUrls instanceof Set) || !index.focusUrls.has(entry?.url)) return false;
+  for (const hint of Array.isArray(entry?.candidateHints) ? entry.candidateHints : []) {
+    if (normalizeTitleKey(hint) === focus) return true;
+  }
+  return false;
+}
+
+function effectivePriority(index, entry) {
+  return Number(entry?.priority || 0) + (entryHasFocus(index, entry) ? FOCUS_PRIORITY_BOOST : 0);
 }
 
 function better(left, right) {
@@ -35,7 +55,7 @@ function heapPop(heap) {
     let index = 0;
     while (true) {
       const left = index * 2 + 1;
-      const right = left + 1;
+      const right = index * 2 + 2;
       let best = index;
       if (left < heap.length && better(heap[left], heap[best])) best = left;
       if (right < heap.length && better(heap[right], heap[best])) best = right;
@@ -47,11 +67,22 @@ function heapPop(heap) {
   return first;
 }
 
-function heapPeekCurrent(group, queued) {
+function heapPeekCurrent(group, queued, index) {
   while (group.heap.length) {
     const head = group.heap[0];
     const current = queued.get(head.url);
-    if (current && current === head.entry && Number(current.priority || 0) === head.priority) return head;
+    if (current && current === head.entry) {
+      const currentPriority = effectivePriority(index, current);
+      if (currentPriority === head.priority) return head;
+      heapPop(group.heap);
+      heapPush(group.heap, {
+        url: head.url,
+        entry: current,
+        priority: currentPriority,
+        sequence: head.sequence
+      });
+      continue;
+    }
     heapPop(group.heap);
   }
   return null;
@@ -62,6 +93,8 @@ export function buildFrontierPriorityIndex(frontier = [], queued = new Map()) {
     groups: new Map(),
     sequenceByUrl: new Map(),
     nextSequence: 0,
+    focusCandidateKey: normalizedFocusCandidateKey(frontier?.focusCandidateKey),
+    focusUrls: new Set(frontier?.focusUrls instanceof Set ? frontier.focusUrls : []),
     selectionStats: {
       pops: 0,
       groupEvaluations: 0,
@@ -95,7 +128,7 @@ export function addFrontierPriorityEntry(index, entry) {
   heapPush(index.groups.get(key).heap, {
     url: entry.url,
     entry,
-    priority: Number(entry.priority || 0),
+    priority: effectivePriority(index, entry),
     sequence
   });
 }
@@ -114,7 +147,7 @@ export function popBestFrontier(index, queued, trustModel, hostCounts = null, pe
       if ((hostCounts.get(group.host) || 0) >= perHostLimit) continue;
     }
     const before = group.heap.length;
-    const head = heapPeekCurrent(group, queued);
+    const head = heapPeekCurrent(group, queued, index);
     index.selectionStats.staleHeapEntriesDiscarded += Math.max(0, before - group.heap.length);
     if (!head) continue;
     index.selectionStats.groupEvaluations += 1;

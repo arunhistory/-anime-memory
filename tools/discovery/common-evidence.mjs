@@ -1,3 +1,5 @@
+import { normalizeOfficialLandingUrl } from './official-page.mjs';
+
 const MAX_LABEL_VALUE = 180;
 
 export const ADDITIONAL_SCALAR_FIELDS = new Set([
@@ -45,6 +47,8 @@ export const ADDITIONAL_MULTI_FIELDS = new Set([
   'music_production',
   'broadcast_networks'
 ]);
+
+const X_RESERVED = new Set(['home', 'explore', 'search', 'i', 'intent', 'share', 'hashtag', 'messages', 'compose', 'settings', 'login', 'signup', 'tos', 'privacy', 'status']);
 
 function clean(value, max = MAX_LABEL_VALUE) {
   return String(value || '')
@@ -133,26 +137,81 @@ function extractNumbers(context) {
   return claims;
 }
 
+function normalizedLandingUrl(document) {
+  return normalizeOfficialLandingUrl(document?.canonical || document?.url);
+}
+
+function socialAnchorAllowed(anchor, platform, { landingPage = false } = {}) {
+  const text = clean(anchor, 120).toLocaleLowerCase('ja');
+  if (/(?:公式|official)/i.test(text)) return true;
+  if (!landingPage) return false;
+  if (!text) return true;
+  if (platform === 'x') return /^(?:x|twitter|ツイッター)$/i.test(text);
+  return /^(?:youtube|ユーチューブ)$/i.test(text);
+}
+
+function normalizedXProfile(link, options = {}) {
+  let parsed;
+  try {
+    parsed = new URL(link?.url);
+  } catch {
+    return '';
+  }
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+  if (host !== 'x.com' && host !== 'twitter.com') return '';
+  if (!socialAnchorAllowed(link?.anchor, 'x', options)) return '';
+  const segments = parsed.pathname.split('/').filter(Boolean);
+  if (segments.length !== 1) return '';
+  const handle = segments[0];
+  if (!/^[A-Za-z0-9_]{1,30}$/.test(handle) || X_RESERVED.has(handle.toLowerCase())) return '';
+  return `${parsed.protocol}//${parsed.host}/${handle}`;
+}
+
+function normalizedYoutubeChannel(link, options = {}) {
+  let parsed;
+  try {
+    parsed = new URL(link?.url);
+  } catch {
+    return '';
+  }
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+  if (host !== 'youtube.com' && !host.endsWith('.youtube.com')) return '';
+  if (!socialAnchorAllowed(link?.anchor, 'youtube', options)) return '';
+  const segments = parsed.pathname.split('/').filter(Boolean);
+  if (segments.length === 1 && /^@[A-Za-z0-9._-]{2,100}$/.test(segments[0])) {
+    return `https://www.youtube.com/${segments[0]}`;
+  }
+  if (segments.length === 2 && ['channel', 'c', 'user'].includes(segments[0].toLowerCase()) && segments[1]) {
+    return `https://www.youtube.com/${segments[0]}/${segments[1]}`;
+  }
+  return '';
+}
+
 function extractOfficialLinks(document, sourceClass) {
   if (sourceClass !== 'primary') return [];
   const claims = [];
-  const pageUrl = document.canonical || document.url;
-  if (pageUrl) claims.push({ field: 'official_url', value: pageUrl, rule: 'primary-page-url' });
+  const pageUrl = normalizedLandingUrl(document);
+  const landingPage = Boolean(pageUrl);
+  if (pageUrl) claims.push({ field: 'official_url', value: pageUrl, rule: 'primary-landing-page-url' });
 
+  const seen = new Set();
   for (const link of document.links || []) {
-    let parsed;
-    try {
-      parsed = new URL(link.url);
-    } catch {
+    const xProfile = normalizedXProfile(link, { landingPage });
+    if (xProfile) {
+      const key = `official_x\u0000${xProfile}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        claims.push({ field: 'official_x', value: xProfile, rule: landingPage ? 'primary-landing-social-x-profile' : 'primary-explicit-official-social-x-profile' });
+      }
       continue;
     }
-    const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
-    if (host === 'x.com' || host === 'twitter.com') {
-      claims.push({ field: 'official_x', value: link.url, rule: 'primary-page-social-x' });
-      continue;
-    }
-    if (host === 'youtube.com' || host.endsWith('.youtube.com') || host === 'youtu.be') {
-      claims.push({ field: 'official_youtube', value: link.url, rule: 'primary-page-youtube' });
+    const youtubeChannel = normalizedYoutubeChannel(link, { landingPage });
+    if (youtubeChannel) {
+      const key = `official_youtube\u0000${youtubeChannel}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        claims.push({ field: 'official_youtube', value: youtubeChannel, rule: landingPage ? 'primary-landing-youtube-channel' : 'primary-explicit-official-youtube-channel' });
+      }
     }
   }
   return claims;

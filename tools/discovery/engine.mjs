@@ -61,6 +61,22 @@ function pageFocusesCandidate(document, title) {
   return normalizeTitleKey(headline).includes(key);
 }
 
+function linkExplicitlyNamesCandidate(link, hints) {
+  const haystack = `${link?.url || ''} ${link?.anchor || ''}`
+    .normalize('NFKC')
+    .toLocaleLowerCase('ja')
+    .replace(/\s+/g, '');
+  if (!haystack) return false;
+  for (const hint of normalizeCandidateHints(hints)) {
+    const normalized = String(hint || '')
+      .normalize('NFKC')
+      .toLocaleLowerCase('ja')
+      .replace(/\s+/g, '');
+    if (normalized.length >= 2 && haystack.includes(normalized)) return true;
+  }
+  return false;
+}
+
 function addCandidate(candidateMap, candidate, sourceUrl, now, evidence, trustModel, onStored = null) {
   const key = normalizeTitleKey(candidate.title || candidate.key);
   if (!key) return false;
@@ -136,22 +152,22 @@ function mergeDocument(documents, doc) {
   else documents.push(doc);
 }
 
-function seriesHintsFromEntry(candidateMap, seriesHintIndex, subjectKey, entryHints) {
+function seriesHintsFromValidatedContext(candidateMap, seriesHintIndex, subjectKey, validatedHints) {
   const values = [];
   if (subjectKey && candidateMap.has(subjectKey)) {
     values.push(...relatedSeriesHints(candidateMap.get(subjectKey), seriesHintIndex));
   }
-  for (const hint of normalizeCandidateHints(entryHints)) {
+  for (const hint of normalizeCandidateHints(validatedHints)) {
     const candidate = candidateMap.get(normalizeTitleKey(hint));
     if (candidate) values.push(...relatedSeriesHints(candidate, seriesHintIndex));
   }
   return normalizeCandidateHints(values);
 }
 
-function informationCandidatesFromContext(candidateMap, subjectHint, entryHints, verificationHints) {
+function informationCandidatesFromValidatedContext(candidateMap, subjectHint, verificationHints) {
   const candidates = [];
   const seen = new Set();
-  for (const title of normalizeCandidateHints([subjectHint, ...(entryHints || []), ...(verificationHints || [])])) {
+  for (const title of normalizeCandidateHints([subjectHint, ...(verificationHints || [])])) {
     const key = normalizeTitleKey(title);
     const candidate = candidateMap.get(key);
     if (!candidate || seen.has(key)) continue;
@@ -338,7 +354,7 @@ export async function runDiscovery(options) {
           priority: Math.max(35, Number(entry.priority || 0) - 10),
           depth: entry.depth + 1,
           discoveredFrom: result.url,
-          candidateHints: entry.candidateHints || []
+          candidateHints: []
         }, frontierPriorityIndex)) stats.sitemapLinks += 1;
       }
       recordResearchOperation(state.researchStrategy, { url: normalized, fetched: true, evidenceClaims: 0, observedAt: now });
@@ -471,21 +487,26 @@ export async function runDiscovery(options) {
 
     if (document.nofollow) continue;
 
-    const seriesHints = seriesHintsFromEntry(candidateMap, seriesHintIndex, subjectKey, entry.candidateHints);
-    const titleBoostSet = [...new Set([...detectedTitles, ...seriesHints, ...recentCandidateTitles])].slice(0, 250);
-    const sameOrigin = new URL(document.url).origin;
     const subjectHint = relevant && !document.discoveryOnly && document.subjectCandidate
       ? document.subjectCandidate.title
       : '';
+    const validatedSubjectKey = subjectHint ? subjectKey : '';
+    const validatedHints = normalizeCandidateHints([subjectHint, ...acceptedVerificationHints]);
+    const seriesHints = seriesHintsFromValidatedContext(
+      candidateMap,
+      seriesHintIndex,
+      validatedSubjectKey,
+      validatedHints
+    );
+    const titleBoostSet = [...new Set([...detectedTitles, ...seriesHints, ...recentCandidateTitles])].slice(0, 250);
+    const sameOrigin = new URL(document.url).origin;
     const verificationHintsForLinks = normalizeCandidateHints([
       ...seriesHints,
-      subjectHint,
-      ...acceptedVerificationHints
+      ...validatedHints
     ]);
-    const informationCandidates = informationCandidatesFromContext(
+    const informationCandidates = informationCandidatesFromValidatedContext(
       candidateMap,
       subjectHint,
-      entry.candidateHints,
       acceptedVerificationHints
     );
     const rankedLinks = [];
@@ -502,15 +523,26 @@ export async function runDiscovery(options) {
       );
       if (informationBoost > 0) stats.informationPriorityLinks += 1;
       const sameSite = linkOrigin === sameOrigin;
+      const candidateRelevant = verificationHintsForLinks.length > 0 && (
+        seriesBoost > 0
+        || informationBoost >= 85
+        || linkExplicitlyNamesCandidate(link, verificationHintsForLinks)
+      );
+      if (sameSite && verificationHintsForLinks.length > 0 && !candidateRelevant) continue;
       const discoveryScore = rawLinkScore + seriesBoost + informationBoost;
 
       const minScore = relevant ? (sameSite ? 0 : 18) : (sameSite ? 25 : 55);
       if (discoveryScore < minScore) continue;
-      const verificationBoost = verificationHintsForLinks.length ? (sameSite ? 25 : 45) : 0;
+      const verificationBoost = candidateRelevant ? (sameSite ? 25 : 45) : 0;
       const learned = scoreResearchRoute(trustModel, { url: linkUrl, anchor: link.anchor });
       if (learned.boost !== 0) stats.researchStrategyBoostedLinks += 1;
       const linkScore = Math.max(-100, Math.min(500, discoveryScore + verificationBoost + learned.boost));
-      rankedLinks.push({ linkUrl, linkScore, sameSite, candidateHints: verificationHintsForLinks });
+      rankedLinks.push({
+        linkUrl,
+        linkScore,
+        sameSite,
+        candidateHints: candidateRelevant ? verificationHintsForLinks : []
+      });
     }
 
     rankedLinks.sort((a, b) => b.linkScore - a.linkScore);
@@ -537,7 +569,7 @@ export async function runDiscovery(options) {
         priority: Math.max(50, Number(entry.priority || 0)),
         depth: Math.min(entry.depth + 1, maxDepth),
         discoveredFrom: document.url,
-        candidateHints: [...seriesHints, ...acceptedVerificationHints]
+        candidateHints: verificationHintsForLinks
       }, frontierPriorityIndex)) stats.sitemapLinks += 1;
     }
   }

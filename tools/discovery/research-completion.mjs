@@ -32,13 +32,63 @@ const ROUTE_GROUPS = new Map([
   ['works', ['classification', 'release', 'official']]
 ]);
 
+const CORROBORATION_ROUTE_FIELDS = new Map([
+  ['staff', ['director', 'chief_director', 'series_composition', 'character_original_design', 'character_design', 'sound_director', 'animation_studio', 'staff']],
+  ['character', ['characters']],
+  ['streaming', ['streaming_services']],
+  ['broadcast', ['release_start', 'release_end', 'broadcast_networks', 'broadcast_slots']],
+  ['music', ['opening_themes', 'ending_themes', 'insert_songs', 'music', 'music_production', 'soundtrack_label']],
+  ['original', ['original_type', 'original_title', 'original_author', 'original_artist', 'original_publisher', 'original_label', 'original_magazine', 'original_platform']],
+  ['episode', ['episode_count', 'runtime_min', 'episodes', 'episode_staff']],
+  ['production', ['animation_studio', 'co_animation_studio', 'animation_cooperation', 'production_name', 'production_committee', 'production_members', 'production_lead_company', 'planning', 'executive_producers', 'producers', 'animation_producers', 'line_producers']],
+  ['official', ['official_url', 'official_x', 'official_youtube', 'official_other']],
+  ['works', ['genres', 'tags', 'target_demographic', 'setting', 'era', 'themes', 'release_start', 'release_end', 'theatrical_release_date', 'episode_count', 'runtime_min', 'season_number', 'official_url']]
+]);
+
 const IDENTITY_FIELDS = new Set(['title_ja', 'media_type', 'origin_country']);
+const CORROBORATION_COMMERCE_PATH = /(?:^|\/)(?:product|products|shop|store|goods|merch|merchandise|themeshop)(?:\/|$)/i;
+const CORROBORATION_COMMERCE_ANCHOR = /(?:商品|グッズ|ストア|ショップ|着せかえ|merch(?:andise)?|products?\s*store)/i;
+const WIKIPEDIA_UTILITY_QUERY_KEYS = new Set([
+  'action', 'oldid', 'diff', 'curid', 'direction', 'printable', 'mobileaction', 'useparsoid', 'veaction', 'redlink'
+]);
+const WIKIPEDIA_NON_ARTICLE_NAMESPACE = /^(?:special|template|template talk|file|file talk|category|category talk|portal|portal talk|help|help talk|wikipedia|wikipedia talk|mediawiki|mediawiki talk|module|module talk|draft|draft talk|book|book talk|user|user talk|talk|特別|テンプレート|テンプレート‐ノート|ファイル|ファイル‐ノート|カテゴリ|カテゴリ‐ノート|ポータル|ポータル‐ノート|ヘルプ|ヘルプ‐ノート|利用者|利用者‐会話|ノート|モジュール|モジュール‐ノート|下書き|下書き‐ノート):/i;
 
 function cleanList(values, max = MAX_TRACKED_VALUES) {
   return [...new Set((Array.isArray(values) ? values : [])
     .map((value) => String(value || '').trim())
     .filter(Boolean))]
     .slice(-max);
+}
+
+function cleanTimestamp(value) {
+  const text = String(value || '').slice(0, 40);
+  return Number.isFinite(Date.parse(text)) ? text : '';
+}
+
+function isWikipediaArticleCorroborationUrl(normalized) {
+  let parsed;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    return false;
+  }
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+  if (host !== 'wikipedia.org' && !host.endsWith('.wikipedia.org')) return true;
+  if (!parsed.pathname.startsWith('/wiki/')) return false;
+
+  let decodedPath = parsed.pathname;
+  try {
+    decodedPath = decodeURIComponent(decodedPath);
+  } catch {
+    // Malformed encoding must not be promoted as an article corroboration target.
+    return false;
+  }
+  const title = decodedPath.slice('/wiki/'.length).replace(/_/g, ' ').trim();
+  if (!title || WIKIPEDIA_NON_ARTICLE_NAMESPACE.test(title)) return false;
+  for (const key of WIKIPEDIA_UTILITY_QUERY_KEYS) {
+    if (parsed.searchParams.has(key)) return false;
+  }
+  return true;
 }
 
 export function emptyCandidateResearch() {
@@ -48,7 +98,9 @@ export function emptyCandidateResearch() {
     sourceFamilies: [],
     evidenceFields: [],
     noGainPages: 0,
-    lastEvidenceAt: ''
+    lastEvidenceAt: '',
+    wikidataArticleCheckedAt: '',
+    wikidataArticleUrl: ''
   };
 }
 
@@ -62,7 +114,10 @@ export function sanitizeCandidateResearch(value) {
   output.sourceFamilies = cleanList(value.sourceFamilies);
   output.evidenceFields = cleanList(value.evidenceFields, 96);
   output.noGainPages = Math.max(0, Math.min(1000, Math.trunc(Number(value.noGainPages || 0))));
-  output.lastEvidenceAt = String(value.lastEvidenceAt || '').slice(0, 40);
+  output.lastEvidenceAt = cleanTimestamp(value.lastEvidenceAt);
+  output.wikidataArticleCheckedAt = cleanTimestamp(value.wikidataArticleCheckedAt);
+  const articleUrl = normalizeUrl(value.wikidataArticleUrl);
+  output.wikidataArticleUrl = articleUrl && new URL(articleUrl).hostname.toLowerCase().endsWith('wikipedia.org') ? articleUrl : '';
   return output;
 }
 
@@ -72,6 +127,12 @@ export function mergeCandidateResearch(left, right) {
   const evidenceTimes = [a.lastEvidenceAt, b.lastEvidenceAt]
     .filter((value) => value && Number.isFinite(Date.parse(value)))
     .sort();
+  const articleChecks = [a.wikidataArticleCheckedAt, b.wikidataArticleCheckedAt]
+    .filter((value) => value && Number.isFinite(Date.parse(value)))
+    .sort();
+  const articleEntries = [a, b]
+    .filter((value) => value.wikidataArticleUrl)
+    .sort((x, y) => Date.parse(y.wikidataArticleCheckedAt || 0) - Date.parse(x.wikidataArticleCheckedAt || 0));
   return {
     pageUrls: cleanList([...a.pageUrls, ...b.pageUrls], MAX_RESEARCH_PAGES)
       .map((url) => normalizeUrl(url))
@@ -80,7 +141,9 @@ export function mergeCandidateResearch(left, right) {
     sourceFamilies: cleanList([...a.sourceFamilies, ...b.sourceFamilies]),
     evidenceFields: cleanList([...a.evidenceFields, ...b.evidenceFields], 96),
     noGainPages: Math.min(a.noGainPages, b.noGainPages),
-    lastEvidenceAt: evidenceTimes.at(-1) || a.lastEvidenceAt || b.lastEvidenceAt || ''
+    lastEvidenceAt: evidenceTimes.at(-1) || a.lastEvidenceAt || b.lastEvidenceAt || '',
+    wikidataArticleCheckedAt: articleChecks.at(-1) || '',
+    wikidataArticleUrl: articleEntries[0]?.wikidataArticleUrl || ''
   };
 }
 
@@ -126,6 +189,27 @@ export function confirmedInformationGroups(candidate) {
     if (fields.some((field) => confirmed.has(field))) groups.push(group);
   }
   return groups;
+}
+
+export function observedInformationFields(candidate) {
+  return Object.entries(candidate?.facts || {})
+    .filter(([field, fact]) => !IDENTITY_FIELDS.has(field)
+      && fact?.status === 'observed'
+      && Boolean(String(fact.value || '').trim()))
+    .map(([field]) => field);
+}
+
+function evidenceFamiliesByField(candidate) {
+  const byField = new Map();
+  for (const item of Array.isArray(candidate?.evidence) ? candidate.evidence : []) {
+    const field = String(item?.field || '');
+    if (!field || IDENTITY_FIELDS.has(field)) continue;
+    const family = sourceFamilyKey(item?.sourceUrl);
+    if (!family) continue;
+    if (!byField.has(field)) byField.set(field, new Set());
+    byField.get(field).add(family);
+  }
+  return byField;
 }
 
 export function candidateInformationReadiness(candidate) {
@@ -200,4 +284,45 @@ export function informationPriorityBoost(link, candidate) {
   if (family && !research.sourceFamilies.includes(family)) boost += 25;
   if (research.pageUrls.includes(url)) return 0;
   return Math.min(110, boost);
+}
+
+export function isCorroborationEligibleUrl(url, anchor = '') {
+  const normalized = normalizeUrl(url);
+  if (!normalized || !isWikipediaArticleCorroborationUrl(normalized)) return false;
+  let pathname = '';
+  try {
+    pathname = new URL(normalized).pathname.normalize('NFKC');
+  } catch {
+    return false;
+  }
+  if (CORROBORATION_COMMERCE_PATH.test(pathname)) return false;
+  if (CORROBORATION_COMMERCE_ANCHOR.test(String(anchor || '').normalize('NFKC'))) return false;
+  return true;
+}
+
+export function corroborationPriorityBoost(link, candidate, { allowBroad = false } = {}) {
+  if (!candidate || candidateInformationReadiness(candidate).ready) return 0;
+  const url = normalizeUrl(link?.url);
+  if (!url || !isCorroborationEligibleUrl(url, link?.anchor || '')) return 0;
+  const family = sourceFamilyKey(url);
+  if (!family) return 0;
+
+  const route = researchRouteKind(url, link?.anchor || '');
+  if (route === 'general') return 0;
+  if (route === 'news' && !allowBroad) return 0;
+
+  const observed = observedInformationFields(candidate);
+  if (!observed.length) return 0;
+  const routeFields = route === 'news' ? observed : (CORROBORATION_ROUTE_FIELDS.get(route) || []);
+  if (!routeFields.length) return 0;
+
+  const supportingFamilies = evidenceFamiliesByField(candidate);
+  const matched = observed.filter((field) => routeFields.includes(field)
+    && !supportingFamilies.get(field)?.has(family));
+  if (!matched.length) return 0;
+
+  const research = sanitizeCandidateResearch(candidate?.research);
+  if (research.pageUrls.includes(url)) return 0;
+  const base = route === 'news' ? 90 : 125;
+  return Math.min(140, base + Math.min(15, Math.max(0, matched.length - 1) * 5));
 }

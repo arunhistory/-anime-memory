@@ -41,7 +41,7 @@ export function researchRouteKind(url, anchor = '') {
     ['music', /(?:\/|\b)(?:music|song|theme)(?:\/|\b)|主題歌|音楽|オープニング|エンディング/],
     ['original', /(?:\/|\b)(?:original|novel|comic|manga)(?:\/|\b)|原作|原作者|出版社|レーベル|連載/],
     ['episode', /(?:\/|\b)(?:episode|episodes|story)(?:\/|\b)|エピソード|各話|あらすじ|第\d+話/],
-    ['production', /(?:\/|\b)(?:studio|production|company)(?:\/|\b)|制作会社|アニメーション制作|製作委員会/],
+    ['production', /(?:\/|\b)(?:studio|production|company)(?:\/|\b)|制作会社|制作インタビュー|アニメーション制作|製作委員会/],
     ['official', /(?:official|公式)/],
     ['news', /(?:\/|\b)(?:news|article|press|topics?)(?:\/|\b)|ニュース|記事|発表/],
     ['works', /(?:\/|\b)(?:works|titles?|products?)(?:\/|\b)|作品一覧|作品情報/]
@@ -99,7 +99,7 @@ export function sanitizeResearchStrategyState(input) {
     for (const [key, value] of Object.entries(input.trust)) {
       const cleanKey = String(key || '').slice(0, 500);
       if (!cleanKey || !value || typeof value !== 'object' || Array.isArray(value)) continue;
-      state.trust[cleanKey] = sanitizeTrustStats(value);
+      state.trust[key] = sanitizeTrustStats(value);
     }
   }
 

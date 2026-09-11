@@ -1,3 +1,5 @@
+import { sanitizeLegacyEvidenceItem } from './legacy-evidence.mjs';
+
 const JP_SECOND_LEVEL = new Set(['ac', 'ad', 'co', 'ed', 'go', 'gr', 'lg', 'ne', 'or']);
 
 function normalizedHost(url) {
@@ -8,13 +10,56 @@ function normalizedHost(url) {
   }
 }
 
+function archivedOriginalUrl(url) {
+  let parsed;
+  try {
+    parsed = new URL(String(url || ''));
+  } catch {
+    return '';
+  }
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+  if (host !== 'web.archive.org') return '';
+
+  const snapshot = parsed.pathname.match(/^\/web\/[^/]+\/(.+)$/i);
+  const screenshot = parsed.pathname.match(/^\/screenshot\/(https?:\/\/.+)$/i);
+  const match = snapshot || screenshot;
+  if (!match) return '';
+
+  let original = match[1];
+  try {
+    original = decodeURIComponent(original);
+  } catch {
+    // Keep the raw path component when percent-decoding is malformed.
+  }
+  if (!/^https?:\/\//i.test(original)) return '';
+  try {
+    const parsedOriginal = new URL(original);
+    if (parsedOriginal.protocol !== 'http:' && parsedOriginal.protocol !== 'https:') return '';
+    return parsedOriginal.href;
+  } catch {
+    return '';
+  }
+}
+
+function effectiveFamilyUrl(url) {
+  let current = String(url || '');
+  for (let depth = 0; depth < 3; depth += 1) {
+    const original = archivedOriginalUrl(current);
+    if (!original || original === current) break;
+    current = original;
+  }
+  return current;
+}
+
 function isIpHost(host) {
   return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host) || host.includes(':');
 }
 
 export function sourceFamilyKey(url) {
-  const host = normalizedHost(url);
+  const effectiveUrl = effectiveFamilyUrl(url);
+  const host = normalizedHost(effectiveUrl);
   if (!host) return '';
+  if (host === 'web.archive.org') return '';
   if (isIpHost(host)) return host;
 
   if (
@@ -40,7 +85,9 @@ export function collapseSameFamilyEvidence(evidence = []) {
   const selected = new Map();
   const passthrough = [];
 
-  for (const item of Array.isArray(evidence) ? evidence : []) {
+  for (const rawItem of Array.isArray(evidence) ? evidence : []) {
+    const item = sanitizeLegacyEvidenceItem(rawItem);
+    if (!item) continue;
     const family = sourceFamilyKey(item?.sourceUrl);
     const field = String(item?.field || '');
     const value = String(item?.value || '');

@@ -11,6 +11,7 @@ import {
 
 const ENDPOINT = 'https://query.wikidata.org/sparql';
 const DEFAULT_LIMIT = 200;
+const EXACT_ARTICLE_PRIORITY = 1000;
 
 function mediaTypeFromLabel(value) {
   const label = String(value || '').normalize('NFKC').toLocaleLowerCase('ja');
@@ -28,7 +29,8 @@ function normalizedDate(value) {
 }
 
 function query(limit, offset) {
-  return `SELECT DISTINCT ?item ?itemLabel ?classLabel ?date ?official
+  return `PREFIX schema: <http://schema.org/>
+SELECT DISTINCT ?item ?itemLabel ?classLabel ?date ?official ?jaArticle
     ?series ?seriesLabel ?seriesOfficial
     ?follows ?followsLabel ?followsOfficial
     ?followedBy ?followedByLabel ?followedByOfficial WHERE {
@@ -37,6 +39,10 @@ function query(limit, offset) {
   ?item wdt:P495 wd:Q17 .
   OPTIONAL { ?item wdt:P577 ?date . }
   OPTIONAL { ?item wdt:P856 ?official . }
+  OPTIONAL {
+    ?jaArticle schema:about ?item ;
+      schema:isPartOf <https://ja.wikipedia.org/> .
+  }
   OPTIONAL {
     ?item wdt:P179 ?series .
     OPTIONAL { ?series wdt:P856 ?seriesOfficial . }
@@ -117,11 +123,18 @@ function buildSeriesKnowledge(binding, title, sourceUrl) {
   });
 }
 
-function addFrontierUrl(state, frontierSeen, visited, { url, priority, discoveredFrom, candidateHints }) {
+function addFrontierUrl(state, frontierSeen, visited, {
+  url,
+  priority,
+  discoveredFrom,
+  candidateHints,
+  allowWikipedia = false
+}) {
   const normalized = normalizeUrl(url);
   if (!normalized || frontierSeen.has(normalized) || visited.has(urlHash(normalized))) return false;
   const host = new URL(normalized).hostname.toLowerCase();
-  if (host.endsWith('wikidata.org') || host.endsWith('wikipedia.org')) return false;
+  if (host.endsWith('wikidata.org')) return false;
+  if (host.endsWith('wikipedia.org') && !allowWikipedia) return false;
   state.frontier.push({
     url: normalized,
     priority,
@@ -142,13 +155,13 @@ export async function bootstrapFromWikidata(state, {
   if (!state || !Array.isArray(state.candidates)) throw new Error('discovery state is required');
   const progress = cleanBootstrapState(state.wikidataBootstrap);
   state.wikidataBootstrap = progress;
-  if (progress.completed) return { fetched: 0, candidatesAdded: 0, evidenceAdded: 0, officialFrontierAdded: 0, seriesFrontierAdded: 0, completed: true, offset: progress.offset };
+  if (progress.completed) return { fetched: 0, candidatesAdded: 0, evidenceAdded: 0, officialFrontierAdded: 0, articleFrontierAdded: 0, seriesFrontierAdded: 0, completed: true, offset: progress.offset };
 
   const observedMs = Date.parse(observedAt);
   const observedDate = Number.isFinite(observedMs) ? new Date(observedMs) : new Date();
   const backoffUntil = activeWikidataBackoffUntil(state, observedDate);
   if (backoffUntil) {
-    return { fetched: 0, candidatesAdded: 0, evidenceAdded: 0, officialFrontierAdded: 0, seriesFrontierAdded: 0, completed: false, offset: progress.offset, backoffUntil };
+    return { fetched: 0, candidatesAdded: 0, evidenceAdded: 0, officialFrontierAdded: 0, articleFrontierAdded: 0, seriesFrontierAdded: 0, completed: false, offset: progress.offset, backoffUntil };
   }
 
   const batchSize = Math.max(1, Math.min(500, Math.trunc(Number(limit) || DEFAULT_LIMIT)));
@@ -183,6 +196,7 @@ export async function bootstrapFromWikidata(state, {
   let candidatesAdded = 0;
   let evidenceAdded = 0;
   let officialFrontierAdded = 0;
+  let articleFrontierAdded = 0;
   let seriesFrontierAdded = 0;
   const frontierSeen = new Set((state.frontier || []).map((entry) => normalizeUrl(entry?.url)).filter(Boolean));
   const visited = new Set(state.visited || []);
@@ -195,6 +209,7 @@ export async function bootstrapFromWikidata(state, {
     if (!sourceUrl || !key || !title || !mediaType) continue;
     const date = normalizedDate(binding?.date?.value);
     const officialUrl = normalizeUrl(binding?.official?.value);
+    const jaArticleUrl = normalizeUrl(binding?.jaArticle?.value);
     const incoming = [
       { field: 'title_ja', value: title, sourceUrl, sourceClass: 'secondary', directness: 96, rule: 'wikidata-item-label', observedAt },
       { field: 'origin_country', value: 'JP', sourceUrl, sourceClass: 'secondary', directness: 98, rule: 'origin-country-labeled-japan', observedAt },
@@ -217,6 +232,14 @@ export async function bootstrapFromWikidata(state, {
       discoveredFrom: sourceUrl,
       candidateHints: [title, current.series?.title, ...(current.series?.members || []).map((item) => item.title)]
     })) officialFrontierAdded += 1;
+
+    if (addFrontierUrl(state, frontierSeen, visited, {
+      url: jaArticleUrl,
+      priority: EXACT_ARTICLE_PRIORITY,
+      discoveredFrom: sourceUrl,
+      candidateHints: [title],
+      allowWikipedia: true
+    })) articleFrontierAdded += 1;
 
     const seriesOfficial = normalizeUrl(binding?.seriesOfficial?.value);
     if (addFrontierUrl(state, frontierSeen, visited, {
@@ -242,5 +265,5 @@ export async function bootstrapFromWikidata(state, {
   progress.offset += bindings.length;
   progress.completed = bindings.length < batchSize;
   progress.lastRunAt = observedAt;
-  return { fetched: bindings.length, candidatesAdded, evidenceAdded, officialFrontierAdded, seriesFrontierAdded, completed: progress.completed, offset: progress.offset };
+  return { fetched: bindings.length, candidatesAdded, evidenceAdded, officialFrontierAdded, articleFrontierAdded, seriesFrontierAdded, completed: progress.completed, offset: progress.offset };
 }

@@ -1,0 +1,129 @@
+name: Temporary Information Depth Dry Run
+
+on:
+  push:
+    branches:
+      - fix/anime-information-depth-20260911
+    paths:
+      - '.github/workflows/depth-dry-run.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run eight bounded batches with URL-scoped focus lane
+        env:
+          DISCOVERY_MIN_DELAY_MS: '1000'
+          WIKIDATA_SERIES_EXPANSION_DISABLED: 'true'
+        run: |
+          rm -rf /tmp/crawler-diag
+          cp -R crawler /tmp/crawler-diag
+          for batch in 1 2 3 4 5 6 7 8; do
+            echo "=== FOCUS BEFORE BATCH ${batch} ==="
+            node --input-type=module <<'NODE'
+          import { loadDiscoveryState } from './tools/discovery/state.mjs';
+          import { promoteCorroborationFrontier } from './tools/discovery/depth-control.mjs';
+          import { normalizeTitleKey } from './tools/discovery/html.mjs';
+          import { candidateInformationReadiness, corroborationPriorityBoost } from './tools/discovery/research-completion.mjs';
+          import { sourceFamilyKey } from './tools/discovery/source-family.mjs';
+          const state = loadDiscoveryState('/tmp/crawler-diag/state.json');
+          const focus = promoteCorroborationFrontier(state);
+          const candidate = (state.candidates || []).find((item) => normalizeTitleKey(item?.title || item?.key) === focus.focusCandidateKey);
+          const eligible = candidate ? (state.frontier || []).filter((entry) =>
+            (entry.candidateHints || []).some((hint) => normalizeTitleKey(hint) === focus.focusCandidateKey)
+            && corroborationPriorityBoost({ url: entry.url, anchor: '' }, candidate, { allowBroad: true }) > 0
+          ) : [];
+          const readiness = candidate ? candidateInformationReadiness(candidate) : null;
+          const families = [...new Set(eligible.map((entry) => sourceFamilyKey(entry.url)).filter(Boolean))];
+          console.log(`FOCUS ${focus.focusCandidate || 'NONE'} | eligible=${eligible.length}`);
+          console.log(`FOCUS READINESS ${JSON.stringify(readiness)}`);
+          console.log(`FOCUS RESEARCH ${JSON.stringify(candidate?.research || {})}`);
+          console.log(`FOCUS ELIGIBLE FAMILIES ${JSON.stringify(families)}`);
+          console.log(`FOCUS URLs ${JSON.stringify(eligible.slice(0, 12).map((entry) => entry.url))}`);
+          NODE
+            echo "=== BATCH ${batch} ==="
+            node tools/discovery/run.mjs --state /tmp/crawler-diag/state.json --max-pages 30 --max-depth 12 --per-host-limit 30
+          done
+
+      - name: Diagnose information evidence convergence
+        run: |
+          node --input-type=module <<'NODE'
+          import { loadDiscoveryState } from './tools/discovery/state.mjs';
+          import { discoveryCandidateReadiness } from './tools/discovery/to-record.mjs';
+          import { sourceFamilyKey } from './tools/discovery/source-family.mjs';
+          import { buildReadinessReport } from './tools/discovery/readiness-report.mjs';
+
+          const state = loadDiscoveryState('/tmp/crawler-diag/state.json');
+          const identityFields = new Set(['title_ja', 'media_type', 'origin_country']);
+          const fieldClaims = new Map();
+          const factStatuses = { confirmed: 0, observed: 0, conflict: 0 };
+          let identityReady = 0;
+          let informationClaims = 0;
+          let candidatesWithInformationEvidence = 0;
+          let candidatesWithCrossFamilyAgreement = 0;
+          let candidatesWithIndependentNonWikimedia = 0;
+          const ranked = [];
+
+          for (const candidate of state.candidates || []) {
+            if (!discoveryCandidateReadiness(candidate).ready) continue;
+            identityReady += 1;
+            const infoEvidence = (candidate.evidence || []).filter((item) => !identityFields.has(String(item?.field || '')));
+            informationClaims += infoEvidence.length;
+            if (infoEvidence.length) candidatesWithInformationEvidence += 1;
+
+            const byValue = new Map();
+            const families = new Set();
+            for (const item of infoEvidence) {
+              const field = String(item?.field || '');
+              const value = String(item?.value || '');
+              const family = sourceFamilyKey(item?.sourceUrl);
+              fieldClaims.set(field, (fieldClaims.get(field) || 0) + 1);
+              if (family) families.add(family);
+              if (!field || !value || !family) continue;
+              const key = `${field}\u0000${value}`;
+              if (!byValue.has(key)) byValue.set(key, new Set());
+              byValue.get(key).add(family);
+            }
+            if ([...byValue.values()].some((set) => set.size >= 2)) candidatesWithCrossFamilyAgreement += 1;
+            if ([...families].some((family) => family !== 'wikimedia-family')) candidatesWithIndependentNonWikimedia += 1;
+
+            const statusCounts = { confirmed: 0, observed: 0, conflict: 0 };
+            for (const [field, fact] of Object.entries(candidate.facts || {})) {
+              if (identityFields.has(field) || !Object.hasOwn(factStatuses, fact?.status)) continue;
+              factStatuses[fact.status] += 1;
+              statusCounts[fact.status] += 1;
+            }
+            ranked.push({
+              title: candidate.title,
+              informationEvidenceClaims: infoEvidence.length,
+              families: [...families],
+              statusCounts,
+              evidenceFields: [...new Set(infoEvidence.map((item) => item.field))]
+            });
+          }
+
+          const topFields = Object.fromEntries([...fieldClaims.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20));
+          ranked.sort((a, b) => b.informationEvidenceClaims - a.informationEvidenceClaims || a.title.localeCompare(b.title));
+          const readiness = buildReadinessReport(state);
+
+          console.log(`DIAG identity-ready: ${identityReady}`);
+          console.log(`DIAG information evidence claims: ${informationClaims}`);
+          console.log(`DIAG candidates with information evidence: ${candidatesWithInformationEvidence}`);
+          console.log(`DIAG candidates with cross-family same-value agreement: ${candidatesWithCrossFamilyAgreement}`);
+          console.log(`DIAG candidates with non-Wikimedia information family: ${candidatesWithIndependentNonWikimedia}`);
+          console.log(`DIAG fact statuses: ${JSON.stringify(factStatuses)}`);
+          console.log(`DIAG identity-ready average confirmed fields: ${readiness.identityReadyAverageConfirmedInformationFields}`);
+          console.log(`DIAG max confirmed fields: ${readiness.maxConfirmedInformationFields}`);
+          console.log(`DIAG information-ready: ${readiness.informationReady}`);
+          console.log(`DIAG publishable-ready: ${readiness.publishableReady}`);
+          console.log(`DIAG top information evidence fields: ${JSON.stringify(topFields)}`);
+          console.log(`DIAG top candidates: ${JSON.stringify(ranked.slice(0, 10))}`);
+          NODE

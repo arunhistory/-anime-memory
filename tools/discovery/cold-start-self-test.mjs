@@ -6,6 +6,7 @@ import { resolveEvidenceWithTrust } from './trust-resolution.mjs';
 import { discoveryCandidateReadiness } from './to-record.mjs';
 import { emptyDiscoveryState, loadDiscoveryState, saveDiscoveryState } from './state.mjs';
 import { runDiscovery } from './engine.mjs';
+import { buildInformationDepthPlan, promoteCorroborationFrontier } from './depth-control.mjs';
 
 const at = '2026-09-10T00:00:00.000Z';
 const evidence = [
@@ -46,6 +47,62 @@ assert.equal(discoveryCandidateReadiness({ title: '星の旅', evidence: oneFami
 const conflicting = [...evidence, { field: 'origin_country', value: 'OTHER', sourceUrl: 'https://official.example.org/work/1', sourceClass: 'primary', directness: 100, rule: 'origin-country-labeled-other', observedAt: at }];
 assert.equal(resolveEvidenceWithTrust(conflicting).origin_country.status, 'conflict');
 assert.equal(discoveryCandidateReadiness({ title: '星の旅', evidence: conflicting, facts: resolveEvidenceWithTrust(conflicting) }).reason, 'origin-country-conflict');
+
+const depthState = emptyDiscoveryState();
+depthState.candidates.push({
+  key: '星の旅',
+  title: '星の旅',
+  sources: ['https://catalog.example.jp/work/1', 'https://news.example.net/anime/1'],
+  evidence,
+  facts,
+  series: {},
+  research: {},
+  lastSeen: at
+});
+depthState.frontier.push({
+  url: 'https://official.example.org/staff',
+  priority: 900,
+  depth: 0,
+  discoveredFrom: 'https://catalog.example.jp/work/1',
+  candidateHints: ['星の旅']
+});
+const depthPlan = buildInformationDepthPlan(depthState);
+assert.equal(depthPlan.pendingCandidates, 1, 'identity-ready but information-incomplete work must enter depth backlog');
+assert.equal(depthPlan.actionableFrontier, 1, 'candidate-linked frontier must be recognized as actionable depth work');
+assert.equal(depthPlan.pauseBootstrap, true, 'new horizontal bootstrap must pause while actionable depth work exists');
+depthState.frontier[0].candidateHints = ['別作品'];
+assert.equal(buildInformationDepthPlan(depthState).pauseBootstrap, false, 'bootstrap must resume when no actionable depth frontier remains');
+
+const corroborationEvidence = [
+  ...coreOnlyEvidence,
+  evidence.find((item) => item.field === 'release_start' && item.sourceUrl.includes('catalog.example.jp'))
+];
+const corroborationFacts = resolveEvidenceWithTrust(corroborationEvidence);
+assert.equal(corroborationFacts.release_start.status, 'observed');
+const corroborationState = emptyDiscoveryState();
+corroborationState.candidates.push({
+  key: '星の旅',
+  title: '星の旅',
+  sources: ['https://catalog.example.jp/work/1', 'https://news.example.net/anime/1'],
+  evidence: corroborationEvidence,
+  facts: corroborationFacts,
+  series: {},
+  research: {},
+  lastSeen: at
+});
+corroborationState.frontier.push(
+  { url: 'https://broadcast.example.org/broadcast', priority: 500, depth: 1, discoveredFrom: '', candidateHints: ['星の旅'] },
+  { url: 'https://catalog.example.jp/broadcast', priority: 500, depth: 1, discoveredFrom: '', candidateHints: ['星の旅'] },
+  { url: 'https://other.example.com/broadcast', priority: 500, depth: 1, discoveredFrom: '', candidateHints: [] }
+);
+const corroborationPromotion = promoteCorroborationFrontier(corroborationState);
+assert.equal(corroborationPromotion.examined, 2, 'only candidate-scoped frontier entries should be examined for corroboration');
+assert.equal(corroborationPromotion.promoted, 1, 'only a new-family corroboration route should enter the focus lane');
+assert.ok(corroborationPromotion.focusCandidateKey, 'corroboration focus must expose an ephemeral candidate key');
+assert.equal(corroborationState.frontier[0].priority, 500, 'focused route base priority must remain unchanged');
+assert.equal(corroborationState.frontier[1].priority, 500, 'same-family route base priority must remain unchanged');
+assert.equal(corroborationState.frontier[2].priority, 500, 'unscoped route base priority must remain unchanged');
+assert.equal(JSON.stringify(corroborationState).includes('focusCandidateKey'), false, 'ephemeral focus must not persist into crawler state');
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'anime-frontier-balance-'));
 const state = emptyDiscoveryState();
@@ -89,5 +146,8 @@ assert.equal(boundedResult.state.frontier.filter((item) => item.url.includes('on
 console.log('Cold-start trust bootstrap: PASS');
 console.log('single-family CSV admission: BLOCKED');
 console.log('credible origin conflict: BLOCKED');
+console.log('actionable information-depth bootstrap pause: PASS');
+console.log('independent corroboration ephemeral focus: PASS');
+console.log('same-family corroboration focus: BLOCKED');
 console.log('frontier persistence per-host truncation: NONE');
 console.log('per-batch host limit without requeue loop: PASS');
