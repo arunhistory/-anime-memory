@@ -19,18 +19,24 @@ export function buildReadinessReport(state) {
   let publishableReady = 0;
   let seriesLearned = 0;
   let confirmedInformationTotal = 0;
+  let identityReadyConfirmedInformationTotal = 0;
+  let maxConfirmedInformationFields = 0;
   let informationReady = 0;
   const candidates = Array.isArray(state?.candidates) ? state.candidates : [];
   const expandedSeriesRefs = state?.wikidataSeriesExpansion?.expandedRefs || [];
 
   for (const candidate of candidates) {
     const identity = discoveryCandidateReadiness(candidate);
-    if (identity.ready) identityReady += 1;
-    else increment(identityReasons, identity.reason);
+    const confirmedFieldCount = confirmedInformationFields(candidate).length;
+    if (identity.ready) {
+      identityReady += 1;
+      identityReadyConfirmedInformationTotal += confirmedFieldCount;
+    } else increment(identityReasons, identity.reason);
 
     const information = candidateInformationReadiness(candidate);
     if (information.ready) informationReady += 1;
-    confirmedInformationTotal += confirmedInformationFields(candidate).length;
+    confirmedInformationTotal += confirmedFieldCount;
+    maxConfirmedInformationFields = Math.max(maxConfirmedInformationFields, confirmedFieldCount);
 
     const publishable = publishableDiscoveryReadiness(candidate, { expandedSeriesRefs });
     if (publishable.ready) publishableReady += 1;
@@ -49,6 +55,10 @@ export function buildReadinessReport(state) {
     publishableReady,
     publishableReadyRate: total ? Number((publishableReady / total).toFixed(4)) : 0,
     averageConfirmedInformationFields: total ? Number((confirmedInformationTotal / total).toFixed(2)) : 0,
+    identityReadyAverageConfirmedInformationFields: identityReady
+      ? Number((identityReadyConfirmedInformationTotal / identityReady).toFixed(2))
+      : 0,
+    maxConfirmedInformationFields,
     seriesLearned,
     seriesLearnedRate: total ? Number((seriesLearned / total).toFixed(4)) : 0,
     identityBlockedReasons: sortedCounts(identityReasons),
