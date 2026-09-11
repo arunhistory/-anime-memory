@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Run bounded non-persistent depth probe
+      - name: Run bounded non-persistent depth probe with article backfill
         env:
           DISCOVERY_MIN_DELAY_MS: '1000'
           WIKIDATA_SERIES_EXPANSION_DISABLED: 'true'
