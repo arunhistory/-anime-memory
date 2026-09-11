@@ -1,6 +1,10 @@
 name: Anime Research Production
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/one-time-research-start-20260911.trigger'
   schedule:
     - cron: '17 0 1 1,4,7,10 *'
   workflow_dispatch:
