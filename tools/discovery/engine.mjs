@@ -4,6 +4,8 @@ import { extractCandidateEvidence, mergeEvidence } from './evidence.mjs';
 import { resolveCandidateEntities } from './entity-resolution.mjs';
 import { collapseSameFamilyEvidence } from './source-family.mjs';
 import {
+  addSeriesHintCandidate,
+  buildSeriesHintIndex,
   ensureSeriesMemberShells,
   mergeSeriesKnowledge,
   relatedSeriesHints,
@@ -72,7 +74,7 @@ function pageFocusesCandidate(document, title) {
   return normalizeTitleKey(headline).includes(key);
 }
 
-function addCandidate(candidateMap, candidate, sourceUrl, now, evidence, trustModel) {
+function addCandidate(candidateMap, candidate, sourceUrl, now, evidence, trustModel, onStored = null) {
   const key = normalizeTitleKey(candidate.title || candidate.key);
   if (!key) return false;
   const existed = candidateMap.has(key);
@@ -102,6 +104,7 @@ function addCandidate(candidateMap, candidate, sourceUrl, now, evidence, trustMo
   }
   current.lastSeen = now;
   candidateMap.set(key, current);
+  if (typeof onStored === 'function') onStored(current, { created: !existed });
   return !existed;
 }
 
@@ -141,15 +144,14 @@ function mergeDocument(documents, doc) {
   else documents.push(doc);
 }
 
-function seriesHintsFromEntry(candidateMap, subjectKey, entryHints) {
+function seriesHintsFromEntry(candidateMap, seriesHintIndex, subjectKey, entryHints) {
   const values = [];
-  const candidates = [...candidateMap.values()];
   if (subjectKey && candidateMap.has(subjectKey)) {
-    values.push(...relatedSeriesHints(candidateMap.get(subjectKey), candidates));
+    values.push(...relatedSeriesHints(candidateMap.get(subjectKey), seriesHintIndex));
   }
   for (const hint of normalizeCandidateHints(entryHints)) {
     const candidate = candidateMap.get(normalizeTitleKey(hint));
-    if (candidate) values.push(...relatedSeriesHints(candidate, candidates));
+    if (candidate) values.push(...relatedSeriesHints(candidate, seriesHintIndex));
   }
   return normalizeCandidateHints(values);
 }
@@ -256,6 +258,28 @@ export async function runDiscovery(options) {
   for (const candidate of [...candidateMap.values()]) {
     stats.seriesShellCandidates += ensureSeriesMemberShells(candidateMap, candidate, now);
   }
+
+  const seriesHintIndex = buildSeriesHintIndex(candidateMap.values());
+  const recentCandidateTitles = [...candidateMap.values()].slice(-200).map((item) => item.title);
+  const rememberCandidateTitle = (title) => {
+    const value = String(title || '').trim();
+    if (!value) return;
+    recentCandidateTitles.push(value);
+    if (recentCandidateTitles.length > 200) recentCandidateTitles.splice(0, recentCandidateTitles.length - 200);
+  };
+  const onCandidateStored = (stored, meta = {}) => {
+    addSeriesHintCandidate(seriesHintIndex, stored);
+    if (meta.created) rememberCandidateTitle(stored.title);
+  };
+  const ensureIndexedSeriesShells = (candidate) => ensureSeriesMemberShells(
+    candidateMap,
+    candidate,
+    now,
+    (shell) => {
+      addSeriesHintCandidate(seriesHintIndex, shell);
+      rememberCandidateTitle(shell.title);
+    }
+  );
 
   while (frontier.length && stats.attempted < maxPages) {
     const entry = popBest(frontier, trustModel, hostCounts, perHostLimit);
@@ -369,11 +393,11 @@ export async function runDiscovery(options) {
               stats.sourceTrustTrainingClaims += trained;
               if (trained > 0) trustModel = buildResearchStrategyModel(state);
               const existingCandidate = candidateMap.get(candidateKey);
-              addCandidate(candidateMap, { ...candidate, series: existingCandidate?.series }, sourceUrl, now, evidence, trustModel);
+              addCandidate(candidateMap, { ...candidate, series: existingCandidate?.series }, sourceUrl, now, evidence, trustModel, onCandidateStored);
               stats.knownWorkEvidenceReused += evidence.length;
               acceptedVerificationHints.push(candidate.title);
               const updated = candidateMap.get(candidateKey);
-              if (updated) stats.seriesShellCandidates += ensureSeriesMemberShells(candidateMap, updated, now);
+              if (updated) stats.seriesShellCandidates += ensureIndexedSeriesShells(updated);
             }
             continue;
           }
@@ -384,9 +408,9 @@ export async function runDiscovery(options) {
             : extracted.filter((item) => item.field === 'title_ja');
           stats.evidenceClaims += evidence.length;
           pageEvidenceClaims += evidence.length;
-          if (addCandidate(candidateMap, candidate, sourceUrl, now, evidence, trustModel)) stats.candidatesFound += 1;
+          if (addCandidate(candidateMap, candidate, sourceUrl, now, evidence, trustModel, onCandidateStored)) stats.candidatesFound += 1;
           const updated = candidateMap.get(candidateKey);
-          if (updated) stats.seriesShellCandidates += ensureSeriesMemberShells(candidateMap, updated, now);
+          if (updated) stats.seriesShellCandidates += ensureIndexedSeriesShells(updated);
         }
 
         const verificationHints = normalizeCandidateHints(entry.candidateHints);
@@ -404,7 +428,7 @@ export async function runDiscovery(options) {
               const trained = learnSourceTrustFromKnownRecord(state.researchStrategy, evidence, knownInfo.record, now);
               stats.sourceTrustTrainingClaims += trained;
               if (trained > 0) trustModel = buildResearchStrategyModel(state);
-              addCandidate(candidateMap, trainingCandidate, document.canonical || document.url, now, evidence, trustModel);
+              addCandidate(candidateMap, trainingCandidate, document.canonical || document.url, now, evidence, trustModel, onCandidateStored);
               stats.knownWorkEvidenceReused += evidence.length;
               acceptedVerificationHints.push(trainingCandidate.title);
             }
@@ -433,7 +457,7 @@ export async function runDiscovery(options) {
             stats.evidenceClaims += evidence.length;
             pageEvidenceClaims += evidence.length;
           }
-          addCandidate(candidateMap, verificationCandidate, sourceUrl, now, evidence, trustModel);
+          addCandidate(candidateMap, verificationCandidate, sourceUrl, now, evidence, trustModel, onCandidateStored);
           acceptedVerificationHints.push(verificationCandidate.title);
         }
       }
@@ -449,9 +473,8 @@ export async function runDiscovery(options) {
 
     if (document.nofollow) continue;
 
-    const seriesHints = seriesHintsFromEntry(candidateMap, subjectKey, entry.candidateHints);
-    const existingCandidateTitles = [...candidateMap.values()].slice(-200).map((item) => item.title);
-    const titleBoostSet = [...new Set([...detectedTitles, ...seriesHints, ...existingCandidateTitles])].slice(0, 250);
+    const seriesHints = seriesHintsFromEntry(candidateMap, seriesHintIndex, subjectKey, entry.candidateHints);
+    const titleBoostSet = [...new Set([...detectedTitles, ...seriesHints, ...recentCandidateTitles])].slice(0, 250);
     const sameOrigin = new URL(document.url).origin;
     const subjectHint = relevant && !document.discoveryOnly && document.subjectCandidate
       ? document.subjectCandidate.title
