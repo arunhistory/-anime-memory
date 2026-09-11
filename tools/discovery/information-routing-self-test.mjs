@@ -59,7 +59,13 @@ assert.equal(order[1], staffUrl, 'missing staff information route must outrank g
 assert.ok(result.stats.informationPriorityLinks >= 1, 'missing-information link boost must be observed');
 const candidate = result.state.candidates.find((item) => item.title === '星の旅');
 assert.ok(candidate?.research?.pageUrls?.includes(workUrl), 'fetched focused work page must be recorded as candidate research');
+assert.equal(
+  result.state.frontier.some((item) => item.url === newsUrl && item.candidateHints?.includes('星の旅')),
+  false,
+  'generic same-site links must not inherit candidate verification hints'
+);
 
 console.log('Information routing integration self-test: PASS');
 console.log('missing staff route prioritization: PASS');
 console.log('candidate page research accounting: PASS');
+console.log('generic verification-hint fanout: BLOCKED');
