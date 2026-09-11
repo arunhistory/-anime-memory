@@ -2,19 +2,22 @@ import { normalizeOfficialLandingUrl } from './official-page.mjs';
 import { normalizeUrl } from './url.mjs';
 
 const X_RESERVED = new Set(['home', 'explore', 'search', 'i', 'intent', 'share', 'hashtag', 'messages', 'compose', 'settings', 'login', 'signup', 'tos', 'privacy', 'status']);
+const LANDING_URL_RULES = new Set(['primary-page-url', 'primary-landing-page-url', 'legacy-primary-landing-page-url']);
+const LANDING_X_RULES = new Set(['primary-page-social-x', 'primary-landing-social-x-profile', 'legacy-primary-social-x-profile']);
+const LANDING_YOUTUBE_RULES = new Set(['primary-page-youtube', 'primary-landing-youtube-channel', 'legacy-primary-youtube-channel']);
 
-function legacyLandingSource(sourceUrl) {
+function landingSource(sourceUrl) {
   return normalizeOfficialLandingUrl(sourceUrl);
 }
 
-function legacyLandingUrl(value, sourceUrl) {
+function landingUrl(value, sourceUrl) {
   const normalized = normalizeOfficialLandingUrl(value);
-  const source = legacyLandingSource(sourceUrl);
+  const source = landingSource(sourceUrl);
   if (!normalized || !source || normalized !== source) return '';
   return source;
 }
 
-function legacyXProfile(value) {
+function xProfile(value) {
   const normalized = normalizeUrl(value);
   if (!normalized) return '';
   const parsed = new URL(normalized);
@@ -27,7 +30,7 @@ function legacyXProfile(value) {
   return `${parsed.protocol}//${parsed.host}/${handle}`;
 }
 
-function legacyYoutubeChannel(value) {
+function youtubeChannel(value) {
   const normalized = normalizeUrl(value);
   if (!normalized) return '';
   const parsed = new URL(normalized);
@@ -48,21 +51,30 @@ export function sanitizeLegacyEvidenceItem(item) {
   const field = String(item.field || '');
   const rule = String(item.rule || '');
 
-  if (field === 'official_url' && rule === 'primary-page-url') {
-    const value = legacyLandingUrl(item.value, item.sourceUrl);
-    return value ? { ...item, value, rule: 'legacy-primary-landing-page-url' } : null;
+  if (field === 'official_url' && LANDING_URL_RULES.has(rule)) {
+    const value = landingUrl(item.value, item.sourceUrl);
+    if (!value) return null;
+    return rule === 'primary-page-url'
+      ? { ...item, value, rule: 'legacy-primary-landing-page-url' }
+      : { ...item, value };
   }
 
-  if (field === 'official_x' && rule === 'primary-page-social-x') {
-    if (!legacyLandingSource(item.sourceUrl)) return null;
-    const value = legacyXProfile(item.value);
-    return value ? { ...item, value, rule: 'legacy-primary-social-x-profile' } : null;
+  if (field === 'official_x' && LANDING_X_RULES.has(rule)) {
+    if (!landingSource(item.sourceUrl)) return null;
+    const value = xProfile(item.value);
+    if (!value) return null;
+    return rule === 'primary-page-social-x'
+      ? { ...item, value, rule: 'legacy-primary-social-x-profile' }
+      : { ...item, value };
   }
 
-  if (field === 'official_youtube' && rule === 'primary-page-youtube') {
-    if (!legacyLandingSource(item.sourceUrl)) return null;
-    const value = legacyYoutubeChannel(item.value);
-    return value ? { ...item, value, rule: 'legacy-primary-youtube-channel' } : null;
+  if (field === 'official_youtube' && LANDING_YOUTUBE_RULES.has(rule)) {
+    if (!landingSource(item.sourceUrl)) return null;
+    const value = youtubeChannel(item.value);
+    if (!value) return null;
+    return rule === 'primary-page-youtube'
+      ? { ...item, value, rule: 'legacy-primary-youtube-channel' }
+      : { ...item, value };
   }
 
   return item;
