@@ -44,21 +44,15 @@ function addDiscoveryHandoff(state, rawUrl, priority = 450) {
   return true;
 }
 
-function partitionResearchFrontier(mainState, entries) {
+function keepActiveResearchFrontier(mainState, entries) {
   const active = activeResearchKeys(mainState);
   const research = [];
-  let discoveryHandoffs = 0;
-
   for (const entry of Array.isArray(entries) ? entries : []) {
     const hints = cleanHints(entry?.candidateHints);
-    const stillResearch = hints.some((hint) => active.has(normalizeTitleKey(hint)));
-    if (stillResearch) {
-      research.push({ ...entry, candidateHints: hints });
-      continue;
-    }
-    if (addDiscoveryHandoff(mainState, entry?.url, Math.max(250, Number(entry?.priority || 0)))) discoveryHandoffs += 1;
+    if (!hints.some((hint) => active.has(normalizeTitleKey(hint)))) continue;
+    research.push({ ...entry, candidateHints: hints });
   }
-  return { research, discoveryHandoffs };
+  return research;
 }
 
 function handoffNewCandidateSources(beforeKeys, state) {
@@ -99,7 +93,7 @@ export async function runResearchLane({
       researchState,
       stats: { attempted: 0, fetched: 0 },
       titleSearch,
-      focus: { promoted: 0, focusCandidate: '' },
+      focus: { promoted: 0, focusCandidate: titleSearch.selectedTitle || '' },
       discoveryHandoffs: 0
     };
   }
@@ -134,10 +128,8 @@ export async function runResearchLane({
   };
   delete nextMain.engineMode;
 
-  let discoveryHandoffs = handoffNewCandidateSources(beforeKeys, nextMain);
-  const partitioned = partitionResearchFrontier(nextMain, result.state.frontier);
-  discoveryHandoffs += partitioned.discoveryHandoffs;
-  researchState.frontier = partitioned.research;
+  const discoveryHandoffs = handoffNewCandidateSources(beforeKeys, nextMain);
+  researchState.frontier = keepActiveResearchFrontier(nextMain, result.state.frontier);
   researchState.visited = result.state.visited;
 
   return {
@@ -145,7 +137,7 @@ export async function runResearchLane({
     researchState,
     stats: result.stats,
     titleSearch,
-    focus,
+    focus: focus.focusCandidate ? focus : { ...focus, focusCandidate: titleSearch.selectedTitle || '' },
     discoveryHandoffs
   };
 }
