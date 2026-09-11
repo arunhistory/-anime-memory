@@ -13,6 +13,7 @@ import {
 const ENDPOINT = 'https://query.wikidata.org/sparql';
 const DEFAULT_LIMIT = 100;
 const RECHECK_MS = 24 * 60 * 60 * 1000;
+const EXACT_ARTICLE_PRIORITY = 1000;
 
 function qidFromUrl(value) {
   const match = String(value || '').match(/wikidata\.org\/entity\/(Q\d+)(?:$|[?#/])/i);
@@ -60,7 +61,7 @@ function addFrontier(state, frontierSeen, visited, url, title, qid) {
   if (!normalized || frontierSeen.has(normalized) || visited.has(urlHash(normalized))) return false;
   state.frontier.push({
     url: normalized,
-    priority: 950,
+    priority: EXACT_ARTICLE_PRIORITY,
     depth: 0,
     discoveredFrom: `https://www.wikidata.org/entity/${qid}`,
     candidateHints: [String(title || '').slice(0, 120)].filter(Boolean)
