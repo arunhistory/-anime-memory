@@ -8,6 +8,21 @@ assert.equal(sourceFamilyKey('https://commons.wikimedia.org/wiki/File:X'), 'wiki
 assert.equal(sourceFamilyKey('https://anime.example.co.jp/a'), 'example.co.jp');
 assert.equal(sourceFamilyKey('https://news.example.co.jp/b'), 'example.co.jp');
 assert.equal(sourceFamilyKey('https://www.example.com/a'), 'example.com');
+assert.equal(
+  sourceFamilyKey('https://web.archive.org/web/20200803173725/https://hamehura-anime.com/onair/'),
+  'hamehura-anime.com',
+  'Wayback snapshot must belong to the original site family'
+);
+assert.equal(
+  sourceFamilyKey('https://web.archive.org/web/20200803173725*/https://hamehura-anime.com/staff/'),
+  'hamehura-anime.com',
+  'Wayback wildcard snapshot must belong to the original site family'
+);
+assert.equal(
+  sourceFamilyKey('https://web.archive.org/web/20200803173725/https://ja.wikipedia.org/wiki/Test'),
+  'wikimedia-family',
+  'archived Wikipedia page must remain in Wikimedia family'
+);
 
 const sameFamily = collapseSameFamilyEvidence([
   {
@@ -29,6 +44,27 @@ const sameFamily = collapseSameFamilyEvidence([
 ]);
 assert.equal(sameFamily.length, 1, 'same-family duplicate value must count once');
 assert.equal(resolveEvidence(sameFamily).release_start.status, 'observed', 'Wikimedia family alone must not self-confirm');
+
+const archivedSameFamily = collapseSameFamilyEvidence([
+  {
+    field: 'director',
+    value: 'Director A',
+    sourceUrl: 'https://hamehura-anime.com/staff/',
+    sourceClass: 'primary',
+    rule: 'fixture',
+    observedAt: '2026-09-10T00:00:00.000Z'
+  },
+  {
+    field: 'director',
+    value: 'Director A',
+    sourceUrl: 'https://web.archive.org/web/20200803173725/https://hamehura-anime.com/staff/',
+    sourceClass: 'secondary',
+    rule: 'fixture',
+    observedAt: '2026-09-10T00:01:00.000Z'
+  }
+]);
+assert.equal(archivedSameFamily.length, 1, 'live site and its Wayback copy must count as one source family');
+assert.equal(resolveEvidence(archivedSameFamily).director.status, 'observed', 'Wayback copy must not independently confirm its original source');
 
 const independent = collapseSameFamilyEvidence([
   ...sameFamily,
@@ -227,6 +263,7 @@ assert.equal(collapseSameFamilyEvidence([{
 console.log('Source family self-test: PASS');
 console.log('Wikimedia cross-host self-confirmation: BLOCKED');
 console.log('same registrable-family duplication: BLOCKED');
+console.log('Wayback/original source-family duplication: BLOCKED');
 console.log('independent-family corroboration: PASS');
 console.log('same-family conflicts preserved: PASS');
 console.log('legacy news/share/search/playlist official evidence: REMOVED');
