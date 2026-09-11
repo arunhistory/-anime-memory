@@ -79,7 +79,7 @@ export function sanitizeResearchStrategyState(input) {
   if (!input || input.version !== 1) return state;
 
   if (input.operations && typeof input.operations === 'object' && !Array.isArray(input.operations)) {
-    for (const [key, value] of Object.entries(input.operations).slice(0, 20000)) {
+    for (const [key, value] of Object.entries(input.operations)) {
       if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
       const cleanKey = String(key || '').slice(0, 400);
       if (!cleanKey) continue;
@@ -96,7 +96,7 @@ export function sanitizeResearchStrategyState(input) {
   }
 
   if (input.trust && typeof input.trust === 'object' && !Array.isArray(input.trust)) {
-    for (const [key, value] of Object.entries(input.trust).slice(0, 50000)) {
+    for (const [key, value] of Object.entries(input.trust)) {
       const cleanKey = String(key || '').slice(0, 500);
       if (!cleanKey || !value || typeof value !== 'object' || Array.isArray(value)) continue;
       state.trust[cleanKey] = sanitizeTrustStats(value);
