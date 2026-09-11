@@ -65,8 +65,12 @@ jobs:
       - name: Discovery preflight self-tests
         run: |
           node tools/discovery/state-sharding-self-test.mjs
+          node tools/discovery/frontier-priority-self-test.mjs
           node tools/discovery/known-work-wasm-self-test.mjs
           node tools/discovery/known-work-skip-self-test.mjs
+          node tools/discovery/research-completion-self-test.mjs
+          node tools/discovery/information-routing-self-test.mjs
+          node tools/discovery/readiness-report-self-test.mjs
           node tools/discovery/self-test.mjs
           node tools/discovery/verification-link-self-test.mjs
           node tools/discovery/quality-self-test.mjs
