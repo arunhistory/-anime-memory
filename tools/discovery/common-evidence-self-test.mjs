@@ -86,16 +86,21 @@ const detailCandidate = detailPage.candidates.find((item) => item.title === '星
 assert.ok(detailCandidate);
 const detailEvidence = extractCandidateEvidence(detailPage, detailCandidate, '2026-09-10T00:00:00.000Z');
 assert.equal(detailEvidence.some((item) => item.field === 'official_url'), false, 'detail subpage must not become a competing official_url value');
-assert.equal(
-  detailEvidence.filter((item) => item.field === 'official_x').length,
-  0,
-  'detail subpage must not create official X evidence, even from social links labeled on the detail page'
-);
-assert.equal(
-  detailEvidence.filter((item) => item.field === 'official_youtube').length,
-  0,
-  'detail subpage must not create official YouTube evidence, even from social links labeled on the detail page'
-);
+assert.equal(detailEvidence.filter((item) => item.field === 'official_x').length, 0, 'detail subpage must not create official X evidence');
+assert.equal(detailEvidence.filter((item) => item.field === 'official_youtube').length, 0, 'detail subpage must not create official YouTube evidence');
+
+const productPage = extractDocument(`<!doctype html><html><head>
+<title>星の旅 GOODS | TVアニメ公式サイト</title>
+<link rel="canonical" href="https://star.example.jp/goods/post-1/">
+</head><body>
+<p>日本のTVアニメ「星の旅」公式グッズ情報。</p>
+<a href="https://x.com/star_anime">公式X</a>
+</body></html>`, 'https://star.example.jp/goods/post-1/');
+const productCandidate = productPage.candidates.find((item) => item.title === '星の旅');
+assert.ok(productCandidate);
+const productEvidence = extractCandidateEvidence(productPage, productCandidate, '2026-09-10T00:00:00.000Z');
+assert.equal(productEvidence.some((item) => item.field === 'official_url'), false, 'goods post must not emit official_url at raw extraction');
+assert.equal(productEvidence.some((item) => item.field === 'official_x'), false, 'goods post must not emit landing social evidence at raw extraction');
 
 const columns = loadColumns(process.cwd());
 const corroboratingEvidence = [
@@ -150,4 +155,5 @@ console.log('official landing URL extraction: PASS');
 console.log('official social profile filtering: PASS');
 console.log('detail-page official URL contamination: BLOCKED');
 console.log('detail-page social evidence contamination: BLOCKED');
+console.log('product/content-page landing evidence: BLOCKED');
 console.log('conflict overrides majority/directness: PASS');
