@@ -76,11 +76,26 @@ const detailPage = extractDocument(`<!doctype html><html><head>
 <p>日本のTVアニメ「星の旅」スタッフ情報。</p>
 <p>監督：田中三郎</p>
 <a href="https://x.com/star_anime">公式X</a>
+<a href="https://x.com/cast_member">X</a>
+<a href="https://x.com/other_staff"></a>
+<a href="https://www.youtube.com/@star_anime">公式YouTube</a>
+<a href="https://www.youtube.com/@cast_channel">YouTube</a>
+<a href="https://www.youtube.com/@other_channel"></a>
 </body></html>`, 'https://star.example.jp/staff/');
 const detailCandidate = detailPage.candidates.find((item) => item.title === '星の旅');
 assert.ok(detailCandidate);
 const detailEvidence = extractCandidateEvidence(detailPage, detailCandidate, '2026-09-10T00:00:00.000Z');
 assert.equal(detailEvidence.some((item) => item.field === 'official_url'), false, 'detail subpage must not become a competing official_url value');
+assert.deepEqual(
+  detailEvidence.filter((item) => item.field === 'official_x').map((item) => item.value),
+  ['https://x.com/star_anime'],
+  'detail page must only accept explicitly labeled official X profile'
+);
+assert.deepEqual(
+  detailEvidence.filter((item) => item.field === 'official_youtube').map((item) => item.value),
+  ['https://www.youtube.com/@star_anime'],
+  'detail page must only accept explicitly labeled official YouTube channel'
+);
 
 const columns = loadColumns(process.cwd());
 const corroboratingEvidence = [
@@ -134,4 +149,6 @@ console.log('broad common-field extraction: PASS');
 console.log('official landing URL extraction: PASS');
 console.log('official social profile filtering: PASS');
 console.log('detail-page official URL contamination: BLOCKED');
+console.log('detail-page unrelated social profiles: BLOCKED');
+console.log('detail-page explicit official social profiles: PASS');
 console.log('conflict overrides majority/directness: PASS');
