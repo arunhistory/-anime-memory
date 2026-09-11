@@ -18,8 +18,7 @@ function pendingCandidates(state) {
 
 function candidateUrls(candidate) {
   const values = [
-    ...(Array.isArray(candidate?.sources) ? candidate.sources : []),
-    ...(Array.isArray(candidate?.evidence) ? candidate.evidence.map((item) => item?.sourceUrl) : [])
+    ...(Array.isArray(candidate?.sources) ? candidate.sources : [])
   ];
   const official = String(candidate?.facts?.official_url?.value || '').trim();
   if (official) values.push(...official.split('|'));
