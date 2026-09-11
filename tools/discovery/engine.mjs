@@ -152,22 +152,22 @@ function mergeDocument(documents, doc) {
   else documents.push(doc);
 }
 
-function seriesHintsFromEntry(candidateMap, seriesHintIndex, subjectKey, entryHints) {
+function seriesHintsFromValidatedContext(candidateMap, seriesHintIndex, subjectKey, validatedHints) {
   const values = [];
   if (subjectKey && candidateMap.has(subjectKey)) {
     values.push(...relatedSeriesHints(candidateMap.get(subjectKey), seriesHintIndex));
   }
-  for (const hint of normalizeCandidateHints(entryHints)) {
+  for (const hint of normalizeCandidateHints(validatedHints)) {
     const candidate = candidateMap.get(normalizeTitleKey(hint));
     if (candidate) values.push(...relatedSeriesHints(candidate, seriesHintIndex));
   }
   return normalizeCandidateHints(values);
 }
 
-function informationCandidatesFromContext(candidateMap, subjectHint, entryHints, verificationHints) {
+function informationCandidatesFromValidatedContext(candidateMap, subjectHint, verificationHints) {
   const candidates = [];
   const seen = new Set();
-  for (const title of normalizeCandidateHints([subjectHint, ...(entryHints || []), ...(verificationHints || [])])) {
+  for (const title of normalizeCandidateHints([subjectHint, ...(verificationHints || [])])) {
     const key = normalizeTitleKey(title);
     const candidate = candidateMap.get(key);
     if (!candidate || seen.has(key)) continue;
@@ -354,7 +354,7 @@ export async function runDiscovery(options) {
           priority: Math.max(35, Number(entry.priority || 0) - 10),
           depth: entry.depth + 1,
           discoveredFrom: result.url,
-          candidateHints: entry.candidateHints || []
+          candidateHints: []
         }, frontierPriorityIndex)) stats.sitemapLinks += 1;
       }
       recordResearchOperation(state.researchStrategy, { url: normalized, fetched: true, evidenceClaims: 0, observedAt: now });
@@ -487,21 +487,26 @@ export async function runDiscovery(options) {
 
     if (document.nofollow) continue;
 
-    const seriesHints = seriesHintsFromEntry(candidateMap, seriesHintIndex, subjectKey, entry.candidateHints);
-    const titleBoostSet = [...new Set([...detectedTitles, ...seriesHints, ...recentCandidateTitles])].slice(0, 250);
-    const sameOrigin = new URL(document.url).origin;
     const subjectHint = relevant && !document.discoveryOnly && document.subjectCandidate
       ? document.subjectCandidate.title
       : '';
+    const validatedSubjectKey = subjectHint ? subjectKey : '';
+    const validatedHints = normalizeCandidateHints([subjectHint, ...acceptedVerificationHints]);
+    const seriesHints = seriesHintsFromValidatedContext(
+      candidateMap,
+      seriesHintIndex,
+      validatedSubjectKey,
+      validatedHints
+    );
+    const titleBoostSet = [...new Set([...detectedTitles, ...seriesHints, ...recentCandidateTitles])].slice(0, 250);
+    const sameOrigin = new URL(document.url).origin;
     const verificationHintsForLinks = normalizeCandidateHints([
       ...seriesHints,
-      subjectHint,
-      ...acceptedVerificationHints
+      ...validatedHints
     ]);
-    const informationCandidates = informationCandidatesFromContext(
+    const informationCandidates = informationCandidatesFromValidatedContext(
       candidateMap,
       subjectHint,
-      entry.candidateHints,
       acceptedVerificationHints
     );
     const rankedLinks = [];
@@ -564,7 +569,7 @@ export async function runDiscovery(options) {
         priority: Math.max(50, Number(entry.priority || 0)),
         depth: Math.min(entry.depth + 1, maxDepth),
         discoveredFrom: document.url,
-        candidateHints: [...seriesHints, ...acceptedVerificationHints]
+        candidateHints: verificationHintsForLinks
       }, frontierPriorityIndex)) stats.sitemapLinks += 1;
     }
   }
