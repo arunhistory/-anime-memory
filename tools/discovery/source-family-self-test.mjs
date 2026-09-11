@@ -85,8 +85,35 @@ const primaryPreferred = collapseSameFamilyEvidence([
 assert.equal(primaryPreferred.length, 1);
 assert.equal(primaryPreferred[0].sourceClass, 'primary', 'primary evidence should win within one family for the same value');
 
+const verifiedPrimaryPreferred = collapseSameFamilyEvidence([
+  {
+    field: 'director',
+    value: '検証監督',
+    sourceUrl: 'https://anime.example.co.jp/self-declared',
+    sourceClass: 'primary',
+    directness: 100,
+    verifiedPrimary: false,
+    rule: 'fixture',
+    observedAt: ''
+  },
+  {
+    field: 'director',
+    value: '検証監督',
+    sourceUrl: 'https://official.example.co.jp/staff',
+    sourceClass: 'primary',
+    directness: 90,
+    verifiedPrimary: true,
+    rule: 'fixture',
+    observedAt: ''
+  }
+]);
+assert.equal(verifiedPrimaryPreferred.length, 1);
+assert.equal(verifiedPrimaryPreferred[0].verifiedPrimary, true, 'externally verified primary evidence must not be lost during same-family collapse');
+assert.equal(verifiedPrimaryPreferred[0].sourceUrl, 'https://official.example.co.jp/staff');
+
 console.log('Source family self-test: PASS');
 console.log('Wikimedia cross-host self-confirmation: BLOCKED');
 console.log('same registrable-family duplication: BLOCKED');
 console.log('independent-family corroboration: PASS');
 console.log('same-family conflicts preserved: PASS');
+console.log('verified primary provenance collapse: PASS');
