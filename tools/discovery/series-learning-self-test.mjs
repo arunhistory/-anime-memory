@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  buildSeriesHintIndex,
   deriveSeriesStem,
   ensureSeriesMemberShells,
   mergeSeriesKnowledge,
@@ -40,21 +41,37 @@ assert.equal(ensureSeriesMemberShells(map, current, '2026-09-11T00:00:00.000Z'),
 assert.equal(map.size, 5);
 for (const member of map.values()) assert.equal(member.series.relations.length, 2);
 
-const hints = relatedSeriesHints(current, [...map.values()]);
+const legacyHints = relatedSeriesHints(current, [...map.values()]);
+const index = buildSeriesHintIndex(map.values());
+const indexedHints = relatedSeriesHints(current, index);
 for (const title of ['Dr.STONE', 'Dr.STONE STONE WARS', 'Dr.STONE 龍水', 'Dr.STONE NEW WORLD', 'Dr.STONE SCIENCE FUTURE']) {
-  assert.ok(hints.includes(title), `series hint missing: ${title}`);
+  assert.ok(legacyHints.includes(title), `legacy series hint missing: ${title}`);
+  assert.ok(indexedHints.includes(title), `indexed series hint missing: ${title}`);
 }
-assert.ok(seriesPriorityBoost({ anchor: 'シリーズ作品一覧', url: 'https://example.test/series' }, hints) >= 45);
-assert.ok(seriesPriorityBoost({ anchor: 'Dr.STONE 龍水', url: 'https://example.test/ryusui' }, hints) >= 70);
-assert.equal(seriesPriorityBoost({ anchor: 'お問い合わせ', url: 'https://example.test/contact' }, hints), 0);
+assert.deepEqual(new Set(indexedHints), new Set(legacyHints), 'indexed series lookup must preserve the legacy series-hint result for the regression fixture');
+assert.ok(seriesPriorityBoost({ anchor: 'シリーズ作品一覧', url: 'https://example.test/series' }, indexedHints) >= 45);
+assert.ok(seriesPriorityBoost({ anchor: 'Dr.STONE 龍水', url: 'https://example.test/ryusui' }, indexedHints) >= 70);
+assert.equal(seriesPriorityBoost({ anchor: 'お問い合わせ', url: 'https://example.test/contact' }, indexedHints), 0);
+
+const largeCandidates = Array.from({ length: 25000 }, (_, item) => ({
+  key: `unrelated-${item}`,
+  title: `無関係作品 ${String(item).padStart(5, '0')}`,
+  series: {}
+}));
+largeCandidates.push(...map.values());
+const largeIndex = buildSeriesHintIndex(largeCandidates);
+const largeHints = relatedSeriesHints(current, largeIndex);
+for (const title of ['Dr.STONE', 'Dr.STONE STONE WARS', 'Dr.STONE 龍水', 'Dr.STONE NEW WORLD', 'Dr.STONE SCIENCE FUTURE']) {
+  assert.ok(largeHints.includes(title), `25k indexed series lookup dropped member: ${title}`);
+}
 
 const largeSeries = mergeSeriesKnowledge({}, {
   ref: 'https://www.wikidata.org/entity/Q888888',
   title: 'Long Series',
-  members: Array.from({ length: 40 }, (_, index) => ({
-    title: `Long Series ${String(index + 1).padStart(2, '0')}`,
-    kind: index === 0 ? 'OTHER' : 'SEQUEL',
-    url: `https://example.test/long/${index + 1}`
+  members: Array.from({ length: 40 }, (_, item) => ({
+    title: `Long Series ${String(item + 1).padStart(2, '0')}`,
+    kind: item === 0 ? 'OTHER' : 'SEQUEL',
+    url: `https://example.test/long/${item + 1}`
   }))
 });
 assert.equal(largeSeries.members.length, 40, 'canonical series membership must not be silently truncated at 32 works');
@@ -62,3 +79,5 @@ assert.equal(largeSeries.members.length, 40, 'canonical series membership must n
 console.log('Series-first learning self-test: PASS');
 console.log('series relation graph persistence: PASS');
 console.log('series membership over 32 works: PRESERVED');
+console.log('indexed series hints preserve legacy semantics: PASS');
+console.log('25k unrelated-candidate indexed lookup: PASS');
