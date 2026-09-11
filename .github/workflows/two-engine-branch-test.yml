@@ -29,8 +29,11 @@ jobs:
           node --check tools/discovery/depth-control.mjs
           node --check tools/discovery/run.mjs
           node --check tools/discovery/two-engine-self-test.mjs
+          node --check tools/discovery/url-self-test.mjs
       - name: Two-engine architecture self-test
         run: node tools/discovery/two-engine-self-test.mjs
+      - name: URL normalization self-test
+        run: node tools/discovery/url-self-test.mjs
       - name: Existing information routing regression
         run: node tools/discovery/information-routing-self-test.mjs
       - name: Existing discovery regression
