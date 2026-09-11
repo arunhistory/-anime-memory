@@ -8,6 +8,7 @@ import { normalizeUrl } from './url.mjs';
 import { bootstrapFromWikidata } from './wikidata-bootstrap.mjs';
 import { expandSeriesFromWikidata } from './wikidata-series-expansion.mjs';
 import { buildReadinessReport } from './readiness-report.mjs';
+import { buildInformationDepthPlan } from './depth-control.mjs';
 
 function parseArgs(argv) {
   const args = {};
@@ -103,16 +104,19 @@ async function main() {
 
   const state = loadDiscoveryState(statePath);
   const before = JSON.stringify(state);
+  const depthPlan = buildInformationDepthPlan(state);
   let wikidata = {
     fetched: 0,
     candidatesAdded: 0,
     evidenceAdded: 0,
     officialFrontierAdded: 0,
+    articleFrontierAdded: 0,
     seriesFrontierAdded: 0,
     completed: Boolean(state.wikidataBootstrap?.completed),
     offset: state.wikidataBootstrap?.offset || 0
   };
-  if (String(process.env.WIKIDATA_BOOTSTRAP_DISABLED || '').toLowerCase() !== 'true') {
+  const bootstrapDisabled = String(process.env.WIKIDATA_BOOTSTRAP_DISABLED || '').toLowerCase() === 'true';
+  if (!bootstrapDisabled && !depthPlan.pauseBootstrap) {
     try {
       wikidata = await bootstrapFromWikidata(state, {
         limit: validateNumber(process.env.WIKIDATA_BOOTSTRAP_LIMIT, 'WIKIDATA_BOOTSTRAP_LIMIT', 1, 500, 200)
@@ -176,10 +180,14 @@ async function main() {
   console.log(`seed URLs: ${seeds.length}`);
   console.log(`allowed hosts: ${allowedHosts.length ? allowedHosts.join(',') : 'unrestricted-public-web'}`);
   console.log(`registered CSV files loaded into search.wasm: ${knownWorkSearch.fileCount}`);
+  console.log(`information-depth pending candidates: ${depthPlan.pendingCandidates}`);
+  console.log(`information-depth actionable frontier: ${depthPlan.actionableFrontier}`);
+  console.log(`Wikidata bootstrap paused for information depth: ${depthPlan.pauseBootstrap}`);
   console.log(`Wikidata bootstrap rows: ${wikidata.fetched}`);
   console.log(`Wikidata bootstrap candidates added: ${wikidata.candidatesAdded}`);
   console.log(`Wikidata bootstrap evidence added: ${wikidata.evidenceAdded}`);
   console.log(`Wikidata official verification URLs added: ${wikidata.officialFrontierAdded}`);
+  console.log(`Wikidata article verification URLs added: ${wikidata.articleFrontierAdded || 0}`);
   console.log(`Wikidata series verification URLs added: ${wikidata.seriesFrontierAdded || 0}`);
   console.log(`Wikidata bootstrap offset: ${wikidata.offset}`);
   console.log(`Wikidata bootstrap completed: ${wikidata.completed}`);
