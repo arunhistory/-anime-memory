@@ -2,6 +2,12 @@ import { mergeEvidence } from './evidence.mjs';
 import { normalizeTitleKey } from './html.mjs';
 import { mergeSeriesKnowledge, sanitizeSeriesKnowledge } from './series-learning.mjs';
 import { normalizeUrl, urlHash } from './url.mjs';
+import {
+  activeWikidataBackoffUntil,
+  defaultWikidataBackoffUntil,
+  retryAfterFromResponse,
+  sanitizeWikidataRetryAfter
+} from './wikidata-backoff.mjs';
 
 const ENDPOINT = 'https://query.wikidata.org/sparql';
 const DEFAULT_SERIES_LIMIT = 12;
@@ -54,7 +60,7 @@ function sanitizeDeferredRefs(values) {
 }
 
 export function emptyWikidataSeriesExpansionState() {
-  return { version: 1, expandedRefs: [], deferredRefs: [], lastRunAt: '' };
+  return { version: 1, expandedRefs: [], deferredRefs: [], retryAfter: '', lastRunAt: '' };
 }
 
 export function sanitizeWikidataSeriesExpansionState(value) {
@@ -69,6 +75,7 @@ export function sanitizeWikidataSeriesExpansionState(value) {
   state.expandedRefs = [...seen];
   state.deferredRefs = sanitizeDeferredRefs(value.deferredRefs)
     .filter((item) => !seen.has(item.ref));
+  state.retryAfter = sanitizeWikidataRetryAfter(value.retryAfter);
   state.lastRunAt = String(value.lastRunAt || '').slice(0, 40);
   return state;
 }
@@ -163,6 +170,11 @@ export async function expandSeriesFromWikidata(state, {
   state.wikidataSeriesExpansion = progress;
   const observedMs = Date.parse(observedAt);
   const observedDate = Number.isFinite(observedMs) ? new Date(observedMs) : new Date();
+  const backoffUntil = activeWikidataBackoffUntil(state, observedDate);
+  if (backoffUntil) {
+    return { seriesRequested: 0, rows: 0, seriesExpanded: 0, candidatesAdded: 0, evidenceAdded: 0, officialFrontierAdded: 0, memberCount: 0, backoffUntil };
+  }
+
   const boundedLimit = Math.max(1, Math.min(50, Math.trunc(Number(limit) || DEFAULT_SERIES_LIMIT)));
   const refs = pendingWikidataSeriesRefs(state, boundedLimit, observedDate);
   if (!refs.length) {
@@ -185,10 +197,17 @@ export async function expandSeriesFromWikidata(state, {
       },
       signal: controller.signal
     });
+  } catch (error) {
+    progress.retryAfter = defaultWikidataBackoffUntil(observedDate);
+    throw error;
   } finally {
     clearTimeout(timer);
   }
-  if (!response?.ok) throw new Error(`wikidata-series-http-${response?.status || 'unknown'}`);
+  if (!response?.ok) {
+    if ([429, 503].includes(Number(response?.status))) progress.retryAfter = retryAfterFromResponse(response, observedDate);
+    throw new Error(`wikidata-series-http-${response?.status || 'unknown'}`);
+  }
+  progress.retryAfter = '';
   const payload = await response.json();
   const bindings = Array.isArray(payload?.results?.bindings) ? payload.results.bindings : [];
 
