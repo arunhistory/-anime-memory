@@ -64,7 +64,6 @@ jobs:
           node --check tools/normalize/record.mjs
           node --check tools/validate/data-validator.mjs
           node --check tools/validate/pre-gemini-audit.mjs
-          node --check tools/validate/state-footprint.mjs
           node --check tools/collect/run.mjs
           node --check tools/collect/self-test.mjs
           node --check tools/collect/enrichment-self-test.mjs
@@ -76,6 +75,8 @@ jobs:
           node --check tools/collect/package-integration-self-test.mjs
           node --check tools/discovery/cycle.mjs
           node --check tools/discovery/cycle-self-test.mjs
+          node --check tools/discovery/state.mjs
+          node --check tools/discovery/state-sharding-self-test.mjs
           node --check tools/correct/run.mjs
           node --check tools/correct/self-test.mjs
           node --check tools/discovery/url.mjs
@@ -112,7 +113,6 @@ jobs:
           node --check tools/discovery/to-record.mjs
           node --check tools/discovery/score.mjs
           node --check tools/discovery/index.mjs
-          node --check tools/discovery/state.mjs
           node --check tools/discovery/known-work-wasm.mjs
           node --check tools/discovery/known-work-wasm-self-test.mjs
           node --check tools/discovery/known-work-skip-self-test.mjs
@@ -142,6 +142,9 @@ jobs:
 
       - name: Manual correction self-test
         run: node tools/correct/self-test.mjs
+
+      - name: Crawler state sharding self-test
+        run: node tools/discovery/state-sharding-self-test.mjs
 
       - name: Search WASM registered-work lookup self-test
         run: node tools/discovery/known-work-wasm-self-test.mjs
@@ -211,9 +214,6 @@ jobs:
 
       - name: Gemini synopsis self-test
         run: node tools/gemini/self-test.mjs
-
-      - name: Crawler state footprint diagnostic
-        run: node tools/validate/state-footprint.mjs
 
       - name: Pre-Gemini implementation audit
         run: node tools/validate/pre-gemini-audit.mjs
