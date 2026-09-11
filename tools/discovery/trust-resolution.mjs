@@ -18,7 +18,8 @@ const MULTI_VALUE_FIELDS = new Set([
 const LEARNED_SINGLE_SOURCE_MIN_CREDIBILITY = 82;
 const LEARNED_SINGLE_SOURCE_MIN_SAMPLES = 40;
 const LEARNED_SINGLE_SOURCE_MIN_DIRECTNESS = 90;
-const PRIMARY_SINGLE_SOURCE_MIN_CREDIBILITY = 70;
+const PRIMARY_SINGLE_SOURCE_MIN_CREDIBILITY = 75;
+const VERIFIED_PRIMARY_SINGLE_SOURCE_MIN_CREDIBILITY = 70;
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, Number(value) || 0));
@@ -66,6 +67,7 @@ function buildAlternatives(evidence, model) {
         sources: new Set(),
         families: new Set(),
         primarySources: new Set(),
+        verifiedPrimarySources: new Set(),
         trustedSecondaryFamilies: new Set(),
         neutralSecondaryFamilies: new Set(),
         directFamilies: new Set(),
@@ -89,6 +91,7 @@ function buildAlternatives(evidence, model) {
     if (directness >= LEARNED_SINGLE_SOURCE_MIN_DIRECTNESS) bucket.directFamilies.add(family);
     if (normalizeSourceClass(item?.sourceClass) === 'primary') {
       if (credibility >= 60) bucket.primarySources.add(sourceUrl);
+      if (item?.verifiedPrimary === true) bucket.verifiedPrimarySources.add(sourceUrl);
     } else if (credibility >= 60) {
       bucket.trustedSecondaryFamilies.add(family);
     } else if (credibility >= 50) {
@@ -105,6 +108,7 @@ function alternativeSummary(entry) {
     sourceCount: entry.sources.size,
     hostCount: entry.families.size,
     primarySourceCount: entry.primarySources.size,
+    verifiedPrimarySourceCount: entry.verifiedPrimarySources.size,
     trustedSecondaryCount: entry.trustedSecondaryFamilies.size,
     credibility: Math.round(average),
     maxCredibility: Math.round(entry.credibilityMax),
@@ -115,6 +119,7 @@ function alternativeSummary(entry) {
 
 function isConfirmed(entry, field) {
   const summary = alternativeSummary(entry);
+  if (summary.verifiedPrimarySourceCount >= 1 && summary.maxCredibility >= VERIFIED_PRIMARY_SINGLE_SOURCE_MIN_CREDIBILITY) return true;
   if (summary.primarySourceCount >= 1 && summary.maxCredibility >= PRIMARY_SINGLE_SOURCE_MIN_CREDIBILITY) return true;
   if (field === 'origin_country' && entry.directFamilies.size >= 1 && summary.maxCredibility >= 45) return true;
   if (entry.families.size >= 2) return true;
