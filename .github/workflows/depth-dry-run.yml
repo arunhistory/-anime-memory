@@ -98,4 +98,22 @@ jobs:
           console.log(`DIAG fact statuses: ${JSON.stringify(factStatuses)}`);
           console.log(`DIAG top information evidence fields: ${JSON.stringify(topFields)}`);
           console.log(`DIAG top candidates: ${JSON.stringify(ranked.slice(0, 10))}`);
+
+          const top = ranked[0];
+          if (top) {
+            const candidate = (state.candidates || []).find((item) => item.title === top.title);
+            const officialEvidence = (candidate?.evidence || [])
+              .filter((item) => ['official_url', 'official_x', 'official_youtube'].includes(String(item?.field || '')))
+              .map((item) => ({ field: item.field, value: item.value, sourceUrl: item.sourceUrl, rule: item.rule }));
+            const unique = [];
+            const seen = new Set();
+            for (const item of officialEvidence) {
+              const key = JSON.stringify(item);
+              if (seen.has(key)) continue;
+              seen.add(key);
+              unique.push(item);
+              if (unique.length >= 80) break;
+            }
+            console.log(`DIAG top candidate official evidence: ${JSON.stringify(unique)}`);
+          }
           NODE
