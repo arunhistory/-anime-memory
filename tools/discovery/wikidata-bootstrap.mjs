@@ -201,9 +201,13 @@ export async function bootstrapFromWikidata(state, {
       { field: 'media_type', value: mediaType, sourceUrl, sourceClass: 'secondary', directness: 96, rule: 'wikidata-instance-class', observedAt },
       ...(date ? [{ field: mediaType === 'MOVIE' ? 'theatrical_release_date' : 'release_start', value: date, sourceUrl, sourceClass: 'secondary', directness: 94, rule: 'wikidata-publication-date', observedAt }] : [])
     ];
-    const current = candidateMap.get(key) || { key, title, sources: [], evidence: [], facts: {}, series: {}, lastSeen: observedAt };
+    const current = candidateMap.get(key) || { key, title, sources: [], evidence: [], facts: {}, series: {}, verifiedPrimaryUrls: [], lastSeen: observedAt };
     const before = current.evidence?.length || 0;
     current.sources = [...new Set([...(current.sources || []), sourceUrl])].slice(0, 50);
+    current.verifiedPrimaryUrls = [...new Set([
+      ...(Array.isArray(current.verifiedPrimaryUrls) ? current.verifiedPrimaryUrls : []),
+      officialUrl
+    ].map((value) => normalizeUrl(value)).filter(Boolean))].slice(0, 50);
     current.evidence = mergeEvidence(current.evidence || [], incoming);
     current.series = mergeSeriesKnowledge(current.series, buildSeriesKnowledge(binding, title, sourceUrl));
     current.lastSeen = observedAt;
