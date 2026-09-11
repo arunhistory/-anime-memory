@@ -79,6 +79,8 @@ assert.match(productionWorkflow, /publishable-readiness-self-test\.mjs/, 'public
 assert.match(productionWorkflow, /series-record-self-test\.mjs/, 'series CSV mapping must be production-preflight tested');
 assert.match(productionWorkflow, /series-enrichment-self-test\.mjs/, 'series transactional enrichment must be production-preflight tested');
 assert.match(productionWorkflow, /cold-start-self-test\.mjs/, 'frontier persistence/per-host behavior must be production-preflight tested');
+assert.match(productionWorkflow, /frontier-priority-self-test\.mjs/, '200k frontier priority scaling must be production-preflight tested');
+assert.match(discoveryWorkflow, /frontier-priority-self-test\.mjs/, '200k frontier priority scaling must be manual-discovery preflight tested');
 
 const validator = read('tools/validate/data-validator.mjs');
 assert.match(validator, /'Web 最速'/, 'streaming mode Web 最速 spacing drifted');
@@ -94,6 +96,7 @@ assert.match(knownWorkWasm, /'title'/, 'registered-work lookup must search the W
 
 const discoveryRun = read('tools/discovery/run.mjs');
 const discoveryEngine = read('tools/discovery/engine.mjs');
+const frontierPriority = read('tools/discovery/frontier-priority.mjs');
 const discoveryState = read('tools/discovery/state.mjs');
 const discoveryCycle = read('tools/discovery/cycle.mjs');
 const seriesLearning = read('tools/discovery/series-learning.mjs');
@@ -119,7 +122,13 @@ assert.match(discoveryEngine, /knownWorkEvidenceReused/, 'registered-work eviden
 assert.match(discoveryEngine, /seriesPriorityBoost/, 'series-first link prioritization must be connected');
 assert.match(discoveryEngine, /informationPriorityBoost/, 'missing information categories must affect link priority');
 assert.match(discoveryEngine, /recordCandidateResearch/, 'candidate research progress must be recorded from fetched pages');
-assert.match(discoveryEngine, /popBest\(frontier, trustModel, hostCounts, perHostLimit\)/, 'per-host bound must skip exhausted hosts without immediate requeue looping');
+assert.match(discoveryEngine, /buildFrontierPriorityIndex\(frontier, queued\)/, 'frontier grouped priority index must be connected');
+assert.match(discoveryEngine, /popBestFrontier\(frontierPriorityIndex, queued, trustModel, hostCounts, perHostLimit\)/, 'per-host bounded grouped frontier selection must be connected');
+assert.match(discoveryEngine, /compactFrontier\(frontier, queued\)/, 'frontier must compact only after the bounded batch');
+assert.equal(/function\s+popBest\s*\(/.test(discoveryEngine), false, 'legacy O(n) popBest frontier scan returned');
+assert.match(frontierPriority, /scoreResearchRoute/, 'group-head selection must re-evaluate current learned route trust');
+assert.match(frontierPriority, /heapPush/, 'frontier index must use heap ordering within route groups');
+assert.match(frontierPriority, /hostCounts/, 'frontier priority index must preserve per-host fetch bounds');
 
 assert.match(seriesLearning, /relatedSeriesHints/, 'series learner must expose related work hints');
 assert.equal(seriesLearning.includes('MAX_SERIES_MEMBERS'), false, 'canonical series members must not be silently capped');
@@ -213,6 +222,7 @@ console.log('series-first research: FULL-SERIES PRE-EXPANSION');
 console.log('series_id / relations CSV bridge: CONNECTED + VALIDATED');
 console.log('sparse publication: BLOCKED BY INFORMATION COMPLETION');
 console.log('candidate/frontier/pending/cycle 20k-50k silent caps: REMOVED');
+console.log('frontier selection: GROUPED HEAP + CURRENT TRUST RE-EVALUATION');
 console.log('per-host fetch protection: BOUNDED PER BATCH WITHOUT PERSISTENCE LOSS');
 console.log('streaming/original/relation validation: PASS');
 console.log('external search API coupling: NONE');
