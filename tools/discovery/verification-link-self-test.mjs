@@ -71,8 +71,45 @@ assert.ok(discovery.stats.verificationPages >= 1, 'related focused page must be 
 assert.ok(discovery.stats.verificationEvidenceClaims >= 4, 'verification page must contribute field evidence');
 assert.ok(discovery.stats.verificationLinksPromoted >= 1, 'candidate-scoped verification link must be promoted');
 
+const focusedUrl = 'https://wiki.test/work';
+const unrelatedUrl = 'https://wiki.test/unrelated-history';
+const productionUrl = 'https://production.test/interview';
+const scopedState = emptyDiscoveryState();
+seedFrontier(scopedState, [focusedUrl]);
+const scopedFetcher = {
+  async fetchPage(url) {
+    if (url !== focusedUrl) return { ok: false, skipped: true, reason: 'fixture-missing' };
+    return {
+      ok: true,
+      url,
+      contentType: 'text/html; charset=utf-8',
+      sitemaps: [],
+      text: `
+        <html><head><title>TVアニメ「星の旅」作品紹介</title></head><body>
+          <article>日本のTVアニメ「星の旅」は2027年4月3日放送開始。</article>
+          <a href="${unrelatedUrl}">歴史</a>
+          <a href="${productionUrl}">制作インタビュー</a>
+        </body></html>`
+    };
+  }
+};
+const scoped = await runDiscovery({
+  state: scopedState,
+  fetcher: scopedFetcher,
+  maxPages: 1,
+  maxDepth: 3,
+  perHostLimit: 10,
+  now: '2026-09-09T00:00:00.000Z'
+});
+assert.equal(scoped.state.frontier.some((item) => item.url === unrelatedUrl), false, 'unrelated same-site links must not inherit candidate verification scope');
+const productionEntry = scoped.state.frontier.find((item) => item.url === productionUrl);
+assert.ok(productionEntry, 'production interview link must remain discoverable');
+assert.ok(productionEntry.candidateHints.includes('星の旅'), 'production interview must inherit the focused candidate hint');
+
 console.log('Candidate-scoped verification self-test: PASS');
 console.log('related-page field evidence join: PASS');
 console.log('learned-trust cross-host corroboration: PASS');
+console.log('verification hint fan-out to unrelated same-site links: BLOCKED');
+console.log('production interview verification routing: PASS');
 console.log('unknown-secondary immediate corroboration: BLOCKED BY POLICY');
 console.log('unfocused body-only pages: not promoted to verification evidence by this test path');
