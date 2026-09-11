@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Run eight bounded batches after Wikipedia and Wayback isolation
+      - name: Run eight bounded batches with URL-scoped focus lane
         env:
           DISCOVERY_MIN_DELAY_MS: '1000'
           WIKIDATA_SERIES_EXPANSION_DISABLED: 'true'
@@ -32,7 +32,8 @@ jobs:
           import { loadDiscoveryState } from './tools/discovery/state.mjs';
           import { promoteCorroborationFrontier } from './tools/discovery/depth-control.mjs';
           import { normalizeTitleKey } from './tools/discovery/html.mjs';
-          import { corroborationPriorityBoost } from './tools/discovery/research-completion.mjs';
+          import { candidateInformationReadiness, corroborationPriorityBoost } from './tools/discovery/research-completion.mjs';
+          import { sourceFamilyKey } from './tools/discovery/source-family.mjs';
           const state = loadDiscoveryState('/tmp/crawler-diag/state.json');
           const focus = promoteCorroborationFrontier(state);
           const candidate = (state.candidates || []).find((item) => normalizeTitleKey(item?.title || item?.key) === focus.focusCandidateKey);
@@ -40,7 +41,12 @@ jobs:
             (entry.candidateHints || []).some((hint) => normalizeTitleKey(hint) === focus.focusCandidateKey)
             && corroborationPriorityBoost({ url: entry.url, anchor: '' }, candidate, { allowBroad: true }) > 0
           ) : [];
+          const readiness = candidate ? candidateInformationReadiness(candidate) : null;
+          const families = [...new Set(eligible.map((entry) => sourceFamilyKey(entry.url)).filter(Boolean))];
           console.log(`FOCUS ${focus.focusCandidate || 'NONE'} | eligible=${eligible.length}`);
+          console.log(`FOCUS READINESS ${JSON.stringify(readiness)}`);
+          console.log(`FOCUS RESEARCH ${JSON.stringify(candidate?.research || {})}`);
+          console.log(`FOCUS ELIGIBLE FAMILIES ${JSON.stringify(families)}`);
           console.log(`FOCUS URLs ${JSON.stringify(eligible.slice(0, 12).map((entry) => entry.url))}`);
           NODE
             echo "=== BATCH ${batch} ==="
