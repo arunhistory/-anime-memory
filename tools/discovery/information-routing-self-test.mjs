@@ -18,6 +18,7 @@ const pages = new Map([
 ]);
 
 const state = emptyDiscoveryState();
+state.engineMode = 'research';
 state.frontier.push({ url: workUrl, priority: 100, depth: 0, discoveredFrom: '', candidateHints: ['星の旅'] });
 let research = {};
 research = recordCandidateResearch(research, {
