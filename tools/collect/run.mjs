@@ -278,8 +278,8 @@ async function main() {
   const input = await loadInputRecords({ inputMode, root, columns, confirmedDate });
   const normalized = input.normalized;
 
-  const pendingPath = path.join(root, 'crawler', 'pending-initial.json');
-  const pending = mode === 'initial' ? loadInitialPending(pendingPath, columns) : { records: [] };
+  const confirmedPath = path.join(root, 'confirmed', 'confirmed.csv');
+  const pending = mode === 'initial' ? loadInitialPending(confirmedPath, columns) : { records: [] };
   const { accepted: uniqueIncoming, workingExisting, stats } = deduplicateIncoming(
     mode === 'initial' ? [...pending.records, ...normalized] : normalized,
     existing,
@@ -356,11 +356,11 @@ async function main() {
   setGithubOutput('enriched_records', enrichments.length);
 
   if (selected.length === 0) {
-    const snapshotTargets = [...enrichmentWrites.map((item) => item.filePath), ...(mode === 'initial' ? [pendingPath] : [])];
+    const snapshotTargets = [...enrichmentWrites.map((item) => item.filePath), ...(mode === 'initial' ? [confirmedPath] : [])];
     const snapshots = snapshotPaths(snapshotTargets);
     try {
       for (const write of enrichmentWrites) atomicWriteText(write.filePath, write.text);
-      if (mode === 'initial') saveInitialPending(pendingPath, staged, columns);
+      if (mode === 'initial') saveInitialPending(confirmedPath, staged, columns);
       if (fs.existsSync(dataDir)) {
         const validation = validateDataDirectory(dataDir);
         if (validation.failures.length) throw new Error(`既存CSV補完後の検証に失敗しました:\n${validation.failures.map((value) => `- ${value}`).join('\n')}`);
@@ -371,12 +371,13 @@ async function main() {
     }
 
     if (mode === 'initial') {
-      console.log(`初期CSVは${INITIAL_CSV_RECORD_LIMIT}作品が揃うまで生成しません。途中状態を保存しました: ${staged.length}/${INITIAL_CSV_RECORD_LIMIT}`);
+      console.log(`公開CSVは${INITIAL_CSV_RECORD_LIMIT}作品が揃うまで生成しません。作品確定CSVへ保存しました: ${staged.length}/${INITIAL_CSV_RECORD_LIMIT}`);
     } else {
       console.log('新規登録対象は0件です。既存CSVへの検証済み空欄補完のみ反映しました。');
     }
     setGithubOutput('csv_created', 'false');
     setGithubOutput('pending_records', mode === 'initial' ? staged.length : 0);
+    setGithubOutput('confirmed_records', mode === 'initial' ? staged.length : 0);
     console.log(JSON.stringify({
       input: inputMode,
       candidates: normalized.length,
@@ -385,7 +386,7 @@ async function main() {
       seriesIdsAdded: seriesStage.seriesStats.seriesIdsAdded,
       seriesRelationsAdded: seriesStage.seriesStats.relationsAdded,
       unresolvedSeriesRelations: seriesStage.seriesStats.unresolvedRelations,
-      pending: mode === 'initial' ? staged.length : 0,
+      confirmed: mode === 'initial' ? staged.length : 0,
       packageSize: mode === 'initial' ? INITIAL_CSV_RECORD_LIMIT : null,
       discoverySkipped: input.discoverySkipped,
       safeStoppedSources: input.safeStoppedSources,
@@ -409,7 +410,7 @@ async function main() {
     ...enrichmentWrites.map((item) => item.filePath),
     targetPath,
     manifestPath,
-    ...(mode === 'initial' ? [pendingPath] : [])
+    ...(mode === 'initial' ? [confirmedPath] : [])
   ];
   const snapshots = snapshotPaths(snapshotTargets);
 
@@ -417,7 +418,7 @@ async function main() {
     for (const write of enrichmentWrites) atomicWriteText(write.filePath, write.text);
     writeTargetPreservingExisting(targetPath, selected, columns, mode);
     writeManifest(dataDir);
-    if (mode === 'initial') saveInitialPending(pendingPath, remainingStaged, columns);
+    if (mode === 'initial') saveInitialPending(confirmedPath, remainingStaged, columns);
 
     const validation = validateDataDirectory(dataDir);
     if (validation.failures.length) {
@@ -430,19 +431,21 @@ async function main() {
 
   setGithubOutput('csv_created', 'true');
   setGithubOutput('pending_records', remainingStaged.length);
+  setGithubOutput('confirmed_records', remainingStaged.length);
 
   console.log('Anime collection pipeline: PASS');
   console.log(`input: ${inputMode}`);
   console.log(`input details: ${input.inputDetails}`);
   console.log(`mode: ${mode}`);
-  console.log(`target: data/${targetName}`);
+  console.log(`confirmed staging: confirmed/confirmed.csv`);
+  console.log(`public target: data/${targetName}`);
   console.log(`candidate records: ${normalized.length}`);
   console.log(`new records: ${selected.length}`);
   console.log(`registered records enriched: ${enrichments.length}`);
   console.log(`series IDs added: ${seriesStage.seriesStats.seriesIdsAdded}`);
   console.log(`series relations added: ${seriesStage.seriesStats.relationsAdded}`);
   console.log(`series relations awaiting registered target: ${seriesStage.seriesStats.unresolvedRelations}`);
-  if (mode === 'initial') console.log(`pending initial records: ${remainingStaged.length}`);
+  if (mode === 'initial') console.log(`confirmed records awaiting public package: ${remainingStaged.length}`);
   console.log(`discovery candidates not ready: ${input.discoverySkipped}`);
   console.log(`safe-stopped API sources: ${input.safeStoppedSources}`);
   console.log(`existing exact duplicates skipped: ${stats.exactExisting}`);
