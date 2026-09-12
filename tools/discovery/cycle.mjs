@@ -109,6 +109,7 @@ export function eligibleDiscoveryRecords({ root = process.cwd(), now = new Date(
   return {
     fingerprints: publishableCandidateFingerprints(state, registeredDiscoveryIds),
     frontier: state.frontier.length,
+    researchFrontier: state.researchFrontier.length,
     bootstrapIncomplete: !Boolean(state.wikidataBootstrap?.completed),
     pendingSeries: pendingWikidataSeriesRefs(state, Number.POSITIVE_INFINITY, now).length,
     wikidataBackoffUntil: activeWikidataBackoffUntil(state, now)
@@ -134,6 +135,7 @@ export function startResearchCycle(fingerprints, now = new Date()) {
 export function checkpointResearchCycle(cycle, fingerprints, {
   now = new Date(),
   frontier = 1,
+  researchFrontier = 0,
   bootstrapIncomplete = false,
   pendingSeries = 0,
   wikidataBackoffUntil = ''
@@ -141,8 +143,9 @@ export function checkpointResearchCycle(cycle, fingerprints, {
   const backoffMs = Date.parse(String(wikidataBackoffUntil || ''));
   const backoffActive = Number.isFinite(backoffMs) && backoffMs > now.getTime();
   const wikidataWork = Boolean(bootstrapIncomplete) || Number(pendingSeries || 0) > 0;
-  const workRemaining = frontier > 0 || (wikidataWork && !backoffActive);
-  const resumeAfter = frontier === 0 && wikidataWork && backoffActive
+  const webWork = Number(frontier || 0) > 0 || Number(researchFrontier || 0) > 0;
+  const workRemaining = webWork || (wikidataWork && !backoffActive);
+  const resumeAfter = !webWork && wikidataWork && backoffActive
     ? new Date(backoffMs).toISOString()
     : '';
   if (!cycle.active) return { cycle, newConfirmed: 0, inactiveMs: 0, workRemaining, resumeAfter };
@@ -213,13 +216,15 @@ async function main() {
     cycle = startResearchCycle(eligible.fingerprints, now);
     const backoffMs = Date.parse(String(eligible.wikidataBackoffUntil || ''));
     const backoffActive = Number.isFinite(backoffMs) && backoffMs > now.getTime();
-    workRemaining = eligible.frontier > 0 || ((eligible.bootstrapIncomplete || eligible.pendingSeries > 0) && !backoffActive);
+    const webWork = eligible.frontier > 0 || eligible.researchFrontier > 0;
+    workRemaining = webWork || ((eligible.bootstrapIncomplete || eligible.pendingSeries > 0) && !backoffActive);
     saveResearchCycle(filePath, cycle);
   } else if (command === 'checkpoint') {
     const eligible = eligibleDiscoveryRecords({ root, now });
     const result = checkpointResearchCycle(cycle, eligible.fingerprints, {
       now,
       frontier: eligible.frontier,
+      researchFrontier: eligible.researchFrontier,
       bootstrapIncomplete: eligible.bootstrapIncomplete,
       pendingSeries: eligible.pendingSeries,
       wikidataBackoffUntil: eligible.wikidataBackoffUntil
