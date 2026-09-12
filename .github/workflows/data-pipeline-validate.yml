@@ -15,6 +15,7 @@ on:
       - 'assets/wasm/search.js'
       - 'assets/wasm/search.wasm'
       - 'crawler/**'
+      - 'confirmed/**'
       - 'data/**'
       - '.github/workflows/data-pipeline-validate.yml'
       - '.github/workflows/data-collect.yml'
@@ -35,6 +36,7 @@ on:
       - 'assets/wasm/search.js'
       - 'assets/wasm/search.wasm'
       - 'crawler/**'
+      - 'confirmed/**'
       - 'data/**'
       - '.github/workflows/data-pipeline-validate.yml'
       - '.github/workflows/data-collect.yml'
@@ -149,7 +151,7 @@ jobs:
           node tools/collect/enrichment-self-test.mjs
           node tools/collect/series-enrichment-self-test.mjs
 
-      - name: Initial 500-work package and pending-state self-test
+      - name: Confirmed staging and 500-work public package self-test
         run: |
           node tools/collect/initial-pending-self-test.mjs
           node tools/collect/package-integration-self-test.mjs
@@ -253,5 +255,5 @@ jobs:
           if [[ -d data ]]; then
             node tools/validate/data-validator.mjs data
           else
-            echo 'data/ is not created yet; no production records to validate.'
+            echo 'data/ is not created yet; no public records to validate.'
           fi
