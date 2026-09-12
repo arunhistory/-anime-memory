@@ -5,11 +5,12 @@ import { IndexedFetcher } from './indexed-fetcher.mjs';
 import { runDiscovery } from './engine.mjs';
 import { loadDiscoveryState, saveDiscoveryState, seedFrontier } from './state.mjs';
 import { loadKnownWorkWasmSearch } from './known-work-wasm.mjs';
-import { normalizeUrl, urlHash } from './url.mjs';
+import { normalizeUrl } from './url.mjs';
 import { bootstrapFromWikidata } from './wikidata-bootstrap.mjs';
 import { expandSeriesFromWikidata } from './wikidata-series-expansion.mjs';
 import { buildReadinessReport } from './readiness-report.mjs';
 import { prepareResearchFrontierFromOwnIndex } from './research-search.mjs';
+import { promoteResearchFrontierForCrawl, restoreUnprocessedResearchFrontier } from './research-frontier.mjs';
 import { refreshWebSearchIndexFromDocuments } from './web-search-index.mjs';
 
 function parseArgs(argv) {
@@ -55,68 +56,6 @@ function validateNumber(value, name, min, max, fallback) {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < min || parsed > max) throw new Error(`${name} must be an integer between ${min} and ${max}`);
   return parsed;
-}
-
-function mergeHints(left, right) {
-  const output = [];
-  const seen = new Set();
-  for (const value of [...(Array.isArray(left) ? left : []), ...(Array.isArray(right) ? right : [])]) {
-    const text = String(value || '').replace(/\s+/g, ' ').trim();
-    const key = text.normalize('NFKC').toLocaleLowerCase('ja');
-    if (!text || seen.has(key)) continue;
-    seen.add(key);
-    output.push(text);
-    if (output.length >= 32) break;
-  }
-  return output;
-}
-
-function promoteResearchFrontier(state) {
-  if (!Array.isArray(state.frontier)) state.frontier = [];
-  if (!Array.isArray(state.researchFrontier)) state.researchFrontier = [];
-  if (!Array.isArray(state.visited)) state.visited = [];
-  const byUrl = new Map(state.frontier.map((entry) => [normalizeUrl(entry?.url), entry]).filter(([url]) => url));
-  const revisitHashes = new Set();
-  let promoted = 0;
-  for (const researchEntry of state.researchFrontier) {
-    const url = normalizeUrl(researchEntry?.url);
-    if (!url) continue;
-    revisitHashes.add(urlHash(url));
-    const current = byUrl.get(url);
-    if (current) {
-      current.priority = Math.max(Number(current.priority || 0), Number(researchEntry.priority || 0));
-      current.candidateHints = mergeHints(current.candidateHints, researchEntry.candidateHints);
-      current.researchSearch = true;
-      continue;
-    }
-    const entry = { ...researchEntry, url, researchSearch: true };
-    state.frontier.push(entry);
-    byUrl.set(url, entry);
-    promoted += 1;
-  }
-
-  // Own-index URLs were previously visited by discovery. Research intentionally re-fetches
-  // them so Evidence is extracted from current page content without storing article bodies.
-  if (revisitHashes.size) state.visited = state.visited.filter((hash) => !revisitHashes.has(String(hash)));
-  state.researchFrontier = [];
-  return promoted;
-}
-
-function restoreUnprocessedResearchFrontier(state) {
-  const research = [];
-  const discovery = [];
-  for (const entry of Array.isArray(state.frontier) ? state.frontier : []) {
-    if (entry?.researchSearch === true) {
-      const clean = { ...entry };
-      delete clean.researchSearch;
-      research.push(clean);
-    } else {
-      discovery.push(entry);
-    }
-  }
-  state.frontier = discovery;
-  state.researchFrontier = research;
-  return research.length;
 }
 
 function emptyDiscoveryStats() {
@@ -217,7 +156,7 @@ async function main() {
     resultsPerQuery: validateNumber(process.env.RESEARCH_SEARCH_RESULTS_PER_QUERY, 'RESEARCH_SEARCH_RESULTS_PER_QUERY', 1, 100, 20)
   };
   const ownSearch = prepareResearchFrontierFromOwnIndex(state, searchBatchOptions);
-  const promotedResearchUrls = promoteResearchFrontier(state);
+  const promotion = promoteResearchFrontierForCrawl(state);
 
   let knownWorkSearch = { fileCount: 0 };
   let result = { state, stats: emptyDiscoveryStats() };
@@ -261,7 +200,9 @@ async function main() {
   console.log(`own deep-search candidates scanned before crawl: ${ownSearch.candidatesScanned}`);
   console.log(`own deep-search queries before crawl: ${ownSearch.searches}`);
   console.log(`own deep-search URLs queued before crawl: ${ownSearch.urlsQueued}`);
-  console.log(`own deep-search URLs promoted this batch: ${promotedResearchUrls}`);
+  console.log(`own deep-search URLs promoted this batch: ${promotion.promoted}`);
+  console.log(`own deep-search URLs merged into existing crawl frontier: ${promotion.merged}`);
+  console.log(`own deep-search visited URLs reopened for verification: ${promotion.revisitCount}`);
   console.log(`unprocessed research URLs restored: ${restoredResearchUrls}`);
   console.log(`own deep-search candidates considered after crawl: ${nextOwnSearch.candidatesConsidered}`);
   console.log(`own deep-search queries after crawl: ${nextOwnSearch.searches}`);
