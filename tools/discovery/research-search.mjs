@@ -1,7 +1,7 @@
 import { candidateInformationReadiness, recordCandidateSearchQuery, sanitizeCandidateResearch } from './research-completion.mjs';
 import { discoveryCandidateReadiness } from './to-record.mjs';
-import { searchOwnWebIndex } from './web-search-index.mjs';
-import { normalizeUrl, urlHash } from './url.mjs';
+import { buildWebSearchLookup, searchOwnWebIndex } from './web-search-index.mjs';
+import { normalizeUrl } from './url.mjs';
 
 const QUERY_VARIANTS = [
   { topic: 'title', variants: [[['title_kana', '読み'], ['title_romaji', 'ローマ字'], ['title_en', '英語タイトル'], ['aliases', '別名']]] },
@@ -19,10 +19,6 @@ const QUERY_VARIANTS = [
   { topic: 'recognition', variants: [[['awards', '受賞 賞']]] },
   { topic: 'official', variants: [[['official_url', '公式サイト'], ['official_x', '公式 X'], ['official_youtube', '公式 YouTube'], ['official_other', '公式 情報']]] }
 ];
-
-function queryKey(value) {
-  return String(value || '').normalize('NFKC').toLocaleLowerCase('ja-JP').replace(/\s+/g, ' ').trim();
-}
 
 function confirmedFact(candidate, field) {
   const fact = candidate?.facts?.[field];
@@ -59,19 +55,15 @@ export function buildResearchSearchPlan(candidate, { maxQueries = 12 } = {}) {
   const title = confirmedResearchTitle(candidate);
   if (!title || candidateInformationReadiness(candidate).ready) return [];
 
-  const research = sanitizeCandidateResearch(candidate?.research);
-  const searched = new Set(research.searchQueries.map(queryKey));
-  const plan = [];
-  if (!searched.has(queryKey(title))) {
-    plan.push({ kind: 'broad', topic: 'broad', query: title, fields: [], priority: 260 });
-  }
+  // Searches are local index lookups, not external network requests. Incomplete fields
+  // are deliberately eligible again on later batches so newly crawled pages can be used.
+  const plan = [{ kind: 'broad', topic: 'broad', query: title, fields: [], priority: 260 }];
 
   for (const group of QUERY_VARIANTS) {
     for (const variant of group.variants) {
       const unresolved = unresolvedVariant(candidate, variant);
       if (!unresolved.fields.length || !unresolved.terms.length) continue;
       const query = `${title} ${unresolved.terms.join(' ')}`.replace(/\s+/g, ' ').trim();
-      if (searched.has(queryKey(query))) continue;
       plan.push({
         kind: 'targeted',
         topic: group.topic,
@@ -102,7 +94,6 @@ export function enqueueResearchSearchResults(state, candidate, planItem, results
   const title = confirmedResearchTitle(candidate);
   if (!title) return 0;
 
-  const visited = new Set(Array.isArray(state.visited) ? state.visited : []);
   const queued = new Map();
   for (const entry of state.researchFrontier) {
     const url = normalizeUrl(entry?.url);
@@ -112,7 +103,7 @@ export function enqueueResearchSearchResults(state, candidate, planItem, results
   let added = 0;
   for (let index = 0; index < (Array.isArray(results) ? results : []).length; index += 1) {
     const url = normalizeUrl(results[index]?.url || results[index]);
-    if (!url || visited.has(urlHash(url))) continue;
+    if (!url) continue;
     const priority = Math.max(180, Math.min(900, Number(planItem?.priority || 170) + 180 - index * 2));
     const existing = queued.get(url);
     if (existing) {
@@ -120,6 +111,9 @@ export function enqueueResearchSearchResults(state, candidate, planItem, results
       mergeCandidateHint(existing, title);
       continue;
     }
+    // A URL in the own search index was already visited by discovery. It is still valid
+    // for research: promotion deliberately permits a research re-fetch so current page
+    // content can be verified without storing article bodies in the index.
     const entry = { url, priority, depth: 0, discoveredFrom: '', candidateHints: [title] };
     state.researchFrontier.push(entry);
     queued.set(url, entry);
@@ -128,15 +122,20 @@ export function enqueueResearchSearchResults(state, candidate, planItem, results
   return added;
 }
 
-export function runOwnResearchSearchForCandidate(state, candidate, { maxQueries = 12, resultsPerQuery = 20 } = {}) {
+export function runOwnResearchSearchForCandidate(state, candidate, {
+  maxQueries = 12,
+  resultsPerQuery = 20,
+  lookup = null
+} = {}) {
   if (!state) throw new Error('discovery state is required');
   const plan = buildResearchSearchPlan(candidate, { maxQueries });
   const title = confirmedResearchTitle(candidate);
   const research = sanitizeCandidateResearch(candidate?.research);
+  const searchLookup = lookup || buildWebSearchLookup(state.webSearchIndex);
   const stats = { planned: plan.length, searched: 0, urlsQueued: 0 };
 
   for (const item of plan) {
-    const results = searchOwnWebIndex(state.webSearchIndex, {
+    const results = searchOwnWebIndex(searchLookup, {
       title,
       fields: item.fields,
       topic: item.topic,
@@ -151,25 +150,51 @@ export function runOwnResearchSearchForCandidate(state, candidate, { maxQueries 
   return stats;
 }
 
-export function prepareResearchFrontierFromOwnIndex(state, { maxCandidates = 5000, maxQueriesPerCandidate = 12, resultsPerQuery = 20 } = {}) {
+export function prepareResearchFrontierFromOwnIndex(state, {
+  maxCandidates = 5000,
+  maxQueriesPerCandidate = 12,
+  resultsPerQuery = 20
+} = {}) {
   if (!state) throw new Error('discovery state is required');
   if (!Array.isArray(state.researchFrontier)) state.researchFrontier = [];
+  const candidates = Array.isArray(state.candidates) ? state.candidates : [];
+  if (!candidates.length) {
+    state.researchSearchCursor = 0;
+    return { candidatesConsidered: 0, candidatesScanned: 0, searches: 0, urlsQueued: 0, nextCursor: 0 };
+  }
+
+  const lookup = buildWebSearchLookup(state.webSearchIndex);
+  const start = Math.max(0, Math.trunc(Number(state.researchSearchCursor || 0))) % candidates.length;
+  const cap = Math.max(1, Math.trunc(Number(maxCandidates) || 1));
   let candidatesConsidered = 0;
+  let candidatesScanned = 0;
   let searches = 0;
   let urlsQueued = 0;
-  for (const candidate of Array.isArray(state.candidates) ? state.candidates : []) {
-    if (candidatesConsidered >= maxCandidates) break;
+
+  while (candidatesScanned < candidates.length && candidatesConsidered < cap) {
+    const index = (start + candidatesScanned) % candidates.length;
+    const candidate = candidates[index];
+    candidatesScanned += 1;
     const title = confirmedResearchTitle(candidate);
     if (!title || candidateInformationReadiness(candidate).ready) continue;
     candidatesConsidered += 1;
     const result = runOwnResearchSearchForCandidate(state, candidate, {
       maxQueries: maxQueriesPerCandidate,
-      resultsPerQuery
+      resultsPerQuery,
+      lookup
     });
     searches += result.searched;
     urlsQueued += result.urlsQueued;
   }
-  return { candidatesConsidered, searches, urlsQueued };
+
+  state.researchSearchCursor = (start + candidatesScanned) % candidates.length;
+  return {
+    candidatesConsidered,
+    candidatesScanned,
+    searches,
+    urlsQueued,
+    nextCursor: state.researchSearchCursor
+  };
 }
 
 export const researchSearchTopics = QUERY_VARIANTS.map((group) => ({
