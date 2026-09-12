@@ -95,11 +95,12 @@ jobs:
             node tools/discovery/cycle.mjs status
           fi
 
-      - name: Run one bounded research batch
+      - name: Run one bounded discovery plus deep-research batch
         if: ${{ steps.cycle_open.outputs.active == 'true' }}
         run: |
           node tools/discovery/run.mjs \
             --max-pages 100 \
+            --max-research-pages 100 \
             --max-depth 12 \
             --per-host-limit 100
 
