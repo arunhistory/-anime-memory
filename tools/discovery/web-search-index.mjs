@@ -62,6 +62,13 @@ function metadataKey(document) {
   ].filter(Boolean).join(' ')).slice(0, 5000);
 }
 
+function routeTopicFor(url, anchor = '') {
+  return new Map([
+    ['staff', 'staff'], ['character', 'cast'], ['streaming', 'streaming'], ['broadcast', 'broadcast'],
+    ['music', 'music'], ['original', 'original'], ['episode', 'episodes'], ['production', 'production'], ['official', 'official']
+  ]).get(researchRouteKind(url, anchor)) || '';
+}
+
 export function topicsForFields(fields) {
   return [...new Set((Array.isArray(fields) ? fields : [])
     .map((field) => FIELD_TOPICS.get(String(field || '')))
@@ -72,11 +79,7 @@ export function detectDocumentSearchTopics(document) {
   const text = `${document?.title || ''}\n${document?.ogTitle || ''}\n${document?.description || ''}\n${document?.keywords || ''}\n${String(document?.text || '').slice(0, 120000)}`;
   const topics = [];
   for (const [topic, pattern] of TOPIC_PATTERNS) if (pattern.test(text)) topics.push(topic);
-  const route = researchRouteKind(document?.canonical || document?.url || '');
-  const routeTopic = new Map([
-    ['staff', 'staff'], ['character', 'cast'], ['streaming', 'streaming'], ['broadcast', 'broadcast'],
-    ['music', 'music'], ['original', 'original'], ['episode', 'episodes'], ['production', 'production'], ['official', 'official']
-  ]).get(route);
+  const routeTopic = routeTopicFor(document?.canonical || document?.url || '', document?.title || '');
   if (routeTopic) topics.push(routeTopic);
   return cleanTopics(topics);
 }
@@ -103,6 +106,33 @@ export function indexWebDocument(index, document, observedAt = new Date().toISOS
   else pages.push(entry);
   if (pages.length > MAX_INDEX_PAGES) pages.splice(0, pages.length - MAX_INDEX_PAGES);
   return pages;
+}
+
+export function refreshWebSearchIndexFromDocuments(index, documents) {
+  const pages = sanitizeWebSearchIndex(index);
+  const byUrl = new Map(pages.map((entry) => [entry.url, entry]));
+  for (const doc of Array.isArray(documents) ? documents : []) {
+    const url = normalizeUrl(doc?.url);
+    if (!url) continue;
+    const existing = byUrl.get(url);
+    const candidateKeys = cleanCandidateKeys(doc?.candidateTitles);
+    const text = String(doc?.title || '');
+    const topics = [];
+    for (const [topic, pattern] of TOPIC_PATTERNS) if (pattern.test(text)) topics.push(topic);
+    const routeTopic = routeTopicFor(url, text);
+    if (routeTopic) topics.push(routeTopic);
+    const entry = {
+      url,
+      metadataKey: normalizeTitleKey(text).slice(0, 5000),
+      subjectKey: candidateKeys.length === 1 ? candidateKeys[0] : '',
+      candidateKeys,
+      topics: cleanTopics([...(existing?.topics || []), ...topics]),
+      sourceFamily: existing?.sourceFamily || sourceFamilyKey(url) || '',
+      indexedAt: String(doc?.lastChecked || existing?.indexedAt || '').slice(0, 40)
+    };
+    byUrl.set(url, entry);
+  }
+  return [...byUrl.values()].slice(-MAX_INDEX_PAGES);
 }
 
 export function sanitizeWebSearchIndex(values) {
@@ -154,9 +184,7 @@ export function searchOwnWebIndex(index, {
     if (excluded.has(entry.url)) continue;
     const titleScore = titleMatchScore(entry, titleKey);
     if (!titleScore) continue;
-    const topicHits = desiredTopics.size
-      ? [...desiredTopics].filter((value) => entry.topics.includes(value)).length
-      : 0;
+    const topicHits = desiredTopics.size ? [...desiredTopics].filter((value) => entry.topics.includes(value)).length : 0;
     if (desiredTopics.size && topicHits === 0) continue;
     const familyBonus = entry.sourceFamily && !knownFamilies.has(entry.sourceFamily) ? 25 : 0;
     const score = titleScore + topicHits * 45 + familyBonus;
