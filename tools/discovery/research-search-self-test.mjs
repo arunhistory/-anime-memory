@@ -161,11 +161,14 @@ const rotation2 = prepareResearchFrontierFromOwnIndex(rotatingState, { maxCandid
 assert.equal(rotation2.candidatesConsidered, 1);
 assert.equal(rotation2.nextCursor, 2, 'bounded batches must rotate instead of restarting from the first candidate forever');
 
+await import('./research-frontier-self-test.mjs');
+
 console.log('Title-driven own-web-search self-test: PASS');
 console.log('confirmed-title root: PASS');
 console.log('missing-field query targeting: PASS');
 console.log('external search provider dependency: NONE');
 console.log('inverted own-Web index lookup: PASS');
 console.log('research re-fetch after discovery visit: PASS');
+console.log('research frontier lifecycle: PASS');
 console.log('bounded candidate rotation: PASS');
 console.log('related work does not bypass discovery identity: PASS');
