@@ -1,5 +1,5 @@
 import { extractDocument } from './html.mjs';
-import { indexWebDocument } from './web-search-index.mjs';
+import { buildWebSearchPositionIndex, indexWebDocument } from './web-search-index.mjs';
 
 function isHtml(contentType) {
   const value = String(contentType || '').toLowerCase();
@@ -14,6 +14,7 @@ export class IndexedFetcher {
     this.state = state;
     this.now = now;
     if (!Array.isArray(this.state.webSearchIndex)) this.state.webSearchIndex = [];
+    this.positionByUrl = buildWebSearchPositionIndex(this.state.webSearchIndex);
   }
 
   isHostAllowed(url) {
@@ -28,7 +29,7 @@ export class IndexedFetcher {
     // The index stores only compact search metadata. Full HTML/body text stays transient
     // and is still evaluated by the normal discovery/evidence pipeline.
     const document = extractDocument(result.text, result.url);
-    indexWebDocument(this.state.webSearchIndex, document, this.now());
+    indexWebDocument(this.state.webSearchIndex, document, this.now(), this.positionByUrl);
     return result;
   }
 }
