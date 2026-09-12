@@ -1,4 +1,5 @@
 import { extractDocument } from './html.mjs';
+import { buildConfirmedTitleMatcher, matchConfirmedTitleKeys } from './known-title-matcher.mjs';
 import { buildWebSearchPositionIndex, indexWebDocument } from './web-search-index.mjs';
 
 function isHtml(contentType) {
@@ -15,6 +16,7 @@ export class IndexedFetcher {
     this.now = now;
     if (!Array.isArray(this.state.webSearchIndex)) this.state.webSearchIndex = [];
     this.positionByUrl = buildWebSearchPositionIndex(this.state.webSearchIndex);
+    this.confirmedTitleMatcher = buildConfirmedTitleMatcher(this.state.candidates);
   }
 
   isHostAllowed(url) {
@@ -29,7 +31,14 @@ export class IndexedFetcher {
     // The index stores only compact search metadata. Full HTML/body text stays transient
     // and is still evaluated by the normal discovery/evidence pipeline.
     const document = extractDocument(result.text, result.url);
-    indexWebDocument(this.state.webSearchIndex, document, this.now(), this.positionByUrl);
+    const confirmedTitleKeys = matchConfirmedTitleKeys(this.confirmedTitleMatcher, document);
+    indexWebDocument(
+      this.state.webSearchIndex,
+      document,
+      this.now(),
+      this.positionByUrl,
+      confirmedTitleKeys
+    );
     return result;
   }
 }
