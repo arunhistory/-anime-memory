@@ -4,6 +4,7 @@ import { sourceFamilyKey } from './source-family.mjs';
 
 const MAX_RESEARCH_PAGES = 64;
 const MAX_TRACKED_VALUES = 32;
+const MAX_SEARCH_QUERIES = 128;
 
 const GROUP_FIELDS = new Map([
   ['classification', ['genres', 'tags', 'target_demographic', 'setting', 'era', 'themes']],
@@ -47,6 +48,7 @@ export function emptyCandidateResearch() {
     routes: [],
     sourceFamilies: [],
     evidenceFields: [],
+    searchQueries: [],
     noGainPages: 0,
     lastEvidenceAt: ''
   };
@@ -61,6 +63,9 @@ export function sanitizeCandidateResearch(value) {
   output.routes = cleanList(value.routes);
   output.sourceFamilies = cleanList(value.sourceFamilies);
   output.evidenceFields = cleanList(value.evidenceFields, 96);
+  output.searchQueries = cleanList(value.searchQueries, MAX_SEARCH_QUERIES)
+    .map((query) => query.normalize('NFKC').replace(/\s+/g, ' ').trim().slice(0, 300))
+    .filter(Boolean);
   output.noGainPages = Math.max(0, Math.min(1000, Math.trunc(Number(value.noGainPages || 0))));
   output.lastEvidenceAt = String(value.lastEvidenceAt || '').slice(0, 40);
   return output;
@@ -79,9 +84,18 @@ export function mergeCandidateResearch(left, right) {
     routes: cleanList([...a.routes, ...b.routes]),
     sourceFamilies: cleanList([...a.sourceFamilies, ...b.sourceFamilies]),
     evidenceFields: cleanList([...a.evidenceFields, ...b.evidenceFields], 96),
+    searchQueries: cleanList([...a.searchQueries, ...b.searchQueries], MAX_SEARCH_QUERIES),
     noGainPages: Math.min(a.noGainPages, b.noGainPages),
     lastEvidenceAt: evidenceTimes.at(-1) || a.lastEvidenceAt || b.lastEvidenceAt || ''
   };
+}
+
+export function recordCandidateSearchQuery(current, query) {
+  const research = sanitizeCandidateResearch(current);
+  const clean = String(query || '').normalize('NFKC').replace(/\s+/g, ' ').trim().slice(0, 300);
+  if (!clean) return research;
+  research.searchQueries = cleanList([...research.searchQueries, clean], MAX_SEARCH_QUERIES);
+  return research;
 }
 
 export function recordCandidateResearch(current, {
