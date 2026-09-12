@@ -1,11 +1,11 @@
 {
   "version": 1,
-  "active": false,
-  "cycleId": "20260912T085918514Z",
-  "startedAt": "2026-09-12T08:59:18.514Z",
-  "lastNewDiscoveryAt": "2026-09-12T08:59:18.514Z",
-  "stoppedAt": "2026-09-12T11:51:04.000Z",
-  "stopReason": "repair-hold-deep-research-starvation",
+  "active": true,
+  "cycleId": "20260912T130948184Z",
+  "startedAt": "2026-09-12T13:09:48.184Z",
+  "lastNewDiscoveryAt": "2026-09-12T13:09:48.184Z",
+  "stoppedAt": "",
+  "stopReason": "",
   "waitingForInactivity": false,
   "resumeAfter": "",
   "seenEligible": []
