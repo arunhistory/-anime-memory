@@ -79,7 +79,16 @@ export function detectDocumentSearchTopics(document) {
   return cleanTopics(topics);
 }
 
-export function indexWebDocument(index, document, observedAt = new Date().toISOString()) {
+export function buildWebSearchPositionIndex(index) {
+  const positions = new Map();
+  for (let position = 0; position < (Array.isArray(index) ? index : []).length; position += 1) {
+    const url = normalizeUrl(index[position]?.url);
+    if (url && !positions.has(url)) positions.set(url, position);
+  }
+  return positions;
+}
+
+export function indexWebDocument(index, document, observedAt = new Date().toISOString(), positionByUrl = null) {
   const normalizedUrl = normalizeUrl(document?.canonical || document?.url);
   if (!normalizedUrl || document?.noindex) return index;
   const pages = Array.isArray(index) ? index : [];
@@ -96,9 +105,21 @@ export function indexWebDocument(index, document, observedAt = new Date().toISOS
     sourceFamily: sourceFamilyKey(normalizedUrl) || '',
     indexedAt: String(observedAt || '').slice(0, 40)
   };
-  const position = pages.findIndex((item) => item?.url === normalizedUrl);
-  if (position >= 0) pages[position] = entry;
-  else pages.push(entry);
+
+  let position = -1;
+  if (positionByUrl instanceof Map) {
+    const mapped = positionByUrl.get(normalizedUrl);
+    position = Number.isInteger(mapped) ? mapped : -1;
+  } else {
+    position = pages.findIndex((item) => item?.url === normalizedUrl);
+  }
+
+  if (position >= 0 && position < pages.length) {
+    pages[position] = entry;
+  } else {
+    pages.push(entry);
+    if (positionByUrl instanceof Map) positionByUrl.set(normalizedUrl, pages.length - 1);
+  }
   return pages;
 }
 
