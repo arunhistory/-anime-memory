@@ -1,0 +1,47 @@
+name: Title Driven Search Live Pilot
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  live-pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      WIKIDATA_BOOTSTRAP_DISABLED: 'true'
+      WIKIDATA_SERIES_EXPANSION_DISABLED: 'true'
+      DISCOVERY_MIN_DELAY_MS: '1000'
+      DISCOVERY_TIMEOUT_MS: '10000'
+      DISCOVERY_MAX_BYTES: '1048576'
+      RESEARCH_SEARCH_MAX_CANDIDATES: '100'
+      RESEARCH_SEARCH_MAX_QUERIES: '12'
+      RESEARCH_SEARCH_RESULTS_PER_QUERY: '10'
+    steps:
+      - name: Checkout PR merge
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run bounded public-Web dry-run
+        run: |
+          set -euo pipefail
+          node tools/discovery/run.mjs \
+            --dry-run true \
+            --max-pages 12 \
+            --max-depth 3 \
+            --per-host-limit 4
+
+      - name: Verify repository stayed clean
+        run: |
+          set -euo pipefail
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo 'Dry-run modified the checked-out repository.' >&2
+            git status --short >&2
+            exit 1
+          fi
