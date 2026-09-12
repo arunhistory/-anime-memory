@@ -1,8 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseCsv, readUtf8Strict, recordsToCsv, rowsToRecords } from '../csv/csv.mjs';
-import { hasExactExternalId, isCompositeDuplicateCandidate } from '../normalize/record.mjs';
-import { deduplicateIncoming } from './deduplicate.mjs';
+import {
+  externalIdSet,
+  mergeOnlyBlank,
+  normalizeText,
+  releaseIdentitySet,
+  titleSet
+} from '../normalize/record.mjs';
 
 function cleanRecord(input, columns) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('confirmed-record-invalid');
@@ -33,26 +38,97 @@ function nextIdFactory(records) {
   };
 }
 
-function mergeIntoMaster(masterRecords, incomingRecords, columns) {
-  const existing = masterRecords.map((record) => ({ fileName: 'confirmed.csv', record }));
-  const result = deduplicateIncoming(incomingRecords, existing, columns, { warn: () => {} });
-  return {
-    records: [
-      ...result.workingExisting.map((entry) => entry.record),
-      ...result.accepted
-    ],
-    stats: result.stats
-  };
+function compositeKeys(record) {
+  const media = String(record?.media_type || '');
+  if (!media) return [];
+  const titles = [...titleSet(record)];
+  const releases = [...releaseIdentitySet(record)];
+  if (!titles.length || !releases.length) return [];
+  const corroborators = [
+    ['original_title', normalizeText(record?.original_title)],
+    ['original_author', normalizeText(record?.original_author)],
+    ['animation_studio', normalizeText(record?.animation_studio)]
+  ].filter(([, value]) => value);
+  const keys = [];
+  for (const title of titles) {
+    for (const release of releases) {
+      for (const [field, value] of corroborators) keys.push(`${title}\u0000${media}\u0000${release}\u0000${field}\u0000${value}`);
+    }
+  }
+  return keys;
+}
+
+function addIndexValue(map, key, index) {
+  if (!key) return;
+  if (!map.has(key)) map.set(key, new Set());
+  map.get(key).add(index);
+}
+
+function buildLookup(records) {
+  const byExternalId = new Map();
+  const byComposite = new Map();
+  for (let index = 0; index < records.length; index += 1) {
+    for (const id of externalIdSet(records[index])) addIndexValue(byExternalId, id, index);
+    for (const key of compositeKeys(records[index])) addIndexValue(byComposite, key, index);
+  }
+  return { byExternalId, byComposite };
+}
+
+function lookupIndices(map, keys) {
+  const found = new Set();
+  for (const key of keys) {
+    for (const index of map.get(key) || []) found.add(index);
+  }
+  return [...found];
+}
+
+function indexRecord(lookup, record, index) {
+  for (const id of externalIdSet(record)) addIndexValue(lookup.byExternalId, id, index);
+  for (const key of compositeKeys(record)) addIndexValue(lookup.byComposite, key, index);
+}
+
+function mergeRecords(master, incoming, columns) {
+  const lookup = buildLookup(master);
+  const stats = { exactMerged: 0, compositeSkipped: 0, added: 0 };
+
+  for (const raw of incoming) {
+    const record = cleanRecord(raw, columns);
+    const exact = lookupIndices(lookup.byExternalId, externalIdSet(record));
+    if (exact.length > 1) throw new Error(`confirmed-external-id-ambiguous:${record.title_ja}`);
+    if (exact.length === 1) {
+      const index = exact[0];
+      master[index] = mergeOnlyBlank(master[index], record, columns);
+      indexRecord(lookup, master[index], index);
+      stats.exactMerged += 1;
+      continue;
+    }
+
+    const composite = lookupIndices(lookup.byComposite, compositeKeys(record));
+    if (composite.length) {
+      // Composite identity is deliberately not enough to merge or add a second row.
+      stats.compositeSkipped += 1;
+      continue;
+    }
+
+    const index = master.length;
+    master.push(record);
+    indexRecord(lookup, record, index);
+    stats.added += 1;
+  }
+  return { records: master, stats };
 }
 
 export function loadConfirmedCsv(filePath, columns) {
   if (!fs.existsSync(filePath)) return [];
-  return rowsToRecords(parseCsv(readUtf8Strict(filePath)), columns).map((record) => cleanRecord(record, columns));
+  const records = rowsToRecords(parseCsv(readUtf8Strict(filePath)), columns).map((record) => cleanRecord(record, columns));
+  nextIdFactory(records);
+  return records;
 }
 
 export function saveConfirmedCsv(filePath, records, columns) {
   if (!Array.isArray(records)) throw new Error('confirmed-records-invalid');
   const cleanRecords = records.map((record) => cleanRecord(record, columns));
+  nextIdFactory(cleanRecords);
   const text = recordsToCsv(cleanRecords, columns);
   if (fs.existsSync(filePath) && readUtf8Strict(filePath) === text) return false;
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -71,16 +147,14 @@ export function syncConfirmedMaster({
   if (!Array.isArray(columns) || !columns.length) throw new Error('confirmed-columns-required');
   let master = (Array.isArray(current) ? current : []).map((record) => cleanRecord(record, columns));
 
-  // Existing public rows are also confirmed works. This makes migration from an older
-  // repository state lossless if public data exists before confirmed/confirmed.csv.
   const publicRecords = (Array.isArray(publicEntries) ? publicEntries : [])
     .map((entry) => entry?.record)
     .filter(Boolean)
     .map((record) => cleanRecord(record, columns));
-  const publicMerge = mergeIntoMaster(master, publicRecords, columns);
+  const publicMerge = mergeRecords(master, publicRecords, columns);
   master = publicMerge.records;
 
-  const identityMerge = mergeIntoMaster(
+  const identityMerge = mergeRecords(
     master,
     (Array.isArray(identityRecords) ? identityRecords : []).map((record) => cleanRecord(record, columns)),
     columns
@@ -91,9 +165,8 @@ export function syncConfirmedMaster({
   for (const record of master) {
     if (!record.id) record.id = nextId();
   }
-
-  // Re-run ID validation after assignment.
   nextIdFactory(master);
+
   return {
     records: master,
     publicMergeStats: publicMerge.stats,
@@ -101,21 +174,23 @@ export function syncConfirmedMaster({
   };
 }
 
-function findConfirmedRecord(master, record) {
-  const exact = master.filter((confirmed) => hasExactExternalId(confirmed, record));
+function resolveConfirmedIndex(lookup, record) {
+  const exact = lookupIndices(lookup.byExternalId, externalIdSet(record));
   if (exact.length === 1) return exact[0];
   if (exact.length > 1) throw new Error(`作品確定CSVで外部IDが重複しています: ${record?.title_ja || '(empty)'}`);
 
-  const composite = master.filter((confirmed) => isCompositeDuplicateCandidate(confirmed, record));
+  const composite = lookupIndices(lookup.byComposite, compositeKeys(record));
   if (composite.length === 1) return composite[0];
   if (composite.length > 1) throw new Error(`作品確定CSVで公開候補の対応先が一意ではありません: ${record?.title_ja || '(empty)'}`);
-  return null;
+  return -1;
 }
 
 export function attachConfirmedIds(records, confirmedRecords) {
   const master = Array.isArray(confirmedRecords) ? confirmedRecords : [];
+  const lookup = buildLookup(master);
   return (Array.isArray(records) ? records : []).map((record) => {
-    const match = findConfirmedRecord(master, record);
+    const index = resolveConfirmedIndex(lookup, record);
+    const match = index >= 0 ? master[index] : null;
     if (!match?.id) {
       throw new Error(`公開候補に対応する作品確定CSVのIDがありません: ${record?.title_ja || '(empty)'}`);
     }
