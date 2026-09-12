@@ -8,6 +8,12 @@ function confirmed(value) {
   return { status: 'confirmed', value, sourceCount: 2, hostCount: 2, confidence: 90 };
 }
 
+function evidenceSignatures(items) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => `${item?.field || ''}\u0000${item?.value || ''}\u0000${item?.sourceUrl || ''}`)
+    .sort();
+}
+
 const title = '星の旅';
 const identityEvidence = [
   { field: 'title_ja', value: title, sourceUrl: 'https://official.identity.example.jp/work', sourceClass: 'secondary', directness: 95, rule: 'page-title' },
@@ -69,7 +75,7 @@ const state = {
   updatedAt: ''
 };
 
-const evidenceBeforeDiscovery = JSON.stringify(state.candidates[0].evidence);
+const evidenceBeforeDiscovery = evidenceSignatures(state.candidates[0].evidence);
 const discoveryFetcher = new IndexedFetcher(rawFetcher, state, { now: () => '2026-09-12T00:01:00.000Z' });
 const discovery = await runDiscovery({
   state,
@@ -81,7 +87,15 @@ const discovery = await runDiscovery({
 });
 assert.equal(discovery.stats.fetched, 2);
 assert.equal(discovery.state.webSearchIndex.length, 2, 'discovery crawl must populate the own Web index');
-assert.equal(JSON.stringify(discovery.state.candidates[0].evidence), evidenceBeforeDiscovery, 'ordinary crawl must not turn index metadata into evidence for the confirmed work');
+assert.deepEqual(
+  evidenceSignatures(discovery.state.candidates[0].evidence),
+  evidenceBeforeDiscovery,
+  'ordinary crawl must not turn search-index metadata into Evidence for the confirmed work'
+);
+assert.ok(
+  discovery.state.candidates[0].evidence.every((item) => !String(item.sourceUrl || '').startsWith('https://source-')),
+  'generic pages must not contribute work Evidence until the research frontier explicitly re-fetches them'
+);
 assert.ok(discovery.state.webSearchIndex.every((entry) => entry.candidateKeys.includes('星の旅')), 'confirmed-title matcher must make generic work-name pages searchable');
 
 const searchStats = prepareResearchFrontierFromOwnIndex(discovery.state, {
