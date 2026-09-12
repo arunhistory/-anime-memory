@@ -37,6 +37,7 @@ export function emptyDiscoveryState() {
     documents: [],
     candidates: [],
     webSearchIndex: [],
+    researchSearchCursor: 0,
     researchStrategy: emptyResearchStrategyState(),
     calibrationSeen: [],
     wikidataBootstrap: sanitizeWikidataBootstrapState(),
@@ -60,6 +61,7 @@ function sanitizeState(input) {
   state.documents = Array.isArray(input.documents) ? input.documents : [];
   state.candidates = Array.isArray(input.candidates) ? input.candidates : [];
   state.webSearchIndex = sanitizeWebSearchIndex(input.webSearchIndex);
+  state.researchSearchCursor = Math.max(0, Math.trunc(Number(input.researchSearchCursor || 0)));
   state.researchStrategy = sanitizeResearchStrategyState(input.researchStrategy);
   state.calibrationSeen = sanitizeCalibrationSeen(input.calibrationSeen);
   state.wikidataBootstrap = sanitizeWikidataBootstrapState(input.wikidataBootstrap);
@@ -187,6 +189,9 @@ function loadShardedState(filePath, manifest) {
     version: 1,
     researchFrontier: [],
     webSearchIndex: [],
+    researchSearchCursor: manifest.version === SHARDED_STATE_VERSION
+      ? Math.max(0, Math.trunc(Number(manifest.researchSearchCursor || 0)))
+      : 0,
     researchStrategy: {
       version: 1,
       operations: {},
@@ -375,6 +380,7 @@ function writeShardedState(filePath, clean) {
     shardTargetBytes: TARGET_SHARD_BYTES,
     counts,
     shards,
+    researchSearchCursor: Math.max(0, Math.trunc(Number(clean.researchSearchCursor || 0))),
     researchStrategy: {
       version: 1,
       updatedAt: String(clean.researchStrategy?.updatedAt || '').slice(0, 40)
@@ -406,6 +412,7 @@ export function saveDiscoveryState(filePath, state) {
   clean.documents = sanitizeDocuments(clean.documents);
   clean.candidates = sanitizeCandidates(clean.candidates, trustModel);
   clean.webSearchIndex = sanitizeWebSearchIndex(clean.webSearchIndex);
+  clean.researchSearchCursor = Math.max(0, Math.trunc(Number(clean.researchSearchCursor || 0)));
   return writeShardedState(filePath, clean);
 }
 
