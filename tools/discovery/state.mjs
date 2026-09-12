@@ -13,15 +13,18 @@ import {
   sanitizeResearchStrategyState
 } from './research-strategy.mjs';
 import { resolveEvidenceWithTrust } from './trust-resolution.mjs';
+import { sanitizeWebSearchIndex } from './web-search-index.mjs';
 import { sanitizeWikidataBootstrapState } from './wikidata-bootstrap.mjs';
 import { sanitizeWikidataSeriesExpansionState } from './wikidata-series-expansion.mjs';
 
 const MAX_CANDIDATE_HINTS = 32;
-const SHARDED_STATE_VERSION = 2;
+const LEGACY_SHARDED_STATE_VERSION = 2;
+const SHARDED_STATE_VERSION = 3;
 const SHARDED_STATE_STORAGE = 'sharded-v1';
 const SHARD_DIRECTORY = 'state-shards';
 const TARGET_SHARD_BYTES = 4 * 1024 * 1024;
-const STATE_ARRAY_SHARD_KINDS = ['frontier', 'visited', 'documents', 'candidates', 'calibrationSeen'];
+const LEGACY_STATE_ARRAY_SHARD_KINDS = ['frontier', 'visited', 'documents', 'candidates', 'calibrationSeen'];
+const STATE_ARRAY_SHARD_KINDS = ['frontier', 'researchFrontier', 'visited', 'documents', 'candidates', 'webSearchIndex', 'calibrationSeen'];
 const STRATEGY_SHARD_KINDS = ['researchOperations', 'researchTrust'];
 const ALL_SHARD_KINDS = [...STATE_ARRAY_SHARD_KINDS, ...STRATEGY_SHARD_KINDS];
 
@@ -29,9 +32,11 @@ export function emptyDiscoveryState() {
   return {
     version: 1,
     frontier: [],
+    researchFrontier: [],
     visited: [],
     documents: [],
     candidates: [],
+    webSearchIndex: [],
     researchStrategy: emptyResearchStrategyState(),
     calibrationSeen: [],
     wikidataBootstrap: sanitizeWikidataBootstrapState(),
@@ -50,9 +55,11 @@ function sanitizeState(input) {
   const state = emptyDiscoveryState();
   if (!input || input.version !== 1) return state;
   state.frontier = Array.isArray(input.frontier) ? input.frontier : [];
+  state.researchFrontier = Array.isArray(input.researchFrontier) ? input.researchFrontier : [];
   state.visited = Array.isArray(input.visited) ? input.visited : [];
   state.documents = Array.isArray(input.documents) ? input.documents : [];
   state.candidates = Array.isArray(input.candidates) ? input.candidates : [];
+  state.webSearchIndex = sanitizeWebSearchIndex(input.webSearchIndex);
   state.researchStrategy = sanitizeResearchStrategyState(input.researchStrategy);
   state.calibrationSeen = sanitizeCalibrationSeen(input.calibrationSeen);
   state.wikidataBootstrap = sanitizeWikidataBootstrapState(input.wikidataBootstrap);
@@ -166,7 +173,7 @@ function entriesToRecord(entries, kind) {
 }
 
 function loadShardedState(filePath, manifest) {
-  if (manifest.storage !== SHARDED_STATE_STORAGE || manifest.version !== SHARDED_STATE_VERSION) {
+  if (manifest.storage !== SHARDED_STATE_STORAGE || ![LEGACY_SHARDED_STATE_VERSION, SHARDED_STATE_VERSION].includes(manifest.version)) {
     throw new Error('discovery-state-storage-unsupported');
   }
   const baseDir = path.dirname(filePath);
@@ -178,6 +185,8 @@ function loadShardedState(filePath, manifest) {
   if (!counts || typeof counts !== 'object' || Array.isArray(counts)) throw new Error('discovery-state-counts-missing');
   const reconstructed = {
     version: 1,
+    researchFrontier: [],
+    webSearchIndex: [],
     researchStrategy: {
       version: 1,
       operations: {},
@@ -188,21 +197,14 @@ function loadShardedState(filePath, manifest) {
     wikidataSeriesExpansion: manifest.wikidataSeriesExpansion,
     updatedAt: manifest.updatedAt
   };
-  for (const kind of STATE_ARRAY_SHARD_KINDS) {
+  const arrayKinds = manifest.version === LEGACY_SHARDED_STATE_VERSION
+    ? LEGACY_STATE_ARRAY_SHARD_KINDS
+    : STATE_ARRAY_SHARD_KINDS;
+  for (const kind of arrayKinds) {
     reconstructed[kind] = readShardKind(baseDir, kind, shards[kind], counts[kind]);
   }
-  const operationEntries = readShardKind(
-    baseDir,
-    'researchOperations',
-    shards.researchOperations,
-    counts.researchOperations
-  );
-  const trustEntries = readShardKind(
-    baseDir,
-    'researchTrust',
-    shards.researchTrust,
-    counts.researchTrust
-  );
+  const operationEntries = readShardKind(baseDir, 'researchOperations', shards.researchOperations, counts.researchOperations);
+  const trustEntries = readShardKind(baseDir, 'researchTrust', shards.researchTrust, counts.researchTrust);
   reconstructed.researchStrategy.operations = entriesToRecord(operationEntries, 'researchOperations');
   reconstructed.researchStrategy.trust = entriesToRecord(trustEntries, 'researchTrust');
   return sanitizeState(reconstructed);
@@ -211,7 +213,7 @@ function loadShardedState(filePath, manifest) {
 export function loadDiscoveryState(filePath) {
   if (!fs.existsSync(filePath)) return emptyDiscoveryState();
   const input = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  if (input?.version === SHARDED_STATE_VERSION) return loadShardedState(filePath, input);
+  if ([LEGACY_SHARDED_STATE_VERSION, SHARDED_STATE_VERSION].includes(input?.version)) return loadShardedState(filePath, input);
   return sanitizeState(input);
 }
 
@@ -292,11 +294,7 @@ function deriveCandidateResearch(candidate, evidence, sources) {
   const observedAt = String(candidate?.lastSeen || '');
   for (const sourceUrl of sources) {
     const pageEvidence = evidence.filter((item) => normalizeUrl(item?.sourceUrl) === sourceUrl);
-    research = recordCandidateResearch(research, {
-      url: sourceUrl,
-      evidence: pageEvidence,
-      observedAt
-    });
+    research = recordCandidateResearch(research, { url: sourceUrl, evidence: pageEvidence, observedAt });
   }
   return research;
 }
@@ -340,7 +338,7 @@ function cleanStaleShardFiles(baseDir, activeFiles) {
   if (!fs.existsSync(shardDir)) return;
   const active = new Set(activeFiles);
   for (const name of fs.readdirSync(shardDir)) {
-    if (!/^(?:frontier|visited|documents|candidates|calibrationSeen|researchOperations|researchTrust)-\d{5}\.json$/.test(name)) continue;
+    if (!/^(?:frontier|researchFrontier|visited|documents|candidates|webSearchIndex|calibrationSeen|researchOperations|researchTrust)-\d{5}\.json$/.test(name)) continue;
     const relative = `${SHARD_DIRECTORY}/${name}`;
     if (!active.has(relative)) fs.rmSync(path.join(shardDir, name), { force: true });
   }
@@ -386,12 +384,7 @@ function writeShardedState(filePath, clean) {
     updatedAt: clean.updatedAt
   };
 
-  // Each shard is written through a same-filesystem temporary file. The manifest is
-  // switched only after every shard write succeeds. Git workflows commit the manifest
-  // and all shard paths together, so an interrupted run never publishes a partial set.
   atomicWriteText(filePath, `${JSON.stringify(manifest, null, 2)}\n`);
-  // Verify the just-written manifest and every shard before callers can stage the state.
-  // A failed verification aborts the workflow, so Git never publishes an inconsistent set.
   loadShardedState(filePath, manifest);
   const activeFiles = Object.values(shards).flat().map((descriptor) => descriptor.file);
   cleanStaleShardFiles(baseDir, activeFiles);
@@ -408,9 +401,11 @@ export function saveDiscoveryState(filePath, state) {
   const trustModel = buildResearchStrategyModel(clean);
 
   clean.frontier = sanitizeFrontier(clean.frontier);
+  clean.researchFrontier = sanitizeFrontier(clean.researchFrontier);
   clean.visited = [...new Set(clean.visited.map(String))];
   clean.documents = sanitizeDocuments(clean.documents);
   clean.candidates = sanitizeCandidates(clean.candidates, trustModel);
+  clean.webSearchIndex = sanitizeWebSearchIndex(clean.webSearchIndex);
   return writeShardedState(filePath, clean);
 }
 
