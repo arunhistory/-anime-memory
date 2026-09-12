@@ -88,6 +88,8 @@ const detailScore = scoreDiscoveredLink({ url: 'https://dr-stone.jp/music/', anc
 const contactScore = scoreDiscoveredLink({ url: 'https://dr-stone.jp/contact/', anchor: 'お問い合わせ' }, 40, ['Dr.STONE']);
 assert.ok(detailScore > contactScore, 'information-rich detail routes must outrank irrelevant utility pages');
 
+await import('./research-search-self-test.mjs');
+
 console.log('Information research completion self-test: PASS');
 console.log('name-only publication: BLOCKED');
 console.log('information-rich publication: PASS');
