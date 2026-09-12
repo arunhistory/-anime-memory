@@ -88,6 +88,35 @@ function mergeCandidateHint(entry, title) {
   entry.candidateHints = hints.slice(0, 32);
 }
 
+export function diversifyResearchResults(results, limit = 20) {
+  const source = Array.isArray(results) ? results : [];
+  const max = Math.max(1, Math.min(100, Math.trunc(Number(limit) || 20)));
+  const selected = [];
+  const selectedUrls = new Set();
+  const seenFamilies = new Set();
+
+  // First pass takes the strongest result from each independent source family.
+  for (const item of source) {
+    const url = normalizeUrl(item?.url || item);
+    const family = String(item?.sourceFamily || '').trim();
+    if (!url || selectedUrls.has(url) || !family || seenFamilies.has(family)) continue;
+    selected.push(item);
+    selectedUrls.add(url);
+    seenFamilies.add(family);
+    if (selected.length >= max) return selected;
+  }
+
+  // Second pass fills remaining capacity by score/order without duplicating URLs.
+  for (const item of source) {
+    const url = normalizeUrl(item?.url || item);
+    if (!url || selectedUrls.has(url)) continue;
+    selected.push(item);
+    selectedUrls.add(url);
+    if (selected.length >= max) break;
+  }
+  return selected;
+}
+
 export function enqueueResearchSearchResults(state, candidate, planItem, results) {
   if (!state) throw new Error('discovery state is required');
   if (!Array.isArray(state.researchFrontier)) state.researchFrontier = [];
@@ -135,14 +164,15 @@ export function runOwnResearchSearchForCandidate(state, candidate, {
   const stats = { planned: plan.length, searched: 0, urlsQueued: 0 };
 
   for (const item of plan) {
-    const results = searchOwnWebIndex(searchLookup, {
+    const ranked = searchOwnWebIndex(searchLookup, {
       title,
       fields: item.fields,
       topic: item.topic,
       seenFamilies: research.sourceFamilies,
       excludeUrls: research.pageUrls,
-      limit: resultsPerQuery
+      limit: 100
     });
+    const results = diversifyResearchResults(ranked, resultsPerQuery);
     stats.searched += 1;
     stats.urlsQueued += enqueueResearchSearchResults(state, candidate, item, results);
     candidate.research = recordCandidateSearchQuery(candidate.research, item.query);
