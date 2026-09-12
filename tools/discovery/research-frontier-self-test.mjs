@@ -64,8 +64,11 @@ assert.equal(mergeState.frontier[0].priority, 500);
 assert.equal(mergeState.frontier[0].researchSearch, true);
 assert.deepEqual(mergeState.frontier[0].candidateHints, ['既存ヒント', 'オッドタクシー']);
 
+await import('./research-diversity-self-test.mjs');
+
 console.log('Research frontier lifecycle self-test: PASS');
 console.log('visited research URL reopen: PASS');
 console.log('ordinary visited state preserved: PASS');
 console.log('unprocessed research restoration: PASS');
 console.log('existing frontier merge: PASS');
+console.log('source-family diversity selection: PASS');
