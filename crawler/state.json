@@ -1,32 +1,32 @@
 {
   "version": 3,
   "storage": "sharded-v1",
-  "revision": "r-20260912093239-4166ecb7d6eb",
+  "revision": "r-20260912093630-403f8f82a95b",
   "shardTargetBytes": 4194304,
   "counts": {
-    "frontier": 18191,
+    "frontier": 18506,
     "researchFrontier": 211,
-    "visited": 2114,
-    "documents": 1692,
-    "candidates": 3776,
-    "webSearchIndex": 1815,
+    "visited": 2214,
+    "documents": 1786,
+    "candidates": 3952,
+    "webSearchIndex": 1910,
     "calibrationSeen": 0,
-    "researchOperations": 335,
+    "researchOperations": 346,
     "researchTrust": 0
   },
   "shards": {
     "frontier": [
       {
         "file": "state-shards/frontier-00000.json",
-        "count": 12032,
-        "bytes": 4194031,
-        "sha256": "e1cd00a55ff8a4f9b8d8eb2b5e030751f1d812777b6d0274126a5aba859c8649"
+        "count": 12044,
+        "bytes": 4193704,
+        "sha256": "349d7f6f1c4cb72d26db5dd6a3b60eec7f424fa8563863960faacc20d619a5a3"
       },
       {
         "file": "state-shards/frontier-00001.json",
-        "count": 6159,
-        "bytes": 2303752,
-        "sha256": "df532d6b0a6782d3f9db3b4d1e621018dad8c953f70cfad0f05a97e9459b46fc"
+        "count": 6462,
+        "bytes": 2402304,
+        "sha256": "0b858f4bd2231ac8c458b19168d285954af98abda0c51fd5c404d389e95eaee4"
       }
     ],
     "researchFrontier": [
@@ -40,54 +40,54 @@
     "visited": [
       {
         "file": "state-shards/visited-00000.json",
-        "count": 2114,
-        "bytes": 141640,
-        "sha256": "954410de2a3453fa569749753dc92e37d3cfb303db17169676aaddf6a5aec63c"
+        "count": 2214,
+        "bytes": 148340,
+        "sha256": "e5057b4233c180c030b1fd44ab8e9cf84de03c49f603bebc9de44dbbae8aa38f"
       }
     ],
     "documents": [
       {
         "file": "state-shards/documents-00000.json",
-        "count": 1692,
-        "bytes": 558823,
-        "sha256": "35318ec3dbc2224caba3d8c750dce49efc3c4bffae34b650c4897d52c0d54e02"
+        "count": 1786,
+        "bytes": 589603,
+        "sha256": "57be7bff43f029a25b0066c2e5491b98f8565aad2b13ed42397b8cb55e8d3366"
       }
     ],
     "candidates": [
       {
         "file": "state-shards/candidates-00000.json",
         "count": 1703,
-        "bytes": 3975836,
-        "sha256": "fbf95fd269ec6484afbf3dad370c01ee642f09081e7363c68b098dcb7e8661ee"
+        "bytes": 3984730,
+        "sha256": "0af6b7a4feba44b7f7cbd60cf1cdecc2be79a860cc918bdc2ab14939c8af2cea"
       },
       {
         "file": "state-shards/candidates-00001.json",
-        "count": 1811,
-        "bytes": 4193554,
-        "sha256": "6e59d8bb17445c5c851029f9859fc040dc93a4bbc66aa1b03fa5dbc45c261890"
+        "count": 1810,
+        "bytes": 4192812,
+        "sha256": "6ddb4a03cb097680441a0e6d7cbf4c7caea3c01822425d76b00ea30d9c0e3c27"
       },
       {
         "file": "state-shards/candidates-00002.json",
-        "count": 262,
-        "bytes": 507965,
-        "sha256": "73308abf4966fb46ca3afc06f0abab3562ce4831e587e9d271d4d13ab1cc686e"
+        "count": 439,
+        "bytes": 883928,
+        "sha256": "0f3853c9d6f3eb4c457e030a76f10e623e0d2e489c5a9f75b74940f45e3073b5"
       }
     ],
     "webSearchIndex": [
       {
         "file": "state-shards/webSearchIndex-00000.json",
-        "count": 1815,
-        "bytes": 829345,
-        "sha256": "1b9334fce9326e7d5ea8890c42b2bc4858d2bf81934d065d7150375f6c399fb7"
+        "count": 1910,
+        "bytes": 871173,
+        "sha256": "d64e1fc2dbc3898d9bc4870765214cf3e11d6ed9c2aadb0cd8e0e2603218c619"
       }
     ],
     "calibrationSeen": [],
     "researchOperations": [
       {
         "file": "state-shards/researchOperations-00000.json",
-        "count": 335,
-        "bytes": 54977,
-        "sha256": "abb08eeec152c5c5422333d463eb0a2ce86d913a9b21979951e0bd34ac598da2"
+        "count": 346,
+        "bytes": 56780,
+        "sha256": "fd8ff170e8bef27ff2981f11d6224d2bc61140199429006960478ca74395b216"
       }
     ],
     "researchTrust": []
@@ -95,14 +95,14 @@
   "researchSearchCursor": 0,
   "researchStrategy": {
     "version": 1,
-    "updatedAt": "2026-09-12T09:29:35.658Z"
+    "updatedAt": "2026-09-12T09:33:15.424Z"
   },
   "wikidataBootstrap": {
     "version": 1,
-    "offset": 4200,
+    "offset": 4400,
     "completed": false,
     "retryAfter": "",
-    "lastRunAt": "2026-09-12T09:29:29.844Z"
+    "lastRunAt": "2026-09-12T09:33:09.389Z"
   },
   "wikidataSeriesExpansion": {
     "version": 1,
@@ -111,5 +111,5 @@
     "retryAfter": "",
     "lastRunAt": ""
   },
-  "updatedAt": "2026-09-12T09:32:38.765Z"
+  "updatedAt": "2026-09-12T09:36:30.009Z"
 }
