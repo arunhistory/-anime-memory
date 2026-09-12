@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import {
   buildResearchSearchPlan,
   enqueueResearchSearchResults,
-  executeResearchSearchPlan,
-  normalizeResearchSearchResults
+  runOwnResearchSearchForCandidate
 } from './research-search.mjs';
 import { recordCandidateSearchQuery } from './research-completion.mjs';
+import { indexWebDocument, searchOwnWebIndex } from './web-search-index.mjs';
 import { urlHash } from './url.mjs';
 
 function fact(status, value, extra = {}) {
@@ -60,66 +60,84 @@ notIdentityReady.facts.origin_country = fact('observed', 'JP', { hostCount: 1 })
 notIdentityReady.evidence = notIdentityReady.evidence.filter((item) => item.field !== 'origin_country');
 assert.deepEqual(buildResearchSearchPlan(notIdentityReady, { maxQueries: 64 }), [], 'deep research must not begin before identity is confirmed');
 
-const sanitized = normalizeResearchSearchResults([
-  { url: 'https://oddtaxi.jp/staff/', title: 'スタッフ', snippet: '検索スニペットは事実ではない' },
-  { link: 'https://oddtaxi.jp/staff/', snippet: 'duplicate' },
-  { href: 'javascript:alert(1)' },
-  'https://www.tv-tokyo.co.jp/oddtaxi/'
-]);
-assert.deepEqual(sanitized, [
-  { url: 'https://oddtaxi.jp/staff/' },
-  { url: 'https://www.tv-tokyo.co.jp/oddtaxi/' }
-], 'search ingestion must preserve URLs only and discard result titles/snippets');
+const ownIndex = [];
+indexWebDocument(ownIndex, {
+  url: 'https://source.example.net/oddtaxi/music',
+  canonical: '',
+  title: 'TVアニメ「オッドタクシー」主題歌・音楽',
+  ogTitle: 'オッドタクシー MUSIC',
+  description: '主題歌と音楽情報',
+  keywords: 'オッドタクシー,主題歌',
+  text: 'TVアニメ「オッドタクシー」の主題歌、オープニング、エンディング、劇伴音楽を紹介する。',
+  subjectCandidate: { key: 'オッドタクシー', title },
+  candidates: [{ key: 'オッドタクシー', title }],
+  noindex: false
+}, '2026-09-12T00:00:00.000Z');
+indexWebDocument(ownIndex, {
+  url: 'https://source.example.org/oddtaxi/streaming',
+  canonical: '',
+  title: 'オッドタクシー 配信情報',
+  ogTitle: '',
+  description: '見放題と配信サービス',
+  keywords: '',
+  text: 'オッドタクシーの配信、見放題、先行配信情報。',
+  subjectCandidate: { key: 'オッドタクシー', title },
+  candidates: [{ key: 'オッドタクシー', title }],
+  noindex: false
+}, '2026-09-12T00:00:00.000Z');
+indexWebDocument(ownIndex, {
+  url: 'https://source.example.com/oddtaxi-movie/news',
+  canonical: '',
+  title: '映画 オッドタクシー イン・ザ・ウッズ',
+  ogTitle: '',
+  description: '劇場版ニュース',
+  keywords: '',
+  text: '映画 オッドタクシー イン・ザ・ウッズについて。',
+  subjectCandidate: { key: '映画オッドタクシーインザウッズ', title: '映画 オッドタクシー イン・ザ・ウッズ' },
+  candidates: [{ key: '映画オッドタクシーインザウッズ', title: '映画 オッドタクシー イン・ザ・ウッズ' }],
+  noindex: false
+}, '2026-09-12T00:00:00.000Z');
 
-const state = { frontier: [], visited: [], candidates: [candidate] };
+const ownMusicResults = searchOwnWebIndex(ownIndex, {
+  title,
+  fields: ['opening_themes'],
+  topic: 'music',
+  limit: 10
+});
+assert.deepEqual(ownMusicResults.map((item) => item.url), ['https://source.example.net/oddtaxi/music'], 'built-in index must retrieve the matching work/topic URL');
+assert.ok(!ownMusicResults.some((item) => item.url.includes('movie')), 'a related work must not match the confirmed work title as the same identity');
+
+const state = { researchFrontier: [], visited: [], candidates: [candidate], webSearchIndex: ownIndex };
 const evidenceBefore = JSON.stringify(candidate.evidence);
-const added = enqueueResearchSearchResults(state, candidate, { priority: 220 }, [
-  { url: 'https://oddtaxi.jp/staff/', title: '映画 オッドタクシー イン・ザ・ウッズ', snippet: '監督は架空人物' },
-  { url: 'https://oddtaxi.jp/staff/', snippet: 'duplicate' }
-]);
+const added = enqueueResearchSearchResults(state, candidate, { priority: 220 }, ownMusicResults);
 assert.equal(added, 1);
-assert.equal(state.frontier.length, 1);
-assert.deepEqual(state.frontier[0].candidateHints, [title], 'search-found URL must enter frontier scoped to the confirmed work title');
-assert.equal(JSON.stringify(candidate.evidence), evidenceBefore, 'search results must never mutate evidence');
-assert.equal(state.candidates.length, 1, 'a related title visible only in search metadata must not become a new work candidate');
+assert.equal(state.researchFrontier.length, 1);
+assert.deepEqual(state.researchFrontier[0].candidateHints, [title], 'own-search URL must enter the dedicated research frontier scoped to the confirmed work title');
+assert.equal(JSON.stringify(candidate.evidence), evidenceBefore, 'search-index retrieval must never mutate evidence');
+assert.equal(state.candidates.length, 1, 'a related work found in the same web corpus must not bypass discovery identity handling');
 
 state.visited.push(urlHash('https://visited.example.jp/work'));
 assert.equal(enqueueResearchSearchResults(state, candidate, { priority: 220 }, [
   { url: 'https://visited.example.jp/work' }
-]), 0, 'visited URLs must not be requeued from search');
+]), 0, 'visited URLs must not be requeued from own search');
 
 const executionCandidate = structuredClone(candidate);
 executionCandidate.research = {};
-const executionState = { frontier: [], visited: [], candidates: [executionCandidate] };
-const calls = [];
-const provider = {
-  async search(query, { limit }) {
-    calls.push({ query, limit });
-    return [{
-      url: 'https://source.example.net/oddtaxi/music',
-      title: '映画 オッドタクシー イン・ザ・ウッズ',
-      snippet: 'この文字列からEvidenceを作ってはいけない'
-    }];
-  }
-};
-const singlePlan = [{ kind: 'targeted', topic: 'music', query: `${title} 主題歌`, fields: ['opening_themes'], priority: 220 }];
-const executionStats = await executeResearchSearchPlan({
-  state: executionState,
-  candidate: executionCandidate,
-  searchProvider: provider,
-  plan: singlePlan,
-  resultsPerQuery: 7
+const executionState = { researchFrontier: [], visited: [], candidates: [executionCandidate], webSearchIndex: ownIndex };
+const executionStats = runOwnResearchSearchForCandidate(executionState, executionCandidate, {
+  maxQueries: 64,
+  resultsPerQuery: 10
 });
-assert.deepEqual(calls, [{ query: `${title} 主題歌`, limit: 7 }]);
-assert.equal(executionStats.searched, 1);
-assert.equal(executionStats.urlsQueued, 1);
-assert.ok(executionCandidate.research.searchQueries.includes(`${title} 主題歌`));
-assert.equal(executionState.candidates.length, 1, 'deep search must return URLs to discovery instead of researching a related work inline');
-assert.equal(JSON.stringify(executionCandidate.evidence), evidenceBefore, 'provider metadata must not enter candidate evidence');
+assert.ok(executionStats.searched > 0, 'built-in search must execute the generated title-driven queries');
+assert.ok(executionStats.urlsQueued >= 2, 'built-in search must queue matching source URLs from its own corpus');
+assert.ok(executionCandidate.research.searchQueries.some((query) => query === title), 'broad title query must be recorded');
+assert.ok(executionCandidate.research.searchQueries.some((query) => query.startsWith(`${title} `)), 'targeted incomplete-field queries must be recorded');
+assert.equal(executionState.candidates.length, 1, 'deep search returns URLs to research; it must not inline-create another work');
+assert.equal(JSON.stringify(executionCandidate.evidence), evidenceBefore, 'own search index metadata must not enter candidate evidence');
 
-console.log('Title-driven research search self-test: PASS');
+console.log('Title-driven own-web-search self-test: PASS');
 console.log('confirmed-title root: PASS');
 console.log('missing-field query targeting: PASS');
-console.log('search snippets excluded from evidence: PASS');
-console.log('search URLs -> research frontier: PASS');
-console.log('related-work metadata does not bypass discovery identity: PASS');
+console.log('external search provider dependency: NONE');
+console.log('own web index -> dedicated research frontier: PASS');
+console.log('related work does not bypass discovery identity: PASS');
