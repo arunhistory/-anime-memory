@@ -3,9 +3,6 @@ import { researchRouteKind } from './research-strategy.mjs';
 import { sourceFamilyKey } from './source-family.mjs';
 import { normalizeUrl } from './url.mjs';
 
-const MAX_INDEX_PAGES = 250000;
-const MAX_CANDIDATE_KEYS = 48;
-
 const TOPIC_PATTERNS = new Map([
   ['title', /(?:タイトル|作品名|読み|英題|英語タイトル|別名|alias|title)/i],
   ['release', /(?:放送開始|放送終了|公開日|上映時間|放送時間|話数|全\s*\d+\s*話|release|episode)/i],
@@ -42,15 +39,13 @@ const FIELD_TOPICS = new Map([
 
 function cleanTopics(values) {
   return [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || '').trim()).filter(Boolean))]
-    .filter((value) => TOPIC_PATTERNS.has(value))
-    .slice(0, TOPIC_PATTERNS.size);
+    .filter((value) => TOPIC_PATTERNS.has(value));
 }
 
 function cleanCandidateKeys(values) {
   return [...new Set((Array.isArray(values) ? values : [])
     .map((value) => normalizeTitleKey(value))
-    .filter((value) => value && value.length >= 2))]
-    .slice(0, MAX_CANDIDATE_KEYS);
+    .filter((value) => value && value.length >= 2))];
 }
 
 function metadataKey(document) {
@@ -104,7 +99,6 @@ export function indexWebDocument(index, document, observedAt = new Date().toISOS
   const position = pages.findIndex((item) => item?.url === normalizedUrl);
   if (position >= 0) pages[position] = entry;
   else pages.push(entry);
-  if (pages.length > MAX_INDEX_PAGES) pages.splice(0, pages.length - MAX_INDEX_PAGES);
   return pages;
 }
 
@@ -124,15 +118,15 @@ export function refreshWebSearchIndexFromDocuments(index, documents) {
     const entry = {
       url,
       metadataKey: normalizeTitleKey(text).slice(0, 5000),
-      subjectKey: candidateKeys.length === 1 ? candidateKeys[0] : '',
-      candidateKeys,
+      subjectKey: candidateKeys.length === 1 ? candidateKeys[0] : (existing?.subjectKey || ''),
+      candidateKeys: cleanCandidateKeys([...(existing?.candidateKeys || []), ...candidateKeys]),
       topics: cleanTopics([...(existing?.topics || []), ...topics]),
       sourceFamily: existing?.sourceFamily || sourceFamilyKey(url) || '',
       indexedAt: String(doc?.lastChecked || existing?.indexedAt || '').slice(0, 40)
     };
     byUrl.set(url, entry);
   }
-  return [...byUrl.values()].slice(-MAX_INDEX_PAGES);
+  return [...byUrl.values()];
 }
 
 export function sanitizeWebSearchIndex(values) {
@@ -152,18 +146,37 @@ export function sanitizeWebSearchIndex(values) {
       indexedAt: String(raw?.indexedAt || '').slice(0, 40)
     });
   }
-  return output.slice(-MAX_INDEX_PAGES);
+  return output;
+}
+
+export function buildWebSearchLookup(index) {
+  const pages = sanitizeWebSearchIndex(index);
+  const byTitle = new Map();
+  for (const entry of pages) {
+    const keys = cleanCandidateKeys([entry.subjectKey, ...entry.candidateKeys]);
+    for (const key of keys) {
+      if (!byTitle.has(key)) byTitle.set(key, []);
+      byTitle.get(key).push(entry);
+    }
+  }
+  return { version: 1, pages, byTitle };
 }
 
 function titleMatchScore(entry, titleKey) {
   if (!titleKey) return 0;
   if (entry.subjectKey === titleKey) return 150;
   if (entry.candidateKeys.includes(titleKey)) return 125;
-  if (entry.metadataKey.includes(titleKey)) return 80;
   return 0;
 }
 
-export function searchOwnWebIndex(index, {
+function entriesForTitle(indexOrLookup, titleKey) {
+  const lookup = indexOrLookup?.version === 1 && indexOrLookup?.byTitle instanceof Map
+    ? indexOrLookup
+    : buildWebSearchLookup(indexOrLookup);
+  return lookup.byTitle.get(titleKey) || [];
+}
+
+export function searchOwnWebIndex(indexOrLookup, {
   title,
   fields = [],
   topic = '',
@@ -180,7 +193,7 @@ export function searchOwnWebIndex(index, {
   const knownFamilies = new Set((Array.isArray(seenFamilies) ? seenFamilies : []).map(String));
   const excluded = new Set((Array.isArray(excludeUrls) ? excludeUrls : []).map((url) => normalizeUrl(url)).filter(Boolean));
   const scored = [];
-  for (const entry of sanitizeWebSearchIndex(index)) {
+  for (const entry of entriesForTitle(indexOrLookup, titleKey)) {
     if (excluded.has(entry.url)) continue;
     const titleScore = titleMatchScore(entry, titleKey);
     if (!titleScore) continue;
