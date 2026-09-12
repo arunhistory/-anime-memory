@@ -1,10 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { PoliteFetcher } from './fetch-page.mjs';
+import { IndexedFetcher } from './indexed-fetcher.mjs';
 import { runDiscovery } from './engine.mjs';
 import { loadDiscoveryState, saveDiscoveryState, seedFrontier } from './state.mjs';
 import { loadKnownWorkWasmSearch } from './known-work-wasm.mjs';
-import { normalizeUrl } from './url.mjs';
+import { normalizeUrl, urlHash } from './url.mjs';
 import { bootstrapFromWikidata } from './wikidata-bootstrap.mjs';
 import { expandSeriesFromWikidata } from './wikidata-series-expansion.mjs';
 import { buildReadinessReport } from './readiness-report.mjs';
@@ -73,11 +74,14 @@ function mergeHints(left, right) {
 function promoteResearchFrontier(state) {
   if (!Array.isArray(state.frontier)) state.frontier = [];
   if (!Array.isArray(state.researchFrontier)) state.researchFrontier = [];
+  if (!Array.isArray(state.visited)) state.visited = [];
   const byUrl = new Map(state.frontier.map((entry) => [normalizeUrl(entry?.url), entry]).filter(([url]) => url));
+  const revisitHashes = new Set();
   let promoted = 0;
   for (const researchEntry of state.researchFrontier) {
     const url = normalizeUrl(researchEntry?.url);
     if (!url) continue;
+    revisitHashes.add(urlHash(url));
     const current = byUrl.get(url);
     if (current) {
       current.priority = Math.max(Number(current.priority || 0), Number(researchEntry.priority || 0));
@@ -90,6 +94,10 @@ function promoteResearchFrontier(state) {
     byUrl.set(url, entry);
     promoted += 1;
   }
+
+  // Own-index URLs were previously visited by discovery. Research intentionally re-fetches
+  // them so Evidence is extracted from current page content without storing article bodies.
+  if (revisitHashes.size) state.visited = state.visited.filter((hash) => !revisitHashes.has(String(hash)));
   state.researchFrontier = [];
   return promoted;
 }
@@ -203,23 +211,25 @@ async function main() {
   const seeds = [...new Set(rawSeeds.map((value) => normalizeUrl(value)).filter(Boolean))];
   seedFrontier(state, seeds, 100);
 
-  const ownSearch = prepareResearchFrontierFromOwnIndex(state, {
-    maxCandidates: validateNumber(process.env.RESEARCH_SEARCH_MAX_CANDIDATES, 'RESEARCH_SEARCH_MAX_CANDIDATES', 1, 200000, 5000),
+  const searchBatchOptions = {
+    maxCandidates: validateNumber(process.env.RESEARCH_SEARCH_MAX_CANDIDATES, 'RESEARCH_SEARCH_MAX_CANDIDATES', 1, 5000000, 5000),
     maxQueriesPerCandidate: validateNumber(process.env.RESEARCH_SEARCH_MAX_QUERIES, 'RESEARCH_SEARCH_MAX_QUERIES', 1, 64, 12),
     resultsPerQuery: validateNumber(process.env.RESEARCH_SEARCH_RESULTS_PER_QUERY, 'RESEARCH_SEARCH_RESULTS_PER_QUERY', 1, 100, 20)
-  });
+  };
+  const ownSearch = prepareResearchFrontierFromOwnIndex(state, searchBatchOptions);
   const promotedResearchUrls = promoteResearchFrontier(state);
 
   let knownWorkSearch = { fileCount: 0 };
   let result = { state, stats: emptyDiscoveryStats() };
   if (state.frontier.length > 0) {
     knownWorkSearch = await loadKnownWorkWasmSearch({ root });
-    const fetcher = new PoliteFetcher({
+    const baseFetcher = new PoliteFetcher({
       timeoutMs: process.env.DISCOVERY_TIMEOUT_MS || 12000,
       maxBytes: process.env.DISCOVERY_MAX_BYTES || 1048576,
       minDelayMs: process.env.DISCOVERY_MIN_DELAY_MS || 500,
       allowedHosts
     });
+    const fetcher = new IndexedFetcher(baseFetcher, state);
 
     result = await runDiscovery({
       state,
@@ -232,7 +242,10 @@ async function main() {
   }
 
   result.state.webSearchIndex = refreshWebSearchIndexFromDocuments(result.state.webSearchIndex, result.state.documents);
-  const researchFrontierRemaining = restoreUnprocessedResearchFrontier(result.state);
+  const restoredResearchUrls = restoreUnprocessedResearchFrontier(result.state);
+  const nextOwnSearch = prepareResearchFrontierFromOwnIndex(result.state, searchBatchOptions);
+  const researchFrontierRemaining = result.state.researchFrontier.length;
+
   if (!dryRun) saveDiscoveryState(statePath, result.state);
   const changed = before !== JSON.stringify(result.state);
   const readiness = buildReadinessReport(result.state);
@@ -244,10 +257,16 @@ async function main() {
   console.log(`allowed hosts: ${allowedHosts.length ? allowedHosts.join(',') : 'unrestricted-public-web'}`);
   console.log(`registered CSV files loaded into search.wasm: ${knownWorkSearch.fileCount}`);
   console.log(`own web-search index pages: ${result.state.webSearchIndex.length}`);
-  console.log(`own deep-search candidates considered: ${ownSearch.candidatesConsidered}`);
-  console.log(`own deep-search queries executed: ${ownSearch.searches}`);
-  console.log(`own deep-search URLs queued: ${ownSearch.urlsQueued}`);
+  console.log(`own deep-search candidates considered before crawl: ${ownSearch.candidatesConsidered}`);
+  console.log(`own deep-search candidates scanned before crawl: ${ownSearch.candidatesScanned}`);
+  console.log(`own deep-search queries before crawl: ${ownSearch.searches}`);
+  console.log(`own deep-search URLs queued before crawl: ${ownSearch.urlsQueued}`);
   console.log(`own deep-search URLs promoted this batch: ${promotedResearchUrls}`);
+  console.log(`unprocessed research URLs restored: ${restoredResearchUrls}`);
+  console.log(`own deep-search candidates considered after crawl: ${nextOwnSearch.candidatesConsidered}`);
+  console.log(`own deep-search queries after crawl: ${nextOwnSearch.searches}`);
+  console.log(`own deep-search URLs queued for next batch: ${nextOwnSearch.urlsQueued}`);
+  console.log(`own deep-search next candidate cursor: ${nextOwnSearch.nextCursor}`);
   console.log(`own deep-search frontier remaining: ${researchFrontierRemaining}`);
   console.log(`Wikidata bootstrap rows: ${wikidata.fetched}`);
   console.log(`Wikidata bootstrap candidates added: ${wikidata.candidatesAdded}`);
