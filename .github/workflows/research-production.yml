@@ -108,7 +108,7 @@ jobs:
         id: checkpoint
         run: node tools/discovery/cycle.mjs checkpoint
 
-      - name: Build one 500-work CSV when ready
+      - name: Stage confirmed works and build one 500-work public CSV when ready
         if: ${{ steps.cycle_open.outputs.active == 'true' }}
         id: collect
         run: node tools/collect/run.mjs --input discovery --mode initial --gemini false
@@ -117,25 +117,25 @@ jobs:
         id: cycle_final
         run: node tools/discovery/cycle.mjs status
 
-      - name: Validate production data
+      - name: Validate public data
         run: |
           if [[ -d data ]]; then
             node tools/validate/data-validator.mjs data
           else
-            echo 'No complete 500-work package yet; preserving private pending state.'
+            echo 'No complete 500-work public package yet; confirmed works remain under confirmed/.'
           fi
 
-      - name: Commit state and validated data atomically
+      - name: Commit state, confirmed CSV, and validated public data atomically
         shell: bash
         run: |
           set -euo pipefail
           base_sha="$(git rev-parse HEAD)"
           git add -A crawler/state.json crawler/research-cycle.json
           if [[ -d crawler/state-shards ]]; then git add -A crawler/state-shards; fi
-          if [[ -f crawler/pending-initial.json ]]; then git add crawler/pending-initial.json; fi
-          if [[ -d data ]]; then git add data; fi
+          if [[ -d confirmed ]]; then git add -A confirmed; fi
+          if [[ -d data ]]; then git add -A data; fi
 
-          unexpected="$(git status --porcelain | awk '$2 != "crawler/state.json" && $2 !~ /^crawler\/state-shards\// && $2 != "crawler/research-cycle.json" && $2 != "crawler/pending-initial.json" && $2 !~ /^data\// {print}')"
+          unexpected="$(git status --porcelain | awk '$2 != "crawler/state.json" && $2 !~ /^crawler\/state-shards\// && $2 != "crawler/research-cycle.json" && $2 !~ /^confirmed\// && $2 !~ /^data\// {print}')"
           if [[ -n "${unexpected}" ]]; then
             echo 'Unexpected files changed; refusing production commit.' >&2
             echo "${unexpected}" >&2
@@ -143,7 +143,7 @@ jobs:
           fi
 
           if git diff --cached --quiet; then
-            echo 'No state or data changes to commit.'
+            echo 'No state, confirmed CSV, or public data changes to commit.'
             exit 0
           fi
 
@@ -155,7 +155,7 @@ jobs:
             git fetch origin main
             remote_head="$(git rev-parse origin/main)"
             if [[ "${remote_head}" != "${base_sha}" ]]; then
-              if ! git diff --quiet "${base_sha}..${remote_head}" -- crawler/state.json crawler/state-shards crawler/research-cycle.json crawler/pending-initial.json data; then
+              if ! git diff --quiet "${base_sha}..${remote_head}" -- crawler/state.json crawler/state-shards crawler/research-cycle.json confirmed data; then
                 echo 'Production state/data advanced concurrently; refusing overwrite.' >&2
                 exit 1
               fi
