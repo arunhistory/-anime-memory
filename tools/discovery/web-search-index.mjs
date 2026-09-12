@@ -88,13 +88,20 @@ export function buildWebSearchPositionIndex(index) {
   return positions;
 }
 
-export function indexWebDocument(index, document, observedAt = new Date().toISOString(), positionByUrl = null) {
+export function indexWebDocument(
+  index,
+  document,
+  observedAt = new Date().toISOString(),
+  positionByUrl = null,
+  additionalCandidateKeys = []
+) {
   const normalizedUrl = normalizeUrl(document?.canonical || document?.url);
   if (!normalizedUrl || document?.noindex) return index;
   const pages = Array.isArray(index) ? index : [];
   const candidateKeys = cleanCandidateKeys([
     document?.subjectCandidate?.title,
-    ...(Array.isArray(document?.candidates) ? document.candidates.map((candidate) => candidate?.title) : [])
+    ...(Array.isArray(document?.candidates) ? document.candidates.map((candidate) => candidate?.title) : []),
+    ...(Array.isArray(additionalCandidateKeys) ? additionalCandidateKeys : [])
   ]);
   const entry = {
     url: normalizedUrl,
