@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { loadColumns, parseCsv, readUtf8Strict, rowsToRecords } from '../csv/csv.mjs';
-import { emptyDiscoveryState } from '../discovery/state.mjs';
+import { emptyDiscoveryState, saveDiscoveryState } from '../discovery/state.mjs';
 import { loadConfirmedCsv } from './confirmed-csv.mjs';
 
 const root = process.cwd();
@@ -71,7 +71,7 @@ function candidate(index) {
 
 const state = emptyDiscoveryState();
 state.candidates = Array.from({ length: 501 }, (_, index) => candidate(index));
-fs.writeFileSync(path.join(tempRoot, 'crawler', 'state.json'), `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+saveDiscoveryState(path.join(tempRoot, 'crawler', 'state.json'), state);
 
 function runCollector() {
   return spawnSync(process.execPath, [path.join(root, 'tools', 'collect', 'run.mjs'), '--input', 'discovery', '--mode', 'initial', '--gemini', 'false'], {
