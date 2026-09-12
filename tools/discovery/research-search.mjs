@@ -5,93 +5,156 @@ import { normalizeUrl, urlHash } from './url.mjs';
 const QUERY_VARIANTS = [
   {
     topic: 'title',
-    variants: [
-      { suffix: '読み 英語タイトル 別名', fields: ['title_kana', 'title_romaji', 'title_en', 'aliases'] }
-    ]
+    variants: [[
+      ['title_kana', '読み'],
+      ['title_romaji', 'ローマ字'],
+      ['title_en', '英語タイトル'],
+      ['aliases', '別名']
+    ]]
   },
   {
     topic: 'release',
-    variants: [
-      { suffix: '放送開始 公開日 話数 上映時間', fields: ['release_start', 'release_end', 'episode_count', 'runtime_min', 'season_number'] }
-    ]
+    variants: [[
+      ['release_start', '放送開始 公開日'],
+      ['release_end', '放送終了 公開終了'],
+      ['episode_count', '話数'],
+      ['runtime_min', '上映時間 放送時間'],
+      ['season_number', '第何期']
+    ]]
   },
   {
     topic: 'classification',
     variants: [
-      { suffix: 'ジャンル タグ 対象層 テーマ', fields: ['genres', 'tags', 'target_demographic', 'themes'] },
-      { suffix: '舞台 時代設定', fields: ['setting', 'era'] }
+      [
+        ['genres', 'ジャンル'],
+        ['tags', 'タグ'],
+        ['target_demographic', '対象層'],
+        ['themes', 'テーマ']
+      ],
+      [
+        ['setting', '舞台'],
+        ['era', '時代設定']
+      ]
     ]
   },
   {
     topic: 'original',
     variants: [
-      { suffix: '原作 原作者 出版社 レーベル', fields: ['original_type', 'original_title', 'original_author', 'original_artist', 'original_publisher', 'original_label'] },
-      { suffix: '原作 掲載誌 Web 媒体', fields: ['original_magazine', 'original_platform'] }
+      [
+        ['original_type', '原作種別'],
+        ['original_title', '原作タイトル'],
+        ['original_author', '原作者'],
+        ['original_artist', '原作作画'],
+        ['original_publisher', '出版社'],
+        ['original_label', 'レーベル']
+      ],
+      [
+        ['original_magazine', '掲載誌'],
+        ['original_platform', '原作 Web 媒体']
+      ]
     ]
   },
   {
     topic: 'production',
     variants: [
-      { suffix: 'アニメーション制作 制作協力', fields: ['animation_studio', 'co_animation_studio', 'animation_cooperation'] },
-      { suffix: '製作委員会 製作会社 幹事会社', fields: ['production_name', 'production_committee', 'production_members', 'production_lead_company'] },
-      { suffix: '企画 プロデューサー', fields: ['planning', 'executive_producers', 'producers', 'animation_producers', 'line_producers'] }
+      [
+        ['animation_studio', 'アニメーション制作'],
+        ['co_animation_studio', '共同制作'],
+        ['animation_cooperation', '制作協力']
+      ],
+      [
+        ['production_name', '製作名義'],
+        ['production_committee', '製作委員会'],
+        ['production_members', '製作委員会 参加企業'],
+        ['production_lead_company', '製作 幹事会社']
+      ],
+      [
+        ['planning', '企画'],
+        ['executive_producers', 'エグゼクティブプロデューサー'],
+        ['producers', 'プロデューサー'],
+        ['animation_producers', 'アニメーションプロデューサー'],
+        ['line_producers', 'ラインプロデューサー']
+      ]
     ]
   },
   {
     topic: 'staff',
     variants: [
-      { suffix: '監督 総監督 シリーズ構成 スタッフ', fields: ['director', 'chief_director', 'series_composition', 'staff'] },
-      { suffix: 'キャラクター原案 キャラクターデザイン 音響監督', fields: ['character_original_design', 'character_design', 'sound_director'] }
+      [
+        ['director', '監督'],
+        ['chief_director', '総監督'],
+        ['series_composition', 'シリーズ構成'],
+        ['staff', 'スタッフ']
+      ],
+      [
+        ['character_original_design', 'キャラクター原案'],
+        ['character_design', 'キャラクターデザイン'],
+        ['sound_director', '音響監督']
+      ]
     ]
   },
   {
     topic: 'cast',
-    variants: [
-      { suffix: 'キャスト 声優 キャラクター', fields: ['characters'] }
-    ]
+    variants: [[
+      ['characters', 'キャスト 声優 キャラクター']
+    ]]
   },
   {
     topic: 'music',
     variants: [
-      { suffix: '主題歌 OP ED 挿入歌', fields: ['opening_themes', 'ending_themes', 'insert_songs'] },
-      { suffix: '音楽 劇伴 音楽制作 サウンドトラック', fields: ['music', 'music_production', 'soundtrack_label'] }
+      [
+        ['opening_themes', '主題歌 OP'],
+        ['ending_themes', '主題歌 ED'],
+        ['insert_songs', '挿入歌']
+      ],
+      [
+        ['music', '音楽 劇伴'],
+        ['music_production', '音楽制作'],
+        ['soundtrack_label', 'サウンドトラック レーベル']
+      ]
     ]
   },
   {
     topic: 'broadcast',
-    variants: [
-      { suffix: '放送 放送局 放送時間', fields: ['broadcast_networks', 'broadcast_slots'] }
-    ]
+    variants: [[
+      ['broadcast_networks', '放送局'],
+      ['broadcast_slots', '放送時間 放送枠']
+    ]]
   },
   {
     topic: 'streaming',
-    variants: [
-      { suffix: '配信 見放題 独占 先行', fields: ['streaming_services'] }
-    ]
+    variants: [[
+      ['streaming_services', '配信 見放題 独占 先行']
+    ]]
   },
   {
     topic: 'theatrical',
-    variants: [
-      { suffix: '劇場 公開日 配給', fields: ['film_distributor', 'theatrical_release_date'] }
-    ]
+    variants: [[
+      ['film_distributor', '劇場 配給'],
+      ['theatrical_release_date', '劇場 公開日']
+    ]]
   },
   {
     topic: 'episodes',
-    variants: [
-      { suffix: 'エピソード 各話 サブタイトル 各話スタッフ', fields: ['episodes', 'episode_staff'] }
-    ]
+    variants: [[
+      ['episodes', 'エピソード サブタイトル'],
+      ['episode_staff', '各話スタッフ']
+    ]]
   },
   {
     topic: 'recognition',
-    variants: [
-      { suffix: '受賞 賞', fields: ['awards'] }
-    ]
+    variants: [[
+      ['awards', '受賞 賞']
+    ]]
   },
   {
     topic: 'official',
-    variants: [
-      { suffix: '公式 公式サイト 公式X 公式YouTube', fields: ['official_url', 'official_x', 'official_youtube', 'official_other'] }
-    ]
+    variants: [[
+      ['official_url', '公式サイト'],
+      ['official_x', '公式 X'],
+      ['official_youtube', '公式 YouTube'],
+      ['official_other', '公式 情報']
+    ]]
   }
 ];
 
@@ -118,6 +181,14 @@ function unresolvedPriority(candidate, fields) {
     else best = Math.max(best, 170);
   }
   return best;
+}
+
+function unresolvedVariant(candidate, variant) {
+  const unresolved = variant.filter(([field]) => !confirmedFact(candidate, field));
+  return {
+    fields: unresolved.map(([field]) => field),
+    terms: [...new Set(unresolved.map(([, term]) => term).filter(Boolean))]
+  };
 }
 
 export function confirmedResearchTitle(candidate) {
@@ -148,16 +219,16 @@ export function buildResearchSearchPlan(candidate, { maxQueries = 12 } = {}) {
 
   for (const group of QUERY_VARIANTS) {
     for (const variant of group.variants) {
-      const fields = variant.fields.filter((field) => !confirmedFact(candidate, field));
-      if (!fields.length) continue;
-      const query = `${title} ${variant.suffix}`.replace(/\s+/g, ' ').trim();
+      const unresolved = unresolvedVariant(candidate, variant);
+      if (!unresolved.fields.length || !unresolved.terms.length) continue;
+      const query = `${title} ${unresolved.terms.join(' ')}`.replace(/\s+/g, ' ').trim();
       if (searched.has(queryKey(query))) continue;
       plan.push({
         kind: 'targeted',
         topic: group.topic,
         query,
-        fields,
-        priority: unresolvedPriority(candidate, fields)
+        fields: unresolved.fields,
+        priority: unresolvedPriority(candidate, unresolved.fields)
       });
     }
   }
@@ -259,5 +330,5 @@ export async function executeResearchSearchPlan({
 
 export const researchSearchTopics = QUERY_VARIANTS.map((group) => ({
   topic: group.topic,
-  fields: [...new Set(group.variants.flatMap((variant) => variant.fields))]
+  fields: [...new Set(group.variants.flatMap((variant) => variant.map(([field]) => field)))]
 }));
