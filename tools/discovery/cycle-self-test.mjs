@@ -41,6 +41,13 @@ assert.equal(result.cycle.active, false);
 assert.equal(result.cycle.stopReason, 'no-new-publishable-work-24h');
 
 cycle = startResearchCycle([], start);
+result = checkpointResearchCycle(cycle, [], { now: start, frontier: 0, researchFrontier: 3, bootstrapIncomplete: false, pendingSeries: 0 });
+assert.equal(result.cycle.active, true, 'deep-research queue must keep the cycle active even when discovery frontier is empty');
+assert.equal(result.workRemaining, true, 'deep-research queue is remaining work');
+assert.equal(result.cycle.waitingForInactivity, false, 'deep-research work must keep redispatch enabled');
+assert.equal(result.cycle.resumeAfter, '');
+
+cycle = startResearchCycle([], start);
 result = checkpointResearchCycle(cycle, [], { now: start, frontier: 0, bootstrapIncomplete: true, pendingSeries: 0 });
 assert.equal(result.cycle.active, true, 'empty web frontier must not stop while Wikidata bootstrap can still add works');
 assert.equal(result.workRemaining, true);
@@ -74,6 +81,19 @@ assert.equal(backoffTimeout.stopped, false);
 cycle = startResearchCycle([], start);
 result = checkpointResearchCycle(cycle, [], {
   now: start,
+  frontier: 0,
+  researchFrontier: 2,
+  bootstrapIncomplete: true,
+  pendingSeries: 0,
+  wikidataBackoffUntil: backoffUntil
+});
+assert.equal(result.workRemaining, true, 'deep-research work must continue while Wikidata is throttled');
+assert.equal(result.cycle.waitingForInactivity, false);
+assert.equal(result.cycle.resumeAfter, '');
+
+cycle = startResearchCycle([], start);
+result = checkpointResearchCycle(cycle, [], {
+  now: start,
   frontier: 2,
   bootstrapIncomplete: true,
   pendingSeries: 0,
@@ -84,7 +104,7 @@ assert.equal(result.cycle.waitingForInactivity, false);
 assert.equal(result.cycle.resumeAfter, '');
 
 cycle = startResearchCycle([], start);
-result = checkpointResearchCycle(cycle, [], { now: start, frontier: 0, bootstrapIncomplete: false, pendingSeries: 0 });
+result = checkpointResearchCycle(cycle, [], { now: start, frontier: 0, researchFrontier: 0, bootstrapIncomplete: false, pendingSeries: 0 });
 assert.equal(result.cycle.active, true, 'research exhaustion must wait for the 24-hour no-new-work condition');
 assert.equal(result.cycle.stopReason, '');
 assert.equal(result.workRemaining, false);
@@ -110,6 +130,7 @@ cycle = startResearchCycle([], start);
 result = checkpointResearchCycle(cycle, [], {
   now: new Date(start.getTime() + RESEARCH_INACTIVITY_LIMIT_MS),
   frontier: 0,
+  researchFrontier: 0,
   bootstrapIncomplete: true,
   pendingSeries: 0,
   wikidataBackoffUntil: new Date(start.getTime() + RESEARCH_INACTIVITY_LIMIT_MS + 60_000).toISOString()
@@ -199,7 +220,8 @@ console.log('Research cycle self-test: PASS');
 console.log('24-hour no-new-publishable-work stop: PASS');
 console.log('new publishable work resets inactivity timer: PASS');
 console.log('identity-only sparse work does not reset inactivity: PASS');
+console.log('deep-research frontier keeps cycle alive: PASS');
 console.log('Wikidata Retry-After pause/resume: PASS');
-console.log('web work continues during Wikidata backoff: PASS');
+console.log('web/deep-research work continues during Wikidata backoff: PASS');
 console.log('exhausted research waits without redispatch until inactivity timeout: PASS');
 console.log('eligible history over 20k: PRESERVED');
