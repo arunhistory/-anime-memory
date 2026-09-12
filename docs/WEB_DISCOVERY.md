@@ -2,14 +2,71 @@
 
 ## 目的
 
-外部検索APIやGeminiを使わず、公開Webページを機械的に巡回し、Web上の「アニメ作品への言及」から未知の作品候補を発見する。
+Google / Yahoo / Bing / Brave / SerpAPI等の外部検索サービスを検索起点にせず、公開Webページを機械的に巡回して独自のWeb検索対象を構築し、Web上の「アニメ作品への言及」から未知の作品候補を発見する。
 
-作品専用ホームページの有無は条件にしない。ニュース、ブログ、ポータル、出版社、放送局、制作会社、配信、動画ページ等も探索入口にできる。DiscoveryとCSV確定は分離し、見つけたページをそのまま事実として採用しない。
+作品専用ホームページの有無は条件にしない。ニュース、ブログ、ポータル、出版社、放送局、制作会社、配信、動画ページ等も探索入口にできる。DiscoveryとCSV確定は分離し、見つけたページや検索結果をそのまま事実として採用しない。
+
+探索機構は次の2系統を分離する。
+
+```text
+【発見機関】
+公開Webを機械的に巡回
+  ↓
+未知作品を広く発見
+  ↓
+identity確認
+  ↓
+確定作品名
+
+【深掘り機関】
+確定作品名
+  ↓
+独自Web検索インデックスで作品名を検索
+  ↓
+作品名 × 未確定項目を検索
+  ↓
+候補URLをresearch frontierへ投入
+  ↓
+本文取得
+  ↓
+対象作品一致確認
+  ↓
+Evidence抽出
+  ↓
+別source familyと照合
+  ↓
+70項目を埋める
+  ↓
+CSV
+```
+
+深掘り機関の起点はURLではなく、identity確定後の作品名である。ページ内リンク巡回は検索の代替ではなく、公開Web探索と補助的な深掘り拡張に使用する。
+
+## 独自Web検索エンジン
+
+外部検索APIは使用しない。Crawlerが取得した公開Webページから独自の検索対象を構築し、保存済み検索インデックスを深掘り機関が検索する。
+
+検索インデックスにはHTML全文や記事本文を保存しない。保存対象はURL、作品タイトル識別用キー、ページ主題キー、情報カテゴリ、source family、最終index時刻等の検索用メタデータである。ページ本文は取得実行中にのみ解析し、スタッフ、制作、原作、キャスト、音楽、放送、配信、劇場、エピソード、受賞、公式等の情報カテゴリを判定する。
+
+深掘り検索は、最初に確定作品名だけを広く検索する。その後は候補作品のfactsを確認し、`confirmed` 済み項目を除外して未完成項目だけを検索する。`observed` と `conflict` は確認優先度を上げる。
+
+例:
+
+```text
+オッドタクシー
+オッドタクシー 主題歌 OP ED 挿入歌
+オッドタクシー 配信 見放題 独占 先行
+オッドタクシー キャスト 声優 キャラクター
+```
+
+検索結果はURL候補としてのみ扱う。検索インデックス上のタイトル、分類、source family等はEvidenceではない。必ず対象URLを再取得し、本文中で対象作品一致を確認してからEvidenceを生成する。
+
+検索中に別作品を見つけた場合、その作品を深掘り機関内で確定扱いしない。通常の発見・identity経路へ戻し、別作品として判定する。
 
 ## 実行構造
 
 ```text
-bootstrap seed / 保存済みfrontier
+bootstrap seed / 保存済みdiscovery frontier
   ↓
 URL正規化
   ↓
@@ -22,6 +79,8 @@ robots.txt確認
 HTML / XML / RSS / Atom取得
   ↓
 本文・title・OGP・JSON-LD・リンクを実行時解析
+  ↓
+独自Web検索対象を更新
   ↓
 アニメ言及スコアリング
   ↓
@@ -37,7 +96,11 @@ HTML / XML / RSS / Atom取得
   ↓
 保守的Entity Resolution
   ↓
-関連リンクを優先度付きfrontierへ追加
+未知作品は発見機関へ
+  ↓
+identity確定作品は独自検索からresearch frontierへ
+  ↓
+関連リンクは補助探索として優先度付きfrontierへ追加
   ↓
 別サイトを含め探索範囲を自己拡張
 ```
@@ -46,15 +109,18 @@ HTML / XML / RSS / Atom取得
 
 HTML全文、記事本文、画像、動画、検索結果スニペットの複製は探索状態へ保存しない。ページ本文はその実行中の判定にだけ使用する。
 
-`crawler/state.json` には次の探索状態だけを保存する。
+`crawler/state.json` とstate shardには次の探索状態だけを保存する。
 
-- frontier
+- discovery frontier
+- research frontier
 - 巡回済みURLのSHA-256
 - ページURL / ページタイトル / 関連度 / 最終確認時刻
 - discovery-only判定
+- 独自Web検索インデックス用メタデータ
 - 作品候補
 - Evidenceの `field / value / sourceUrl / sourceClass / rule / observedAt`
 - Evidenceから導いた `observed / confirmed / conflict`
+- 作品ごとの実行済み検索クエリ
 
 作品情報の正本はstateではなく、公開前検証を通った共通CSVである。
 
@@ -132,17 +198,19 @@ Crawler内部Evidenceとして `origin_country` を使用する。これは70列
 
 ## 探索優先度
 
-アニメ、作品、キャスト、スタッフ、放送、配信、原作、PV等に関連するリンクを優先する。採用、会社概要、問い合わせ、ログイン、カート等は低優先度とする。
+発見機関ではアニメ、作品、キャスト、スタッフ、放送、配信、原作、PV等に関連するリンクを優先する。採用、会社概要、問い合わせ、ログイン、カート等は低優先度とする。
 
-関連度の低いページからは有望なリンクだけを辿る。関連度の高いページからは外部ドメインも一定数までfrontierへ追加し、特定サイトだけに閉じない。
+深掘り機関ではリンク優先度より先に、`確定作品名 × 未確定項目` の独自検索を使用する。検索で得たURL候補をresearch frontierへ投入し、そのURLから見つかった有望リンクは補助探索として扱う。
+
+source familyが既に偏っている候補では、未使用familyの検索結果を優先して照合元を増やす。
 
 ## 起点URL
 
-外部検索APIを使わないため最初のリンクグラフへ入る起点URLが必要。`crawler/seeds.txt` またはActionsの `seed_urls` 入力から与える。
+独自検索エンジン自体がWebへ入る最初のリンクグラフにはbootstrap起点が必要である。`crawler/seeds.txt` またはActionsの `seed_urls` 入力から与える。
 
-`crawler/seeds.txt` にはGitHub Actionsのread-only pilotで実際にrobots/取得が確認できた日本アニメ一覧ページをbootstrap seedとして設定している。これは作品ごとの事実情報源指定ではなく、探索エンジンがWebへ入るための初期ノードである。
+`crawler/seeds.txt` にはGitHub Actionsのread-only pilotで実際にrobots/取得が確認できた日本アニメ一覧ページをbootstrap seedとして設定している。これは作品ごとの事実情報源指定ではなく、独自Web検索対象を自己拡張させる初期ノードである。
 
-以後はページ内リンク、JSON-LD URL、sitemap等から探索範囲を増やす。
+以後はページ内リンク、JSON-LD URL、sitemap、RSS/Atom等から探索範囲を増やし、取得済みページを独自Web検索対象へ追加する。
 
 ## GitHub Actions
 
@@ -150,19 +218,21 @@ Crawler内部Evidenceとして `origin_country` を使用する。これは70列
 
 入力は `max_pages`、`max_depth`、`per_host_limit`、追加 `seed_urls`、必要時の `allowed_hosts`。
 
-非dry-run時は `crawler/state.json` だけをCommitする。他ファイルが意図せず変更された場合はCommitを拒否する。mainが同時に進みstateが競合した場合は上書きせず停止する。force pushは使わない。
+非dry-run時はcrawler stateとそのshardだけをCommitする。他ファイルが意図せず変更された場合はCommitを拒否する。mainが同時に進みstateが競合した場合は上書きせず停止する。force pushは使わない。
 
 ## 実測
 
-GitHub Actionsのread-only live pilotで実Webへ接続し、モックだけでなく実通信を確認済み。
+既存CrawlerについてはGitHub Actionsのread-only live pilotで実Webへ接続し、モックだけでなく実通信を確認済み。
 
 単一ホスト制限pilotでは14ページ試行、12ページ取得、通信失敗0。非日本作品も候補として発見されたが、日本作品admission gateでCSV登録を遮断した。1ホストだけで日本制作を裏取りできない候補も `japanese-origin-not-confirmed` として安全側に停止した。
 
 複数ホストpilotもrunner内だけで実行し、リポジトリへpilot stateをCommitしない。
 
+独自Web検索インデックスとtitle-driven researchについては専用self-testで、確定作品名起点、未確定項目だけの検索、外部検索サービス非依存、research frontier分離、既巡回URL抑止、別作品identity分離を検証する。
+
 ## 接続していないもの
 
-- Google / Yahoo / Brave / SerpAPI等の検索API
+- Google / Yahoo / Bing / Brave / SerpAPI等の外部検索API・検索サービス
 - Gemini APIによる探索・事実確認
 - 外部AI検索
 

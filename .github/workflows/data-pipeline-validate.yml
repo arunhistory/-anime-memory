@@ -15,6 +15,7 @@ on:
       - 'assets/wasm/search.js'
       - 'assets/wasm/search.wasm'
       - 'crawler/**'
+      - 'confirmed/**'
       - 'data/**'
       - '.github/workflows/data-pipeline-validate.yml'
       - '.github/workflows/data-collect.yml'
@@ -35,6 +36,7 @@ on:
       - 'assets/wasm/search.js'
       - 'assets/wasm/search.wasm'
       - 'crawler/**'
+      - 'confirmed/**'
       - 'data/**'
       - '.github/workflows/data-pipeline-validate.yml'
       - '.github/workflows/data-collect.yml'
@@ -79,11 +81,14 @@ jobs:
           node --check tools/discovery/cycle-self-test.mjs
           node --check tools/discovery/state.mjs
           node --check tools/discovery/state-sharding-self-test.mjs
+          node --check tools/discovery/research-cursor-state-self-test.mjs
           node --check tools/correct/run.mjs
           node --check tools/correct/self-test.mjs
           node --check tools/discovery/url.mjs
           node --check tools/discovery/robots.mjs
           node --check tools/discovery/fetch-page.mjs
+          node --check tools/discovery/indexed-fetcher.mjs
+          node --check tools/discovery/indexed-fetcher-self-test.mjs
           node --check tools/discovery/html.mjs
           node --check tools/discovery/candidate-title-self-test.mjs
           node --check tools/discovery/taxonomy.mjs
@@ -95,6 +100,10 @@ jobs:
           node --check tools/discovery/research-strategy-self-test.mjs
           node --check tools/discovery/research-completion.mjs
           node --check tools/discovery/research-completion-self-test.mjs
+          node --check tools/discovery/research-search.mjs
+          node --check tools/discovery/research-search-self-test.mjs
+          node --check tools/discovery/web-search-index.mjs
+          node --check tools/discovery/web-search-index-self-test.mjs
           node --check tools/discovery/information-routing-self-test.mjs
           node --check tools/discovery/readiness-report.mjs
           node --check tools/discovery/readiness-report-self-test.mjs
@@ -142,7 +151,7 @@ jobs:
           node tools/collect/enrichment-self-test.mjs
           node tools/collect/series-enrichment-self-test.mjs
 
-      - name: Initial 500-work package and pending-state self-test
+      - name: Confirmed staging and 500-work public package self-test
         run: |
           node tools/collect/initial-pending-self-test.mjs
           node tools/collect/package-integration-self-test.mjs
@@ -152,6 +161,13 @@ jobs:
 
       - name: Crawler state sharding self-test
         run: node tools/discovery/state-sharding-self-test.mjs
+
+      - name: In-house Web search engine self-tests
+        run: |
+          node tools/discovery/research-cursor-state-self-test.mjs
+          node tools/discovery/web-search-index-self-test.mjs
+          node tools/discovery/indexed-fetcher-self-test.mjs
+          node tools/discovery/research-search-self-test.mjs
 
       - name: 200k frontier priority self-test
         run: node tools/discovery/frontier-priority-self-test.mjs
@@ -239,5 +255,5 @@ jobs:
           if [[ -d data ]]; then
             node tools/validate/data-validator.mjs data
           else
-            echo 'data/ is not created yet; no production records to validate.'
+            echo 'data/ is not created yet; no public records to validate.'
           fi

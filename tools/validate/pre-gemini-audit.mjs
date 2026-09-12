@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadColumns } from '../csv/csv.mjs';
 import { normalizeUrl } from '../discovery/url.mjs';
-import { INITIAL_CSV_RECORD_LIMIT } from '../collect/initial-pending.mjs';
+import { INITIAL_CSV_RECORD_LIMIT } from '../collect/public-package.mjs';
 import { GEMINI_DAILY_CALL_LIMIT } from '../gemini/quota.mjs';
 
 const root = process.cwd();
@@ -58,7 +58,7 @@ const collectStep = collectWorkflow.indexOf('- name: Collect and build common CS
 const geminiSecret = collectWorkflow.indexOf('ANIME_GEMINI_API_KEY:');
 assert.ok(collectStep >= 0 && geminiSecret > collectStep, 'Gemini secret must not be job-wide');
 assert.match(collectWorkflow.slice(collectStep), /ANIME_GEMINI_API_KEY:\s*\$\{\{\s*\(!inputs\.dry_run\s*&&\s*inputs\.gemini\)/, 'Gemini secret must be gated by explicit opt-in and non-dry-run');
-assert.match(collectWorkflow, /node tools\/collect\/initial-pending-self-test\.mjs/, 'initial pending-state preflight missing');
+assert.match(collectWorkflow, /node tools\/collect\/initial-pending-self-test\.mjs/, 'initial public-package preflight missing');
 assert.match(collectWorkflow, /node tools\/discovery\/structured-evidence-self-test\.mjs/, 'structured Evidence preflight missing');
 assert.match(discoveryWorkflow, /known-work-wasm-self-test\.mjs/, 'search.wasm registered-work preflight missing');
 assert.match(discoveryWorkflow, /known-work-skip-self-test\.mjs/, 'next-run registered-work enrichment preflight missing');
@@ -81,6 +81,9 @@ assert.match(productionWorkflow, /series-enrichment-self-test\.mjs/, 'series tra
 assert.match(productionWorkflow, /cold-start-self-test\.mjs/, 'frontier persistence/per-host behavior must be production-preflight tested');
 assert.match(productionWorkflow, /frontier-priority-self-test\.mjs/, '200k frontier priority scaling must be production-preflight tested');
 assert.match(discoveryWorkflow, /frontier-priority-self-test\.mjs/, '200k frontier priority scaling must be manual-discovery preflight tested');
+assert.match(productionWorkflow, /git add -A confirmed/, 'confirmed master directory must be committed independently from public data');
+assert.match(productionWorkflow, /git add -A data/, 'public data directory must remain a separate commit target');
+assert.equal(productionWorkflow.includes('crawler/pending-initial.json'), false, 'legacy pending JSON must not return');
 
 const validator = read('tools/validate/data-validator.mjs');
 assert.match(validator, /'Web 最速'/, 'streaming mode Web 最速 spacing drifted');
@@ -106,6 +109,8 @@ const researchCompletion = read('tools/discovery/research-completion.mjs');
 const toRecord = read('tools/discovery/to-record.mjs');
 const wikidataBootstrap = read('tools/discovery/wikidata-bootstrap.mjs');
 const collector = read('tools/collect/run.mjs');
+const confirmedCsv = read('tools/collect/confirmed-csv.mjs');
+const publicPackage = read('tools/collect/public-package.mjs');
 const seriesEnrichment = read('tools/collect/series-enrichment.mjs');
 const initialPending = read('tools/collect/initial-pending.mjs');
 
@@ -139,7 +144,10 @@ assert.match(discoveryState, /wikidataSeriesExpansion/, 'full-series expansion p
 assert.equal(discoveryState.includes('MAX_FRONTIER'), false, 'frontier must not be silently capped at 50,000');
 assert.equal(discoveryState.includes('MAX_FRONTIER_PER_HOST'), false, 'frontier persistence must not silently discard one host after 5,000 URLs');
 assert.equal(/\.slice\(0,\s*20000\)\s*;/.test(discoveryState), false, 'candidate state must not be silently capped at 20,000');
-assert.equal(initialPending.includes('INITIAL_PENDING_RECORD_LIMIT'), false, 'pending initial works must not be silently capped at 20,000');
+assert.equal(confirmedCsv.includes('INITIAL_PENDING_RECORD_LIMIT'), false, 'confirmed master must not be silently capped at 20,000');
+assert.equal(publicPackage.includes('INITIAL_PENDING_RECORD_LIMIT'), false, 'public package selection must not use the removed pending-state cap');
+assert.equal(initialPending.includes('loadInitialPending'), false, 'legacy pending-state persistence must remain removed');
+assert.equal(initialPending.includes('saveInitialPending'), false, 'legacy pending-state persistence must remain removed');
 assert.equal(discoveryCycle.includes('MAX_SEEN'), false, 'cycle eligible history must not be silently capped at 20,000');
 assert.match(discoveryCycle, /bootstrapIncomplete/, 'empty-frontier stop must account for unfinished bootstrap work');
 assert.match(discoveryCycle, /pendingSeries/, 'empty-frontier stop must account for unfinished series expansion');
@@ -157,8 +165,10 @@ assert.match(seriesRecord, /seriesIdForRef/, 'stable series common-ID mapping mi
 assert.match(seriesRecord, /unresolvedRelations/, 'unregistered relation targets must remain unresolved instead of dangling');
 assert.match(seriesRecord, /seriesIdConflicts/, 'non-empty series ID conflicts must be surfaced instead of overwritten');
 assert.match(seriesEnrichment, /applySeriesMetadata/, 'series metadata must be staged across existing and selected records');
-assert.match(collector, /applySeriesMetadataToCollection/, 'collector must connect series metadata staging');
-assert.match(collector, /for \(const record of selected\) record\.id = nextId\(\);[\s\S]*applySeriesMetadataToCollection/, 'A IDs must be assigned before relation target resolution');
+assert.match(collector, /syncConfirmedMaster/, 'collector must update the identity-confirmed master before publication');
+assert.match(confirmedCsv, /record\.id = nextId\(\)/, 'confirmed master must assign stable A IDs before publication');
+assert.match(collector, /attachConfirmedIds\(input\.normalized, confirmedMaster\)[\s\S]*applySeriesMetadataToCollection/, 'public rows must inherit confirmed-master IDs before relation target resolution');
+assert.match(collector, /saveConfirmedCsv\(confirmedPath, confirmedMaster, columns\)/, 'collector must persist confirmed master independently from public CSV');
 assert.match(collector, /prepareEnrichmentWrites/, 'collector must stage registered-work blank-field enrichment');
 assert.match(collector, /restoreSnapshots/, 'collector enrichment must have rollback');
 
@@ -183,7 +193,9 @@ for (const forbidden of ['ANIME_GEMINI_API_KEY', 'GEMINI_API_KEY', 'AIza']) {
 const stateText = read('crawler/state.json');
 assert.equal(/<html[\s>]/i.test(stateText), false, 'raw HTML must not be persisted in crawler state');
 assert.equal(exists('.github/workflows/discovery-quality-pilot-once.yml'), false, 'one-time live pilot workflow must be removed after verification');
+assert.equal(exists('.github/workflows/title-driven-search-live-pilot.yml'), false, 'title-driven one-time live pilot workflow must be removed after verification');
 assert.equal(exists('tools/discovery/relation-evidence.mjs'), false, 'unconnected relation prototype must not remain');
+assert.equal(exists('crawler/pending-initial.json'), false, 'legacy pending JSON must not be committed');
 
 const productionCodeRoots = ['tools', 'wasm-src', 'assets/js'];
 const unfinished = [];
@@ -212,6 +224,9 @@ console.log('quarterly production activation: PRESENT');
 console.log('Gemini default: OFF');
 console.log('Gemini secret scope: OPT-IN COLLECTION STEP ONLY');
 console.log('initial CSV package size: 500');
+console.log('confirmed/public CSV directories: SEPARATE');
+console.log('confirmed-master ID before public relation staging: PASS');
+console.log('legacy pending JSON/CSV state: REMOVED');
 console.log('Gemini daily call limit: 450 / opt-in only');
 console.log('24-hour confirmed-work inactivity stop: PRESENT');
 console.log('single CSV package cycle-stop: BLOCKED');
@@ -221,7 +236,7 @@ console.log('registered-work next-run lookup: search.wasm + enrichment retained'
 console.log('series-first research: FULL-SERIES PRE-EXPANSION');
 console.log('series_id / relations CSV bridge: CONNECTED + VALIDATED');
 console.log('sparse publication: BLOCKED BY INFORMATION COMPLETION');
-console.log('candidate/frontier/pending/cycle 20k-50k silent caps: REMOVED');
+console.log('candidate/frontier/confirmed/cycle 20k-50k silent caps: REMOVED');
 console.log('frontier selection: GROUPED HEAP + CURRENT TRUST RE-EVALUATION');
 console.log('per-host fetch protection: BOUNDED PER BATCH WITHOUT PERSISTENCE LOSS');
 console.log('streaming/original/relation validation: PASS');

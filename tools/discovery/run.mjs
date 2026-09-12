@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { PoliteFetcher } from './fetch-page.mjs';
+import { IndexedFetcher } from './indexed-fetcher.mjs';
 import { runDiscovery } from './engine.mjs';
 import { loadDiscoveryState, saveDiscoveryState, seedFrontier } from './state.mjs';
 import { loadKnownWorkWasmSearch } from './known-work-wasm.mjs';
@@ -8,6 +9,9 @@ import { normalizeUrl } from './url.mjs';
 import { bootstrapFromWikidata } from './wikidata-bootstrap.mjs';
 import { expandSeriesFromWikidata } from './wikidata-series-expansion.mjs';
 import { buildReadinessReport } from './readiness-report.mjs';
+import { prepareResearchFrontierFromOwnIndex } from './research-search.mjs';
+import { promoteResearchFrontierForCrawl, restoreUnprocessedResearchFrontier } from './research-frontier.mjs';
+import { refreshWebSearchIndexFromDocuments } from './web-search-index.mjs';
 
 function parseArgs(argv) {
   const args = {};
@@ -102,6 +106,7 @@ async function main() {
   const allowedHosts = readAllowedHosts();
 
   const state = loadDiscoveryState(statePath);
+  state.webSearchIndex = refreshWebSearchIndexFromDocuments(state.webSearchIndex, state.documents);
   const before = JSON.stringify(state);
   let wikidata = {
     fetched: 0,
@@ -145,16 +150,25 @@ async function main() {
   const seeds = [...new Set(rawSeeds.map((value) => normalizeUrl(value)).filter(Boolean))];
   seedFrontier(state, seeds, 100);
 
+  const searchBatchOptions = {
+    maxCandidates: validateNumber(process.env.RESEARCH_SEARCH_MAX_CANDIDATES, 'RESEARCH_SEARCH_MAX_CANDIDATES', 1, 5000000, 5000),
+    maxQueriesPerCandidate: validateNumber(process.env.RESEARCH_SEARCH_MAX_QUERIES, 'RESEARCH_SEARCH_MAX_QUERIES', 1, 64, 12),
+    resultsPerQuery: validateNumber(process.env.RESEARCH_SEARCH_RESULTS_PER_QUERY, 'RESEARCH_SEARCH_RESULTS_PER_QUERY', 1, 100, 20)
+  };
+  const ownSearch = prepareResearchFrontierFromOwnIndex(state, searchBatchOptions);
+  const promotion = promoteResearchFrontierForCrawl(state);
+
   let knownWorkSearch = { fileCount: 0 };
   let result = { state, stats: emptyDiscoveryStats() };
   if (state.frontier.length > 0) {
     knownWorkSearch = await loadKnownWorkWasmSearch({ root });
-    const fetcher = new PoliteFetcher({
+    const baseFetcher = new PoliteFetcher({
       timeoutMs: process.env.DISCOVERY_TIMEOUT_MS || 12000,
       maxBytes: process.env.DISCOVERY_MAX_BYTES || 1048576,
       minDelayMs: process.env.DISCOVERY_MIN_DELAY_MS || 500,
       allowedHosts
     });
+    const fetcher = new IndexedFetcher(baseFetcher, state);
 
     result = await runDiscovery({
       state,
@@ -166,6 +180,11 @@ async function main() {
     });
   }
 
+  result.state.webSearchIndex = refreshWebSearchIndexFromDocuments(result.state.webSearchIndex, result.state.documents);
+  const restoredResearchUrls = restoreUnprocessedResearchFrontier(result.state);
+  const nextOwnSearch = prepareResearchFrontierFromOwnIndex(result.state, searchBatchOptions);
+  const researchFrontierRemaining = result.state.researchFrontier.length;
+
   if (!dryRun) saveDiscoveryState(statePath, result.state);
   const changed = before !== JSON.stringify(result.state);
   const readiness = buildReadinessReport(result.state);
@@ -176,6 +195,20 @@ async function main() {
   console.log(`seed URLs: ${seeds.length}`);
   console.log(`allowed hosts: ${allowedHosts.length ? allowedHosts.join(',') : 'unrestricted-public-web'}`);
   console.log(`registered CSV files loaded into search.wasm: ${knownWorkSearch.fileCount}`);
+  console.log(`own web-search index pages: ${result.state.webSearchIndex.length}`);
+  console.log(`own deep-search candidates considered before crawl: ${ownSearch.candidatesConsidered}`);
+  console.log(`own deep-search candidates scanned before crawl: ${ownSearch.candidatesScanned}`);
+  console.log(`own deep-search queries before crawl: ${ownSearch.searches}`);
+  console.log(`own deep-search URLs queued before crawl: ${ownSearch.urlsQueued}`);
+  console.log(`own deep-search URLs promoted this batch: ${promotion.promoted}`);
+  console.log(`own deep-search URLs merged into existing crawl frontier: ${promotion.merged}`);
+  console.log(`own deep-search visited URLs reopened for verification: ${promotion.revisitCount}`);
+  console.log(`unprocessed research URLs restored: ${restoredResearchUrls}`);
+  console.log(`own deep-search candidates considered after crawl: ${nextOwnSearch.candidatesConsidered}`);
+  console.log(`own deep-search queries after crawl: ${nextOwnSearch.searches}`);
+  console.log(`own deep-search URLs queued for next batch: ${nextOwnSearch.urlsQueued}`);
+  console.log(`own deep-search next candidate cursor: ${nextOwnSearch.nextCursor}`);
+  console.log(`own deep-search frontier remaining: ${researchFrontierRemaining}`);
   console.log(`Wikidata bootstrap rows: ${wikidata.fetched}`);
   console.log(`Wikidata bootstrap candidates added: ${wikidata.candidatesAdded}`);
   console.log(`Wikidata bootstrap evidence added: ${wikidata.evidenceAdded}`);
@@ -222,10 +255,10 @@ async function main() {
   console.log(`identity blocked reasons: ${JSON.stringify(readiness.identityBlockedReasons)}`);
   console.log(`publication blocked reasons: ${JSON.stringify(readiness.publicationBlockedReasons)}`);
   console.log(`changed: ${changed}`);
-  if (result.stats.attempted === 0) console.log('Web frontier empty: bootstrap/series progress persisted without treating this batch as an error');
+  if (result.stats.attempted === 0) console.log('Web frontier empty: bootstrap/series/search-index progress persisted without treating this batch as an error');
   console.log('Existing-work lookup: search.wasm + enrichment reuse');
   console.log('Series-first research: FULL-SERIES PRE-EXPANSION ENABLED');
-  console.log('External search API: NONE');
+  console.log('Web deep-search engine: BUILT-IN CRAWL INDEX (NO EXTERNAL SEARCH API)');
   console.log('Gemini: DISCONNECTED');
 }
 
