@@ -16,17 +16,13 @@ import {
   splitStructured
 } from '../normalize/record.mjs';
 import { loadDiscoveryState } from '../discovery/state.mjs';
-import { readyDiscoveryRecords } from '../discovery/to-record.mjs';
+import { candidateToCommonRecord, readyDiscoveryRecords } from '../discovery/to-record.mjs';
 import { generateSynopses, GEMINI_SYNOPSIS_DEFAULT_MODEL } from '../gemini/synopsis.mjs';
 import { validateDataDirectory } from '../validate/data-validator.mjs';
+import { attachConfirmedIds, loadConfirmedCsv, saveConfirmedCsv, syncConfirmedMaster } from './confirmed-csv.mjs';
 import { deduplicateIncoming } from './deduplicate.mjs';
+import { INITIAL_CSV_RECORD_LIMIT, takeInitialPackage } from './public-package.mjs';
 import { applySeriesMetadataToCollection } from './series-enrichment.mjs';
-import {
-  INITIAL_CSV_RECORD_LIMIT,
-  loadInitialPending,
-  saveInitialPending,
-  takeInitialPackage
-} from './initial-pending.mjs';
 
 function parseArgs(argv) {
   const args = {};
@@ -76,20 +72,6 @@ function parseConfig() {
   } catch {
     throw new Error('ANIME_SOURCE_CONFIG_JSON が正しいJSONではありません。');
   }
-}
-
-function nextInternalId(existing) {
-  let max = 0;
-  for (const { record } of existing) {
-    const match = String(record.id || '').match(/^A(\d{8})$/);
-    if (match) max = Math.max(max, Number(match[1]));
-  }
-  let current = max;
-  return () => {
-    current += 1;
-    if (current > 99999999) throw new Error('内部IDの8桁上限に到達しました。');
-    return `A${String(current).padStart(8, '0')}`;
-  };
 }
 
 function nextInitialFile(dataDir) {
@@ -202,12 +184,17 @@ async function loadInputRecords({ inputMode, root, columns, confirmedDate }) {
   if (inputMode === 'discovery') {
     const statePath = path.join(root, 'crawler', 'state.json');
     const state = loadDiscoveryState(statePath);
+    const identityRecords = (state.candidates || [])
+      .map((candidate) => candidateToCommonRecord(candidate, columns, confirmedDate))
+      .filter(Boolean);
     const { records, skipped } = readyDiscoveryRecords(state, columns, confirmedDate);
     return {
       normalized: records,
+      identityRecords,
       discoveryCandidates: state.candidates,
       safeStoppedSources: 0,
       discoverySkipped: skipped.length,
+      identityConfirmed: identityRecords.length,
       inputDetails: `crawler/state.json candidates=${state.candidates.length}`
     };
   }
@@ -232,9 +219,11 @@ async function loadInputRecords({ inputMode, root, columns, confirmedDate }) {
 
   return {
     normalized,
+    identityRecords: normalized,
     discoveryCandidates: [],
     safeStoppedSources,
     discoverySkipped: 0,
+    identityConfirmed: normalized.length,
     inputDetails: `configured API sources=${collectedGroups.length}`
   };
 }
@@ -264,6 +253,7 @@ async function main() {
 
   const root = process.cwd();
   const dataDir = path.join(root, 'data');
+  const confirmedPath = path.join(root, 'confirmed', 'confirmed.csv');
   const columns = loadColumns(root);
 
   if (fs.existsSync(dataDir)) {
@@ -276,12 +266,18 @@ async function main() {
   const confirmedDate = new Date().toISOString().slice(0, 10);
   const existing = readDataRecords(dataDir, columns);
   const input = await loadInputRecords({ inputMode, root, columns, confirmedDate });
-  const normalized = input.normalized;
+  const currentConfirmed = loadConfirmedCsv(confirmedPath, columns);
+  const confirmedSync = syncConfirmedMaster({
+    current: currentConfirmed,
+    identityRecords: input.identityRecords,
+    publicEntries: existing,
+    columns
+  });
+  const confirmedMaster = confirmedSync.records;
 
-  const confirmedPath = path.join(root, 'confirmed', 'confirmed.csv');
-  const pending = mode === 'initial' ? loadInitialPending(confirmedPath, columns) : { records: [] };
+  const publicReady = attachConfirmedIds(input.normalized, confirmedMaster);
   const { accepted: uniqueIncoming, workingExisting, stats } = deduplicateIncoming(
-    mode === 'initial' ? [...pending.records, ...normalized] : normalized,
+    publicReady,
     existing,
     columns
   );
@@ -338,11 +334,6 @@ async function main() {
     selected = takeInitialPackage(staged, { requireSynopsis: geminiEnabled }).selected;
   }
 
-  if (selected.length > 0) {
-    const nextId = nextInternalId(existing);
-    for (const record of selected) record.id = nextId();
-  }
-
   const seriesStage = applySeriesMetadataToCollection({
     originalExisting: existing,
     workingExisting,
@@ -355,12 +346,14 @@ async function main() {
   const enrichmentWrites = prepareEnrichmentWrites(dataDir, enrichments, columns);
   setGithubOutput('enriched_records', enrichments.length);
 
+  const publicRemaining = Math.max(0, staged.length - selected.length);
+
   if (selected.length === 0) {
-    const snapshotTargets = [...enrichmentWrites.map((item) => item.filePath), ...(mode === 'initial' ? [confirmedPath] : [])];
+    const snapshotTargets = [...enrichmentWrites.map((item) => item.filePath), confirmedPath];
     const snapshots = snapshotPaths(snapshotTargets);
     try {
       for (const write of enrichmentWrites) atomicWriteText(write.filePath, write.text);
-      if (mode === 'initial') saveInitialPending(confirmedPath, staged, columns);
+      saveConfirmedCsv(confirmedPath, confirmedMaster, columns);
       if (fs.existsSync(dataDir)) {
         const validation = validateDataDirectory(dataDir);
         if (validation.failures.length) throw new Error(`既存CSV補完後の検証に失敗しました:\n${validation.failures.map((value) => `- ${value}`).join('\n')}`);
@@ -371,22 +364,24 @@ async function main() {
     }
 
     if (mode === 'initial') {
-      console.log(`公開CSVは${INITIAL_CSV_RECORD_LIMIT}作品が揃うまで生成しません。作品確定CSVへ保存しました: ${staged.length}/${INITIAL_CSV_RECORD_LIMIT}`);
+      console.log(`作品確定CSVを更新しました。公開可能作品は${INITIAL_CSV_RECORD_LIMIT}件が揃うまで公開CSVを生成しません: ${staged.length}/${INITIAL_CSV_RECORD_LIMIT}`);
     } else {
-      console.log('新規登録対象は0件です。既存CSVへの検証済み空欄補完のみ反映しました。');
+      console.log('対象四半期の新規公開作品は0件です。作品確定CSVと既存公開CSVの補完のみ反映しました。');
     }
     setGithubOutput('csv_created', 'false');
-    setGithubOutput('pending_records', mode === 'initial' ? staged.length : 0);
-    setGithubOutput('confirmed_records', mode === 'initial' ? staged.length : 0);
+    setGithubOutput('pending_records', publicRemaining);
+    setGithubOutput('confirmed_records', confirmedMaster.length);
     console.log(JSON.stringify({
       input: inputMode,
-      candidates: normalized.length,
+      identityConfirmed: input.identityConfirmed,
+      confirmedMaster: confirmedMaster.length,
+      publicReadyCandidates: input.normalized.length,
       selected: 0,
       enrichedExisting: enrichments.length,
       seriesIdsAdded: seriesStage.seriesStats.seriesIdsAdded,
       seriesRelationsAdded: seriesStage.seriesStats.relationsAdded,
       unresolvedSeriesRelations: seriesStage.seriesStats.unresolvedRelations,
-      confirmed: mode === 'initial' ? staged.length : 0,
+      publicWaiting: publicRemaining,
       packageSize: mode === 'initial' ? INITIAL_CSV_RECORD_LIMIT : null,
       discoverySkipped: input.discoverySkipped,
       safeStoppedSources: input.safeStoppedSources,
@@ -399,26 +394,22 @@ async function main() {
   fs.mkdirSync(dataDir, { recursive: true });
   const targetPath = path.join(dataDir, targetName);
   if (mode === 'initial' && fs.existsSync(targetPath)) throw new Error(`${targetName} は既に存在します。初期CSVへ追記しません。`);
-
   if (mode === 'quarterly') readTargetRecords(targetPath, columns);
   const manifestPath = path.join(dataDir, 'manifest.csv');
-  const remainingStaged = mode === 'initial'
-    ? takeInitialPackage(staged, { requireSynopsis: geminiEnabled }).remaining
-    : [];
 
   const snapshotTargets = [
     ...enrichmentWrites.map((item) => item.filePath),
+    confirmedPath,
     targetPath,
-    manifestPath,
-    ...(mode === 'initial' ? [confirmedPath] : [])
+    manifestPath
   ];
   const snapshots = snapshotPaths(snapshotTargets);
 
   try {
     for (const write of enrichmentWrites) atomicWriteText(write.filePath, write.text);
+    saveConfirmedCsv(confirmedPath, confirmedMaster, columns);
     writeTargetPreservingExisting(targetPath, selected, columns, mode);
     writeManifest(dataDir);
-    if (mode === 'initial') saveInitialPending(confirmedPath, remainingStaged, columns);
 
     const validation = validateDataDirectory(dataDir);
     if (validation.failures.length) {
@@ -430,23 +421,24 @@ async function main() {
   }
 
   setGithubOutput('csv_created', 'true');
-  setGithubOutput('pending_records', remainingStaged.length);
-  setGithubOutput('confirmed_records', remainingStaged.length);
+  setGithubOutput('pending_records', publicRemaining);
+  setGithubOutput('confirmed_records', confirmedMaster.length);
 
   console.log('Anime collection pipeline: PASS');
   console.log(`input: ${inputMode}`);
   console.log(`input details: ${input.inputDetails}`);
   console.log(`mode: ${mode}`);
-  console.log(`confirmed staging: confirmed/confirmed.csv`);
+  console.log(`confirmed master: confirmed/confirmed.csv (${confirmedMaster.length})`);
   console.log(`public target: data/${targetName}`);
-  console.log(`candidate records: ${normalized.length}`);
-  console.log(`new records: ${selected.length}`);
+  console.log(`identity-confirmed works: ${input.identityConfirmed}`);
+  console.log(`public-ready candidates: ${input.normalized.length}`);
+  console.log(`new public records: ${selected.length}`);
+  console.log(`public-ready records awaiting next package: ${publicRemaining}`);
   console.log(`registered records enriched: ${enrichments.length}`);
   console.log(`series IDs added: ${seriesStage.seriesStats.seriesIdsAdded}`);
   console.log(`series relations added: ${seriesStage.seriesStats.relationsAdded}`);
   console.log(`series relations awaiting registered target: ${seriesStage.seriesStats.unresolvedRelations}`);
-  if (mode === 'initial') console.log(`confirmed records awaiting public package: ${remainingStaged.length}`);
-  console.log(`discovery candidates not ready: ${input.discoverySkipped}`);
+  console.log(`discovery candidates not public-ready: ${input.discoverySkipped}`);
   console.log(`safe-stopped API sources: ${input.safeStoppedSources}`);
   console.log(`existing exact duplicates skipped: ${stats.exactExisting}`);
   console.log(`same discovery identities merged: ${stats.identityIncomingMerged}`);
