@@ -8,6 +8,8 @@ import { normalizeUrl } from './url.mjs';
 import { bootstrapFromWikidata } from './wikidata-bootstrap.mjs';
 import { expandSeriesFromWikidata } from './wikidata-series-expansion.mjs';
 import { buildReadinessReport } from './readiness-report.mjs';
+import { prepareResearchFrontierFromOwnIndex } from './research-search.mjs';
+import { refreshWebSearchIndexFromDocuments } from './web-search-index.mjs';
 
 function parseArgs(argv) {
   const args = {};
@@ -52,6 +54,61 @@ function validateNumber(value, name, min, max, fallback) {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < min || parsed > max) throw new Error(`${name} must be an integer between ${min} and ${max}`);
   return parsed;
+}
+
+function mergeHints(left, right) {
+  const output = [];
+  const seen = new Set();
+  for (const value of [...(Array.isArray(left) ? left : []), ...(Array.isArray(right) ? right : [])]) {
+    const text = String(value || '').replace(/\s+/g, ' ').trim();
+    const key = text.normalize('NFKC').toLocaleLowerCase('ja');
+    if (!text || seen.has(key)) continue;
+    seen.add(key);
+    output.push(text);
+    if (output.length >= 32) break;
+  }
+  return output;
+}
+
+function promoteResearchFrontier(state) {
+  if (!Array.isArray(state.frontier)) state.frontier = [];
+  if (!Array.isArray(state.researchFrontier)) state.researchFrontier = [];
+  const byUrl = new Map(state.frontier.map((entry) => [normalizeUrl(entry?.url), entry]).filter(([url]) => url));
+  let promoted = 0;
+  for (const researchEntry of state.researchFrontier) {
+    const url = normalizeUrl(researchEntry?.url);
+    if (!url) continue;
+    const current = byUrl.get(url);
+    if (current) {
+      current.priority = Math.max(Number(current.priority || 0), Number(researchEntry.priority || 0));
+      current.candidateHints = mergeHints(current.candidateHints, researchEntry.candidateHints);
+      current.researchSearch = true;
+      continue;
+    }
+    const entry = { ...researchEntry, url, researchSearch: true };
+    state.frontier.push(entry);
+    byUrl.set(url, entry);
+    promoted += 1;
+  }
+  state.researchFrontier = [];
+  return promoted;
+}
+
+function restoreUnprocessedResearchFrontier(state) {
+  const research = [];
+  const discovery = [];
+  for (const entry of Array.isArray(state.frontier) ? state.frontier : []) {
+    if (entry?.researchSearch === true) {
+      const clean = { ...entry };
+      delete clean.researchSearch;
+      research.push(clean);
+    } else {
+      discovery.push(entry);
+    }
+  }
+  state.frontier = discovery;
+  state.researchFrontier = research;
+  return research.length;
 }
 
 function emptyDiscoveryStats() {
@@ -102,6 +159,7 @@ async function main() {
   const allowedHosts = readAllowedHosts();
 
   const state = loadDiscoveryState(statePath);
+  state.webSearchIndex = refreshWebSearchIndexFromDocuments(state.webSearchIndex, state.documents);
   const before = JSON.stringify(state);
   let wikidata = {
     fetched: 0,
@@ -145,6 +203,13 @@ async function main() {
   const seeds = [...new Set(rawSeeds.map((value) => normalizeUrl(value)).filter(Boolean))];
   seedFrontier(state, seeds, 100);
 
+  const ownSearch = prepareResearchFrontierFromOwnIndex(state, {
+    maxCandidates: validateNumber(process.env.RESEARCH_SEARCH_MAX_CANDIDATES, 'RESEARCH_SEARCH_MAX_CANDIDATES', 1, 200000, 5000),
+    maxQueriesPerCandidate: validateNumber(process.env.RESEARCH_SEARCH_MAX_QUERIES, 'RESEARCH_SEARCH_MAX_QUERIES', 1, 64, 12),
+    resultsPerQuery: validateNumber(process.env.RESEARCH_SEARCH_RESULTS_PER_QUERY, 'RESEARCH_SEARCH_RESULTS_PER_QUERY', 1, 100, 20)
+  });
+  const promotedResearchUrls = promoteResearchFrontier(state);
+
   let knownWorkSearch = { fileCount: 0 };
   let result = { state, stats: emptyDiscoveryStats() };
   if (state.frontier.length > 0) {
@@ -166,6 +231,8 @@ async function main() {
     });
   }
 
+  result.state.webSearchIndex = refreshWebSearchIndexFromDocuments(result.state.webSearchIndex, result.state.documents);
+  const researchFrontierRemaining = restoreUnprocessedResearchFrontier(result.state);
   if (!dryRun) saveDiscoveryState(statePath, result.state);
   const changed = before !== JSON.stringify(result.state);
   const readiness = buildReadinessReport(result.state);
@@ -176,6 +243,12 @@ async function main() {
   console.log(`seed URLs: ${seeds.length}`);
   console.log(`allowed hosts: ${allowedHosts.length ? allowedHosts.join(',') : 'unrestricted-public-web'}`);
   console.log(`registered CSV files loaded into search.wasm: ${knownWorkSearch.fileCount}`);
+  console.log(`own web-search index pages: ${result.state.webSearchIndex.length}`);
+  console.log(`own deep-search candidates considered: ${ownSearch.candidatesConsidered}`);
+  console.log(`own deep-search queries executed: ${ownSearch.searches}`);
+  console.log(`own deep-search URLs queued: ${ownSearch.urlsQueued}`);
+  console.log(`own deep-search URLs promoted this batch: ${promotedResearchUrls}`);
+  console.log(`own deep-search frontier remaining: ${researchFrontierRemaining}`);
   console.log(`Wikidata bootstrap rows: ${wikidata.fetched}`);
   console.log(`Wikidata bootstrap candidates added: ${wikidata.candidatesAdded}`);
   console.log(`Wikidata bootstrap evidence added: ${wikidata.evidenceAdded}`);
@@ -222,10 +295,10 @@ async function main() {
   console.log(`identity blocked reasons: ${JSON.stringify(readiness.identityBlockedReasons)}`);
   console.log(`publication blocked reasons: ${JSON.stringify(readiness.publicationBlockedReasons)}`);
   console.log(`changed: ${changed}`);
-  if (result.stats.attempted === 0) console.log('Web frontier empty: bootstrap/series progress persisted without treating this batch as an error');
+  if (result.stats.attempted === 0) console.log('Web frontier empty: bootstrap/series/search-index progress persisted without treating this batch as an error');
   console.log('Existing-work lookup: search.wasm + enrichment reuse');
   console.log('Series-first research: FULL-SERIES PRE-EXPANSION ENABLED');
-  console.log('External search API: NONE');
+  console.log('Web deep-search engine: BUILT-IN CRAWL INDEX (NO EXTERNAL SEARCH API)');
   console.log('Gemini: DISCONNECTED');
 }
 
