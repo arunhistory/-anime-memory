@@ -70,10 +70,13 @@ assert.deepEqual(calls, [
   'https://example.jp/feed'
 ]);
 
+await import('./known-title-matcher-self-test.mjs');
+
 console.log('Crawler-to-own-search indexing bridge self-test: PASS');
 console.log('fresh HTML -> own index: PASS');
 console.log('constant-time URL position update path: PASS');
 console.log('searchable immediately: PASS');
+console.log('confirmed-title body matching: PASS');
 console.log('full body persistence: BLOCKED');
 console.log('noindex exclusion: PASS');
 console.log('non-HTML exclusion: PASS');
