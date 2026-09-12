@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { loadColumns } from '../csv/csv.mjs';
+import { loadColumns, parseCsv, readUtf8Strict, rowsToRecords } from '../csv/csv.mjs';
 import {
   INITIAL_CSV_RECORD_LIMIT,
   loadInitialPending,
@@ -11,11 +11,11 @@ import {
 } from './initial-pending.mjs';
 
 const columns = loadColumns(process.cwd());
-const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'anime-initial-pending-'));
-const filePath = path.join(tempRoot, 'crawler', 'pending-initial.json');
+const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'anime-confirmed-csv-'));
+const filePath = path.join(tempRoot, 'confirmed', 'confirmed.csv');
 const fixture = (index) => ({
   ...Object.fromEntries(columns.map((column) => [column, ''])),
-  title_ja: `途中作品${index}`,
+  title_ja: `確定作品${index}`,
   media_type: 'TV',
   external_ids: `fixture::${index}`,
   updated_at: '2026-09-10'
@@ -29,19 +29,20 @@ assert.equal(packaged.remaining.length, 1);
 const geminiStaged = Array.from({ length: 500 }, (_, index) => ({ ...fixture(index), synopsis: index < 499 ? '概要' : '' }));
 assert.equal(takeInitialPackage(geminiStaged, { requireSynopsis: true }).selected.length, 0);
 assert.deepEqual(loadInitialPending(filePath, columns).records, []);
-assert.equal(saveInitialPending(filePath, [fixture(1)], columns, new Date('2026-09-10T00:00:00Z')), true);
+assert.equal(saveInitialPending(filePath, [fixture(1)], columns), true);
 assert.equal(loadInitialPending(filePath, columns).records.length, 1);
-assert.equal(saveInitialPending(filePath, [fixture(1)], columns, new Date('2026-09-10T01:00:00Z')), false);
+assert.equal(saveInitialPending(filePath, [fixture(1)], columns), false);
 assert.equal(loadInitialPending(filePath, columns).records[0].id, '');
+assert.deepEqual(rowsToRecords(parseCsv(readUtf8Strict(filePath)), columns), loadInitialPending(filePath, columns).records, 'confirmed staging must be an actual common-schema CSV');
 
-const largePath = path.join(tempRoot, 'crawler', 'pending-large.json');
+const largePath = path.join(tempRoot, 'confirmed', 'large.csv');
 const smallColumns = ['id', 'title_ja', 'media_type'];
-const largePending = Array.from({ length: 20001 }, (_, index) => ({ id: '', title_ja: `大量作品${index}`, media_type: 'TV' }));
-assert.equal(saveInitialPending(largePath, largePending, smallColumns, new Date('2026-09-10T02:00:00Z')), true);
-assert.equal(loadInitialPending(largePath, smallColumns).records.length, 20001, 'pending records must not silently stop at 20,000');
+const largeConfirmed = Array.from({ length: 20001 }, (_, index) => ({ id: '', title_ja: `大量作品${index}`, media_type: 'TV' }));
+assert.equal(saveInitialPending(largePath, largeConfirmed, smallColumns), true);
+assert.equal(loadInitialPending(largePath, smallColumns).records.length, 20001, 'confirmed records must not silently stop at 20,000');
 
 fs.rmSync(tempRoot, { recursive: true, force: true });
-console.log('Initial pending self-test: PASS');
-console.log('CSV package size: 500');
-console.log('partial records persist without public CSV: PASS');
-console.log('pending state over 20k: PRESERVED');
+console.log('Confirmed CSV staging self-test: PASS');
+console.log('public CSV package size: 500');
+console.log('confirmed records persist as CSV before public release: PASS');
+console.log('confirmed CSV over 20k: PRESERVED');
