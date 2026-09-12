@@ -1,81 +1,81 @@
 {
   "version": 3,
   "storage": "sharded-v1",
-  "revision": "r-20260912090201-b6216436e4b9",
+  "revision": "r-20260912090436-a08b88fe68c9",
   "shardTargetBytes": 4194304,
   "counts": {
-    "frontier": 8416,
+    "frontier": 8660,
     "researchFrontier": 67,
-    "visited": 1163,
-    "documents": 773,
-    "candidates": 1892,
-    "webSearchIndex": 800,
+    "visited": 1257,
+    "documents": 786,
+    "candidates": 2084,
+    "webSearchIndex": 898,
     "calibrationSeen": 0,
-    "researchOperations": 282,
+    "researchOperations": 286,
     "researchTrust": 0
   },
   "shards": {
     "frontier": [
       {
         "file": "state-shards/frontier-00000.json",
-        "count": 8416,
-        "bytes": 3092662,
-        "sha256": "44215616bb9f529b27800036dfa07e9342019e333851e23ca0b24d6b7e6ddec4"
+        "count": 8660,
+        "bytes": 3319257,
+        "sha256": "a9547db2dde8c0f7cb86cfee739de7d4a091eb147d6d90732e67156d95772770"
       }
     ],
     "researchFrontier": [
       {
         "file": "state-shards/researchFrontier-00000.json",
         "count": 67,
-        "bytes": 13630,
-        "sha256": "79a060cba4b766f83247bb3564be08ede7daf93684d0cfeaa192526f4bf14a52"
+        "bytes": 15207,
+        "sha256": "73286aa377543375e210ac941cda44c240038b6d6398eba7a8fa9d21830e5ad5"
       }
     ],
     "visited": [
       {
         "file": "state-shards/visited-00000.json",
-        "count": 1163,
-        "bytes": 77923,
-        "sha256": "11f7d3748e97a5b4fb2f3dc2b308e05e35e6c32be72ebc7ed0632bb4eaf3c733"
+        "count": 1257,
+        "bytes": 84221,
+        "sha256": "97b54ede08e53479d9e5e0d6c5418cf0f9422cbdb6f8677f876d60a8047db9c0"
       }
     ],
     "documents": [
       {
         "file": "state-shards/documents-00000.json",
-        "count": 773,
-        "bytes": 243087,
-        "sha256": "5d3e600b50e52a3509785fc83c319f65cbebc1ed79e4eb16a1967585bf26f3cf"
+        "count": 786,
+        "bytes": 247847,
+        "sha256": "f13af48f162437dc9da6cbb9d69bb38da881e9bb01f5bb6344ed26fcfca9af82"
       }
     ],
     "candidates": [
       {
         "file": "state-shards/candidates-00000.json",
-        "count": 1711,
-        "bytes": 4194203,
-        "sha256": "a462913f1d1c4a2c012fbc8e8e20cee8f166b53b4bd1ab4a341f44249f2e0aa5"
+        "count": 1709,
+        "bytes": 4193786,
+        "sha256": "9c3584fccc6115293df550a35176fe9bacf6ee57e9d203cd39fa2a35736565e7"
       },
       {
         "file": "state-shards/candidates-00001.json",
-        "count": 181,
-        "bytes": 393490,
-        "sha256": "197c806fe7f717261876850b77748806630cc257f5fb222ccf3fed5b5d1edea9"
+        "count": 375,
+        "bytes": 794299,
+        "sha256": "e7a4b6713bbc7cc17c8c8e4c1fbd634c957769689aac873678bd37ae4b6e3d3f"
       }
     ],
     "webSearchIndex": [
       {
         "file": "state-shards/webSearchIndex-00000.json",
-        "count": 800,
-        "bytes": 317666,
-        "sha256": "bd234dcfb163eddc9719fff0849580b952ba58e926d063c0e7d9d0566bc696be"
+        "count": 898,
+        "bytes": 406419,
+        "sha256": "e95ff15d66be4c6696d169bea52a7cc3f712bd8acf6343733cdf5471bd658b9e"
       }
     ],
     "calibrationSeen": [],
     "researchOperations": [
       {
         "file": "state-shards/researchOperations-00000.json",
-        "count": 282,
-        "bytes": 46291,
-        "sha256": "a28829455b8d45a2cd3fb8453f4f1fbe69239ed30d38b472129f30756024b5cf"
+        "count": 286,
+        "bytes": 46948,
+        "sha256": "b48e8715c7b7e61d5c080f0208c6d6220f2fb9da57b791e7068e9f415eb10ff9"
       }
     ],
     "researchTrust": []
@@ -83,14 +83,14 @@
   "researchSearchCursor": 0,
   "researchStrategy": {
     "version": 1,
-    "updatedAt": "2026-09-12T08:59:44.118Z"
+    "updatedAt": "2026-09-12T09:02:45.094Z"
   },
   "wikidataBootstrap": {
     "version": 1,
-    "offset": 2000,
+    "offset": 2200,
     "completed": false,
-    "retryAfter": "2026-09-12T09:00:18.884Z",
-    "lastRunAt": "2026-09-11T11:45:58.476Z"
+    "retryAfter": "",
+    "lastRunAt": "2026-09-12T09:02:31.923Z"
   },
   "wikidataSeriesExpansion": {
     "version": 1,
@@ -99,5 +99,5 @@
     "retryAfter": "",
     "lastRunAt": ""
   },
-  "updatedAt": "2026-09-12T09:02:00.724Z"
+  "updatedAt": "2026-09-12T09:04:35.548Z"
 }
