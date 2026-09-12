@@ -1,81 +1,81 @@
 {
   "version": 3,
   "storage": "sharded-v1",
-  "revision": "r-20260912090436-a08b88fe68c9",
+  "revision": "r-20260912090652-5d60b386d4f0",
   "shardTargetBytes": 4194304,
   "counts": {
-    "frontier": 8660,
-    "researchFrontier": 67,
-    "visited": 1257,
-    "documents": 786,
-    "candidates": 2084,
-    "webSearchIndex": 898,
+    "frontier": 10104,
+    "researchFrontier": 68,
+    "visited": 1357,
+    "documents": 863,
+    "candidates": 2235,
+    "webSearchIndex": 975,
     "calibrationSeen": 0,
-    "researchOperations": 286,
+    "researchOperations": 293,
     "researchTrust": 0
   },
   "shards": {
     "frontier": [
       {
         "file": "state-shards/frontier-00000.json",
-        "count": 8660,
-        "bytes": 3319257,
-        "sha256": "a9547db2dde8c0f7cb86cfee739de7d4a091eb147d6d90732e67156d95772770"
+        "count": 10104,
+        "bytes": 3726117,
+        "sha256": "32c9b881b57f92e463cb1ba2be314edf7bd1e96bcd56e07d28816428c6395f1d"
       }
     ],
     "researchFrontier": [
       {
         "file": "state-shards/researchFrontier-00000.json",
-        "count": 67,
-        "bytes": 15207,
-        "sha256": "73286aa377543375e210ac941cda44c240038b6d6398eba7a8fa9d21830e5ad5"
+        "count": 68,
+        "bytes": 15342,
+        "sha256": "2067041fa3500d9886087a8ac59c2c0f5ddc60c1734b11a5c2c0d8b5d5e65cd0"
       }
     ],
     "visited": [
       {
         "file": "state-shards/visited-00000.json",
-        "count": 1257,
-        "bytes": 84221,
-        "sha256": "97b54ede08e53479d9e5e0d6c5418cf0f9422cbdb6f8677f876d60a8047db9c0"
+        "count": 1357,
+        "bytes": 90921,
+        "sha256": "910ea8e84d1f06d899ad75b01b57e96dec5d34f1ec53a47d006b3d4f28518931"
       }
     ],
     "documents": [
       {
         "file": "state-shards/documents-00000.json",
-        "count": 786,
-        "bytes": 247847,
-        "sha256": "f13af48f162437dc9da6cbb9d69bb38da881e9bb01f5bb6344ed26fcfca9af82"
+        "count": 863,
+        "bytes": 276005,
+        "sha256": "b5de3a44e32b29a29782b31a5ffb0d6147d4d73e1c8340629aeef51c42c97b10"
       }
     ],
     "candidates": [
       {
         "file": "state-shards/candidates-00000.json",
         "count": 1709,
-        "bytes": 4193786,
-        "sha256": "9c3584fccc6115293df550a35176fe9bacf6ee57e9d203cd39fa2a35736565e7"
+        "bytes": 4193968,
+        "sha256": "b36448e4c8a1c170fa0ff88deadf0947211f875b4ecd527b4c7dd55bb4317c29"
       },
       {
         "file": "state-shards/candidates-00001.json",
-        "count": 375,
-        "bytes": 794299,
-        "sha256": "e7a4b6713bbc7cc17c8c8e4c1fbd634c957769689aac873678bd37ae4b6e3d3f"
+        "count": 526,
+        "bytes": 1177398,
+        "sha256": "9ed47e95ad612de9dbd0ca26e38cba2a1c014311e7996ec41e4174f4ba1b9365"
       }
     ],
     "webSearchIndex": [
       {
         "file": "state-shards/webSearchIndex-00000.json",
-        "count": 898,
-        "bytes": 406419,
-        "sha256": "e95ff15d66be4c6696d169bea52a7cc3f712bd8acf6343733cdf5471bd658b9e"
+        "count": 975,
+        "bytes": 441948,
+        "sha256": "17000664101353c6055b1fde095eb15d737962ee554a134d0c6184a05ca081ec"
       }
     ],
     "calibrationSeen": [],
     "researchOperations": [
       {
         "file": "state-shards/researchOperations-00000.json",
-        "count": 286,
-        "bytes": 46948,
-        "sha256": "b48e8715c7b7e61d5c080f0208c6d6220f2fb9da57b791e7068e9f415eb10ff9"
+        "count": 293,
+        "bytes": 48074,
+        "sha256": "2578a7bb2a19f405b8e06d57cd1890a996233b579747ead0aab28c510234aeed"
       }
     ],
     "researchTrust": []
@@ -83,14 +83,14 @@
   "researchSearchCursor": 0,
   "researchStrategy": {
     "version": 1,
-    "updatedAt": "2026-09-12T09:02:45.094Z"
+    "updatedAt": "2026-09-12T09:05:11.805Z"
   },
   "wikidataBootstrap": {
     "version": 1,
-    "offset": 2200,
+    "offset": 2400,
     "completed": false,
     "retryAfter": "",
-    "lastRunAt": "2026-09-12T09:02:31.923Z"
+    "lastRunAt": "2026-09-12T09:05:05.682Z"
   },
   "wikidataSeriesExpansion": {
     "version": 1,
@@ -99,5 +99,5 @@
     "retryAfter": "",
     "lastRunAt": ""
   },
-  "updatedAt": "2026-09-12T09:04:35.548Z"
+  "updatedAt": "2026-09-12T09:06:52.106Z"
 }
