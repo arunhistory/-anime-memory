@@ -103,6 +103,7 @@ function addFrontier(frontier, queued, visited, entry, priorityIndex = null) {
 
   const priority = Math.max(-100, Math.min(1000, Number(entry.priority || 0)));
   const candidateHints = normalizeCandidateHints(entry.candidateHints);
+  const researchSearch = entry.researchSearch === true;
   const existing = queued.get(url);
   if (existing) {
     const previousPriority = Number(existing.priority || 0);
@@ -111,6 +112,7 @@ function addFrontier(frontier, queued, visited, entry, priorityIndex = null) {
       ...(existing.candidateHints || []),
       ...candidateHints
     ]);
+    if (researchSearch) existing.researchSearch = true;
     if (priorityIndex && Number(existing.priority || 0) !== previousPriority) {
       touchFrontierPriorityEntry(priorityIndex, existing);
     }
@@ -124,6 +126,7 @@ function addFrontier(frontier, queued, visited, entry, priorityIndex = null) {
     discoveredFrom: normalizeUrl(entry.discoveredFrom) || '',
     candidateHints
   };
+  if (researchSearch) item.researchSearch = true;
   frontier.push(item);
   queued.set(url, item);
   if (priorityIndex) addFrontierPriorityEntry(priorityIndex, item);
