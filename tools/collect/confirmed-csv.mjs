@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseCsv, readUtf8Strict, recordsToCsv, rowsToRecords } from '../csv/csv.mjs';
-import { hasExactExternalId } from '../normalize/record.mjs';
+import { hasExactExternalId, isCompositeDuplicateCandidate } from '../normalize/record.mjs';
 import { deduplicateIncoming } from './deduplicate.mjs';
 
 function cleanRecord(input, columns) {
@@ -33,7 +33,7 @@ function nextIdFactory(records) {
   };
 }
 
-function mergeIntoMaster(masterRecords, incomingRecords, columns, fileName) {
+function mergeIntoMaster(masterRecords, incomingRecords, columns) {
   const existing = masterRecords.map((record) => ({ fileName: 'confirmed.csv', record }));
   const result = deduplicateIncoming(incomingRecords, existing, columns, { warn: () => {} });
   return {
@@ -41,8 +41,7 @@ function mergeIntoMaster(masterRecords, incomingRecords, columns, fileName) {
       ...result.workingExisting.map((entry) => entry.record),
       ...result.accepted
     ],
-    stats: result.stats,
-    source: fileName
+    stats: result.stats
   };
 }
 
@@ -78,14 +77,13 @@ export function syncConfirmedMaster({
     .map((entry) => entry?.record)
     .filter(Boolean)
     .map((record) => cleanRecord(record, columns));
-  const publicMerge = mergeIntoMaster(master, publicRecords, columns, 'public');
+  const publicMerge = mergeIntoMaster(master, publicRecords, columns);
   master = publicMerge.records;
 
   const identityMerge = mergeIntoMaster(
     master,
     (Array.isArray(identityRecords) ? identityRecords : []).map((record) => cleanRecord(record, columns)),
-    columns,
-    'identity'
+    columns
   );
   master = identityMerge.records;
 
@@ -94,7 +92,7 @@ export function syncConfirmedMaster({
     if (!record.id) record.id = nextId();
   }
 
-  // Re-run ID validation after assignment and preserve deterministic insertion order.
+  // Re-run ID validation after assignment.
   nextIdFactory(master);
   return {
     records: master,
@@ -103,10 +101,21 @@ export function syncConfirmedMaster({
   };
 }
 
+function findConfirmedRecord(master, record) {
+  const exact = master.filter((confirmed) => hasExactExternalId(confirmed, record));
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1) throw new Error(`作品確定CSVで外部IDが重複しています: ${record?.title_ja || '(empty)'}`);
+
+  const composite = master.filter((confirmed) => isCompositeDuplicateCandidate(confirmed, record));
+  if (composite.length === 1) return composite[0];
+  if (composite.length > 1) throw new Error(`作品確定CSVで公開候補の対応先が一意ではありません: ${record?.title_ja || '(empty)'}`);
+  return null;
+}
+
 export function attachConfirmedIds(records, confirmedRecords) {
   const master = Array.isArray(confirmedRecords) ? confirmedRecords : [];
   return (Array.isArray(records) ? records : []).map((record) => {
-    const match = master.find((confirmed) => hasExactExternalId(confirmed, record));
+    const match = findConfirmedRecord(master, record);
     if (!match?.id) {
       throw new Error(`公開候補に対応する作品確定CSVのIDがありません: ${record?.title_ja || '(empty)'}`);
     }
