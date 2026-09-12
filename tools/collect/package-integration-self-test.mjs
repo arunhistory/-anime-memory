@@ -16,8 +16,8 @@ fs.copyFileSync(path.join(root, 'wasm-src', 'shared', 'schema.hpp'), path.join(t
 
 function candidate(index) {
   const title = `統合試験作品${index + 1}`;
-  const sourceA = `https://source-a.example.test/work/${index + 1}`;
-  const sourceB = `https://source-b.example.test/work/${index + 1}`;
+  const sourceA = `https://source-a.example.net/work/${index + 1}`;
+  const sourceB = `https://source-b.example.org/work/${index + 1}`;
   const facts = {
     title_ja: title,
     media_type: 'TV',
@@ -35,7 +35,7 @@ function candidate(index) {
     broadcast_networks: 'TOKYO MX',
     music: `音楽${index + 1}`,
     music_production: `音楽制作${index + 1}`,
-    official_url: `https://official.example.test/work/${index + 1}`
+    official_url: `https://official.example.jp/work/${index + 1}`
   };
   const evidence = [];
   for (const [field, value] of Object.entries(facts)) {
