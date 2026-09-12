@@ -26,6 +26,8 @@ const legacyLoaded = loadDiscoveryState(statePath);
 assert.equal(legacyLoaded.version, 1);
 assert.equal(legacyLoaded.candidates[0].title, '旧作品');
 assert.equal(legacyLoaded.frontier[0].url, 'https://legacy.example.test/start');
+assert.deepEqual(legacyLoaded.researchFrontier, []);
+assert.deepEqual(legacyLoaded.webSearchIndex, []);
 
 const state = emptyDiscoveryState();
 const count = 20001;
@@ -63,6 +65,22 @@ for (let index = 0; index < count; index += 1) {
   });
   state.calibrationSeen.push(index.toString(16).padStart(32, '0'));
 }
+state.researchFrontier.push({
+  url: 'https://research.example.test/work',
+  priority: 500,
+  depth: 0,
+  discoveredFrom: '',
+  candidateHints: ['深掘り作品']
+});
+state.webSearchIndex.push({
+  url: 'https://index.example.test/work',
+  metadataKey: '深掘り作品主題歌',
+  subjectKey: '深掘り作品',
+  candidateKeys: ['深掘り作品'],
+  topics: ['music'],
+  sourceFamily: 'example.test',
+  indexedAt: '2026-09-11T00:00:00.000Z'
+});
 
 const operationCount = 20001;
 const trustCount = 50001;
@@ -90,7 +108,7 @@ for (let index = 0; index < trustCount; index += 1) {
 }
 
 const firstManifest = saveDiscoveryState(statePath, state);
-assert.equal(firstManifest.version, 2);
+assert.equal(firstManifest.version, 3);
 assert.equal(firstManifest.storage, 'sharded-v1');
 assert.match(firstManifest.revision, /^r-\d{14}-[a-f0-9]{12}$/);
 assert.equal(firstManifest.researchStrategy.version, 1);
@@ -108,6 +126,10 @@ for (const kind of ['frontier', 'visited', 'documents', 'candidates', 'calibrati
     assert.ok(fs.existsSync(path.join(crawlerDir, descriptor.file)));
   }
 }
+assert.equal(firstManifest.counts.researchFrontier, 1);
+assert.equal(firstManifest.counts.webSearchIndex, 1);
+assert.ok(Array.isArray(firstManifest.shards.researchFrontier));
+assert.ok(Array.isArray(firstManifest.shards.webSearchIndex));
 assert.equal(firstManifest.counts.researchOperations, operationCount);
 assert.equal(firstManifest.counts.researchTrust, trustCount);
 assert.ok(firstManifest.shards.researchOperations.length >= 1);
@@ -119,6 +141,10 @@ assert.equal(fs.readdirSync(path.join(crawlerDir, 'state-shards')).some((name) =
 const roundTrip = loadDiscoveryState(statePath);
 assert.equal(roundTrip.version, 1, 'callers keep the existing in-memory state contract');
 assert.equal(roundTrip.frontier.length, count);
+assert.equal(roundTrip.researchFrontier.length, 1);
+assert.equal(roundTrip.webSearchIndex.length, 1);
+assert.equal(roundTrip.researchFrontier[0].url, 'https://research.example.test/work');
+assert.equal(roundTrip.webSearchIndex[0].url, 'https://index.example.test/work');
 assert.equal(roundTrip.visited.length, count);
 assert.equal(roundTrip.documents.length, count, 'document metadata over the old 20k cap must survive');
 assert.equal(roundTrip.candidates.length, count);
@@ -157,6 +183,8 @@ fs.rmSync(temp, { recursive: true, force: true });
 console.log('Crawler state sharding self-test: PASS');
 console.log('legacy version-1 load compatibility: PASS');
 console.log('20k+ frontier/visited/documents/candidates/calibration state: PRESERVED');
+console.log('research frontier state: PRESERVED');
+console.log('own web-search index state: PRESERVED');
 console.log('20k+ research operations: PRESERVED');
 console.log('50k+ research trust entries: PRESERVED');
 console.log('4 MiB compact shard target: PASS');
