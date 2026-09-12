@@ -1,105 +1,105 @@
 {
   "version": 3,
   "storage": "sharded-v1",
-  "revision": "r-20260912102017-ada3d305028b",
+  "revision": "r-20260912102341-2376996e54f8",
   "shardTargetBytes": 4194304,
   "counts": {
-    "frontier": 20797,
-    "researchFrontier": 400,
-    "visited": 3625,
-    "documents": 2345,
-    "candidates": 5702,
-    "webSearchIndex": 2479,
+    "frontier": 21458,
+    "researchFrontier": 401,
+    "visited": 3725,
+    "documents": 2432,
+    "candidates": 5929,
+    "webSearchIndex": 2567,
     "calibrationSeen": 0,
-    "researchOperations": 384,
+    "researchOperations": 388,
     "researchTrust": 0
   },
   "shards": {
     "frontier": [
       {
         "file": "state-shards/frontier-00000.json",
-        "count": 10993,
-        "bytes": 4193943,
-        "sha256": "4aabd3284a3276639dbe16b436156ccef717659020c128ad602583b880959dfe"
+        "count": 11327,
+        "bytes": 4193302,
+        "sha256": "a7bb1edd97b6a1cb436cc019a96b4b68c955492ea94c06c31b21cff111b919c2"
       },
       {
         "file": "state-shards/frontier-00001.json",
-        "count": 5544,
-        "bytes": 4193592,
-        "sha256": "a05ef3ee86f8b6037a48c42640e6cceb31a6515945afa9003b9a04755659c671"
+        "count": 5588,
+        "bytes": 4194258,
+        "sha256": "5e462aebad074ace40dc97c051b9e57724f5dfc2c68679f534efea2104e68d41"
       },
       {
         "file": "state-shards/frontier-00002.json",
-        "count": 4260,
-        "bytes": 2331506,
-        "sha256": "ba597c792889bbbcd2dbf1f01691691a133687799ef2576e95674921e6522c01"
+        "count": 4543,
+        "bytes": 2636994,
+        "sha256": "10177064ae0f86fcfac763735d30df06f506ebaf2a7c9203d54efadca7badfdf"
       }
     ],
     "researchFrontier": [
       {
         "file": "state-shards/researchFrontier-00000.json",
-        "count": 400,
-        "bytes": 153003,
-        "sha256": "60589e6059974513c2b6113e7ad634aa1e9153249b330d2899d69c5101854315"
+        "count": 401,
+        "bytes": 153121,
+        "sha256": "9decab434e2ccfeb73500048afec8ac43d0245fcf83c6788e3a82b8205bb9629"
       }
     ],
     "visited": [
       {
         "file": "state-shards/visited-00000.json",
-        "count": 3625,
-        "bytes": 242877,
-        "sha256": "5807220027796ff47ff6ac2f36461a04efb7a9185685f726165270b695e61ebb"
+        "count": 3725,
+        "bytes": 249577,
+        "sha256": "6deae8e826b5c6109df1bc3715c552859014de8e6050cd2741c469985433c914"
       }
     ],
     "documents": [
       {
         "file": "state-shards/documents-00000.json",
-        "count": 2345,
-        "bytes": 778284,
-        "sha256": "8ac1466fe72c4692d032e55b8b984e758b93b8ac83b28318ad89089a1dc62bb2"
+        "count": 2432,
+        "bytes": 813690,
+        "sha256": "9b7640f97f4aee01449521ff1f4c8d3223bdaf294b761f17e862b986730ea8e0"
       }
     ],
     "candidates": [
       {
         "file": "state-shards/candidates-00000.json",
         "count": 1703,
-        "bytes": 4030710,
-        "sha256": "4d047b9cdd95f8ec0698d1168c4944c517b3319aaae5eaa6e0de3a70fa31bece"
+        "bytes": 4032023,
+        "sha256": "8fd612eab4838922749abe04947c7f02f345a234ddc6517c832cf47bfefa4751"
       },
       {
         "file": "state-shards/candidates-00001.json",
-        "count": 1795,
-        "bytes": 4193706,
-        "sha256": "1a2a188bad9f51b98acbc00621958ec38c62bb9b9106f1210f8b24e09ef4b171"
+        "count": 1794,
+        "bytes": 4193825,
+        "sha256": "5332fb7d584ab0be0dc51bc9ec039ace06c569758092b40bf7632f12c0d3b588"
       },
       {
         "file": "state-shards/candidates-00002.json",
-        "count": 1943,
-        "bytes": 4193957,
-        "sha256": "74d0c1cab242d5d85e1680f29d8961681e47e8f5316ad67102628f0938671137"
+        "count": 1938,
+        "bytes": 4192700,
+        "sha256": "7d07611dd0efc301a7dff3e6bb18c04d60615e77569193d26706ceef0b8ec0c2"
       },
       {
         "file": "state-shards/candidates-00003.json",
-        "count": 261,
-        "bytes": 511373,
-        "sha256": "12cb088444c953a2160425361869dbf418372414442e06d7c353b0054f96b0bd"
+        "count": 494,
+        "bytes": 1094554,
+        "sha256": "63259e3ec6a65deec7b3a10873e2c6987950b2f8285416505cb5428a41d127ba"
       }
     ],
     "webSearchIndex": [
       {
         "file": "state-shards/webSearchIndex-00000.json",
-        "count": 2479,
-        "bytes": 1132763,
-        "sha256": "aa6a7de782fff6dae8eacf7c912ac1eee0e87ea67973841f943f0b29b826a1c6"
+        "count": 2567,
+        "bytes": 1182496,
+        "sha256": "f49f0eb73191f31dc7350b25393b29bc88ae2ab8e4848fbc36cdd65f198c36ff"
       }
     ],
     "calibrationSeen": [],
     "researchOperations": [
       {
         "file": "state-shards/researchOperations-00000.json",
-        "count": 384,
-        "bytes": 63066,
-        "sha256": "df6987182ea48ee7c305cc55a56cfb8da9a22a0966cc90065c55e0a057b36cec"
+        "count": 388,
+        "bytes": 63711,
+        "sha256": "d6a2f0e2d83c590d81587901922b38cf15340cd8bd6be0c5ebd0f2a6d7380693"
       }
     ],
     "researchTrust": []
@@ -107,14 +107,14 @@
   "researchSearchCursor": 0,
   "researchStrategy": {
     "version": 1,
-    "updatedAt": "2026-09-12T10:18:32.582Z"
+    "updatedAt": "2026-09-12T10:21:49.865Z"
   },
   "wikidataBootstrap": {
     "version": 1,
-    "offset": 6200,
+    "offset": 6400,
     "completed": false,
-    "retryAfter": "2026-09-12T10:19:05.721Z",
-    "lastRunAt": "2026-09-12T10:15:34.718Z"
+    "retryAfter": "",
+    "lastRunAt": "2026-09-12T10:21:27.569Z"
   },
   "wikidataSeriesExpansion": {
     "version": 1,
@@ -123,5 +123,5 @@
     "retryAfter": "",
     "lastRunAt": ""
   },
-  "updatedAt": "2026-09-12T10:20:16.690Z"
+  "updatedAt": "2026-09-12T10:23:40.280Z"
 }
