@@ -24,7 +24,8 @@ const records = Array.from({ length: 501 }, (_, index) => ({
   external_ids: `fixture::${index + 1}`,
   updated_at: '2026-09-10'
 }));
-saveInitialPending(path.join(tempRoot, 'crawler', 'pending-initial.json'), records, columns, new Date('2026-09-10T00:00:00Z'));
+const confirmedPath = path.join(tempRoot, 'confirmed', 'confirmed.csv');
+saveInitialPending(confirmedPath, records, columns);
 
 function runCollector() {
   return spawnSync(process.execPath, [path.join(root, 'tools', 'collect', 'run.mjs'), '--input', 'discovery', '--mode', 'initial', '--gemini', 'false'], {
@@ -38,14 +39,18 @@ assert.equal(first.status, 0, first.stderr || first.stdout);
 const csvPath = path.join(tempRoot, 'data', 'initial-001.csv');
 const csvRecords = rowsToRecords(parseCsv(readUtf8Strict(csvPath)), columns);
 assert.equal(csvRecords.length, 500);
-assert.equal(loadInitialPending(path.join(tempRoot, 'crawler', 'pending-initial.json'), columns).records.length, 1);
+assert.equal(loadInitialPending(confirmedPath, columns).records.length, 1, 'one confirmed work must remain outside the public 500-work package');
 assert.equal(readUtf8Strict(path.join(tempRoot, 'data', 'manifest.csv')), 'file_name\r\ninitial-001.csv\r\n');
+assert.equal(fs.existsSync(path.join(tempRoot, 'crawler', 'pending-initial.json')), false, 'JSON pending state must not be recreated');
 
 const second = runCollector();
 assert.equal(second.status, 0, second.stderr || second.stdout);
 assert.equal(fs.existsSync(path.join(tempRoot, 'data', 'initial-002.csv')), false);
+assert.equal(loadInitialPending(confirmedPath, columns).records.length, 1);
 
 fs.rmSync(tempRoot, { recursive: true, force: true });
-console.log('Initial package integration self-test: PASS');
-console.log('501 pending -> 500 CSV + 1 pending: PASS');
-console.log('manifest connection: PASS');
+console.log('Confirmed/public package integration self-test: PASS');
+console.log('501 confirmed -> 500 public + 1 confirmed staging: PASS');
+console.log('confirmed folder and public data folder separation: PASS');
+console.log('JSON pending state: REMOVED');
+console.log('public manifest connection: PASS');
