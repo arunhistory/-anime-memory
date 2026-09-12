@@ -3,6 +3,7 @@ import path from 'node:path';
 import { PoliteFetcher } from './fetch-page.mjs';
 import { IndexedFetcher } from './indexed-fetcher.mjs';
 import { runDiscovery } from './engine.mjs';
+import { runDeepResearch } from './deep-research-engine.mjs';
 import { loadDiscoveryState, saveDiscoveryState, seedFrontier } from './state.mjs';
 import { loadKnownWorkWasmSearch } from './known-work-wasm.mjs';
 import { normalizeUrl } from './url.mjs';
@@ -10,7 +11,6 @@ import { bootstrapFromWikidata } from './wikidata-bootstrap.mjs';
 import { expandSeriesFromWikidata } from './wikidata-series-expansion.mjs';
 import { buildReadinessReport } from './readiness-report.mjs';
 import { prepareResearchFrontierFromOwnIndex } from './research-search.mjs';
-import { promoteResearchFrontierForCrawl, restoreUnprocessedResearchFrontier } from './research-frontier.mjs';
 import { refreshWebSearchIndexFromDocuments } from './web-search-index.mjs';
 
 function parseArgs(argv) {
@@ -81,6 +81,7 @@ function emptyDiscoveryStats() {
     newLinks: 0,
     robotsSkipped: 0,
     otherSkipped: 0,
+    skipReasons: {},
     hostFiltered: 0,
     failed: 0,
     sitemapLinks: 0,
@@ -94,12 +95,31 @@ function emptyDiscoveryStats() {
   };
 }
 
+function emptyDeepResearchStats(frontierLength = 0) {
+  return {
+    attempted: 0,
+    fetched: 0,
+    matchedPages: 0,
+    candidatesMatched: 0,
+    evidenceClaims: 0,
+    researchLinksQueued: 0,
+    discoveryLinksQueued: 0,
+    retryQueued: 0,
+    permanentSkipped: 0,
+    failed: 0,
+    skipReasons: {},
+    startFrontier: frontierLength,
+    remainingFrontier: frontierLength
+  };
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const root = process.cwd();
   const statePath = path.resolve(root, String(args.state || 'crawler/state.json'));
   const seedPath = path.resolve(root, String(args.seeds || 'crawler/seeds.txt'));
   const maxPages = validateNumber(args['max-pages'], '--max-pages', 1, 2000, 200);
+  const maxResearchPages = validateNumber(args['max-research-pages'], '--max-research-pages', 1, 2000, 100);
   const maxDepth = validateNumber(args['max-depth'], '--max-depth', 0, 12, 5);
   const perHostLimit = validateNumber(args['per-host-limit'], '--per-host-limit', 1, 200, 40);
   const dryRun = String(args['dry-run'] || '').toLowerCase() === 'true' || args['dry-run'] === true;
@@ -155,22 +175,23 @@ async function main() {
     maxQueriesPerCandidate: validateNumber(process.env.RESEARCH_SEARCH_MAX_QUERIES, 'RESEARCH_SEARCH_MAX_QUERIES', 1, 64, 12),
     resultsPerQuery: validateNumber(process.env.RESEARCH_SEARCH_RESULTS_PER_QUERY, 'RESEARCH_SEARCH_RESULTS_PER_QUERY', 1, 100, 20)
   };
-  const ownSearch = prepareResearchFrontierFromOwnIndex(state, searchBatchOptions);
-  const promotion = promoteResearchFrontierForCrawl(state);
+  const ownSearchBeforeDiscovery = prepareResearchFrontierFromOwnIndex(state, searchBatchOptions);
 
-  let knownWorkSearch = { fileCount: 0 };
-  let result = { state, stats: emptyDiscoveryStats() };
-  if (state.frontier.length > 0) {
-    knownWorkSearch = await loadKnownWorkWasmSearch({ root });
-    const baseFetcher = new PoliteFetcher({
+  const baseFetcher = (state.frontier.length > 0 || state.researchFrontier.length > 0)
+    ? new PoliteFetcher({
       timeoutMs: process.env.DISCOVERY_TIMEOUT_MS || 12000,
       maxBytes: process.env.DISCOVERY_MAX_BYTES || 1048576,
       minDelayMs: process.env.DISCOVERY_MIN_DELAY_MS || 500,
       allowedHosts
-    });
-    const fetcher = new IndexedFetcher(baseFetcher, state);
+    })
+    : null;
+  const fetcher = baseFetcher ? new IndexedFetcher(baseFetcher, state) : null;
 
-    result = await runDiscovery({
+  let knownWorkSearch = { fileCount: 0 };
+  let discovery = { state, stats: emptyDiscoveryStats() };
+  if (state.frontier.length > 0 && fetcher) {
+    knownWorkSearch = await loadKnownWorkWasmSearch({ root });
+    discovery = await runDiscovery({
       state,
       fetcher,
       knownWorkSearch,
@@ -180,10 +201,25 @@ async function main() {
     });
   }
 
-  result.state.webSearchIndex = refreshWebSearchIndexFromDocuments(result.state.webSearchIndex, result.state.documents);
-  const restoredResearchUrls = restoreUnprocessedResearchFrontier(result.state);
-  const nextOwnSearch = prepareResearchFrontierFromOwnIndex(result.state, searchBatchOptions);
-  const researchFrontierRemaining = result.state.researchFrontier.length;
+  discovery.state.webSearchIndex = refreshWebSearchIndexFromDocuments(discovery.state.webSearchIndex, discovery.state.documents);
+  const ownSearchAfterDiscovery = prepareResearchFrontierFromOwnIndex(discovery.state, searchBatchOptions);
+
+  let deepResearch = {
+    state: discovery.state,
+    stats: emptyDeepResearchStats(discovery.state.researchFrontier.length)
+  };
+  if (discovery.state.researchFrontier.length > 0 && fetcher) {
+    deepResearch = await runDeepResearch({
+      state: discovery.state,
+      fetcher,
+      maxPages: maxResearchPages,
+      perHostLimit
+    });
+  }
+
+  deepResearch.state.webSearchIndex = refreshWebSearchIndexFromDocuments(deepResearch.state.webSearchIndex, deepResearch.state.documents);
+  const nextOwnSearch = prepareResearchFrontierFromOwnIndex(deepResearch.state, searchBatchOptions);
+  const result = { state: deepResearch.state, stats: discovery.stats };
 
   if (!dryRun) saveDiscoveryState(statePath, result.state);
   const changed = before !== JSON.stringify(result.state);
@@ -196,19 +232,30 @@ async function main() {
   console.log(`allowed hosts: ${allowedHosts.length ? allowedHosts.join(',') : 'unrestricted-public-web'}`);
   console.log(`registered CSV files loaded into search.wasm: ${knownWorkSearch.fileCount}`);
   console.log(`own web-search index pages: ${result.state.webSearchIndex.length}`);
-  console.log(`own deep-search candidates considered before crawl: ${ownSearch.candidatesConsidered}`);
-  console.log(`own deep-search candidates scanned before crawl: ${ownSearch.candidatesScanned}`);
-  console.log(`own deep-search queries before crawl: ${ownSearch.searches}`);
-  console.log(`own deep-search URLs queued before crawl: ${ownSearch.urlsQueued}`);
-  console.log(`own deep-search URLs promoted this batch: ${promotion.promoted}`);
-  console.log(`own deep-search URLs merged into existing crawl frontier: ${promotion.merged}`);
-  console.log(`own deep-search visited URLs reopened for verification: ${promotion.revisitCount}`);
-  console.log(`unprocessed research URLs restored: ${restoredResearchUrls}`);
-  console.log(`own deep-search candidates considered after crawl: ${nextOwnSearch.candidatesConsidered}`);
-  console.log(`own deep-search queries after crawl: ${nextOwnSearch.searches}`);
+  console.log(`own deep-search candidates considered before discovery: ${ownSearchBeforeDiscovery.candidatesConsidered}`);
+  console.log(`own deep-search candidates scanned before discovery: ${ownSearchBeforeDiscovery.candidatesScanned}`);
+  console.log(`own deep-search queries before discovery: ${ownSearchBeforeDiscovery.searches}`);
+  console.log(`own deep-search URLs queued before discovery: ${ownSearchBeforeDiscovery.urlsQueued}`);
+  console.log(`own deep-search candidates considered after discovery: ${ownSearchAfterDiscovery.candidatesConsidered}`);
+  console.log(`own deep-search queries after discovery: ${ownSearchAfterDiscovery.searches}`);
+  console.log(`own deep-search URLs queued after discovery: ${ownSearchAfterDiscovery.urlsQueued}`);
+  console.log(`deep-research frontier at execution start: ${deepResearch.stats.startFrontier}`);
+  console.log(`deep-research attempted: ${deepResearch.stats.attempted}`);
+  console.log(`deep-research fetched: ${deepResearch.stats.fetched}`);
+  console.log(`deep-research matched pages: ${deepResearch.stats.matchedPages}`);
+  console.log(`deep-research candidate matches: ${deepResearch.stats.candidatesMatched}`);
+  console.log(`deep-research evidence claims: ${deepResearch.stats.evidenceClaims}`);
+  console.log(`deep-research same-work links queued: ${deepResearch.stats.researchLinksQueued}`);
+  console.log(`deep-research distinct-work links routed to discovery: ${deepResearch.stats.discoveryLinksQueued}`);
+  console.log(`deep-research retry queued: ${deepResearch.stats.retryQueued}`);
+  console.log(`deep-research permanently skipped: ${deepResearch.stats.permanentSkipped}`);
+  console.log(`deep-research failed: ${deepResearch.stats.failed}`);
+  console.log(`deep-research skip reasons: ${JSON.stringify(deepResearch.stats.skipReasons)}`);
+  console.log(`own deep-search candidates considered after research: ${nextOwnSearch.candidatesConsidered}`);
+  console.log(`own deep-search queries after research: ${nextOwnSearch.searches}`);
   console.log(`own deep-search URLs queued for next batch: ${nextOwnSearch.urlsQueued}`);
   console.log(`own deep-search next candidate cursor: ${nextOwnSearch.nextCursor}`);
-  console.log(`own deep-search frontier remaining: ${researchFrontierRemaining}`);
+  console.log(`own deep-search frontier remaining: ${result.state.researchFrontier.length}`);
   console.log(`Wikidata bootstrap rows: ${wikidata.fetched}`);
   console.log(`Wikidata bootstrap candidates added: ${wikidata.candidatesAdded}`);
   console.log(`Wikidata bootstrap evidence added: ${wikidata.evidenceAdded}`);
@@ -244,6 +291,7 @@ async function main() {
   console.log(`host-filtered deferred: ${result.stats.hostFiltered}`);
   console.log(`robots skipped: ${result.stats.robotsSkipped}`);
   console.log(`other skipped: ${result.stats.otherSkipped}`);
+  console.log(`discovery skip reasons: ${JSON.stringify(result.stats.skipReasons || {})}`);
   console.log(`failed: ${result.stats.failed}`);
   console.log(`frontier remaining: ${result.state.frontier.length}`);
   console.log(`known candidates: ${result.state.candidates.length}`);
@@ -258,7 +306,9 @@ async function main() {
   if (result.stats.attempted === 0) console.log('Web frontier empty: bootstrap/series/search-index progress persisted without treating this batch as an error');
   console.log('Existing-work lookup: search.wasm + enrichment reuse');
   console.log('Series-first research: FULL-SERIES PRE-EXPANSION ENABLED');
-  console.log('Web deep-search engine: BUILT-IN CRAWL INDEX (NO EXTERNAL SEARCH API)');
+  console.log('Web discovery engine: DISCOVERY FRONTIER ONLY');
+  console.log('Web deep-search engine: DEDICATED RESEARCH FRONTIER (NO DISCOVERY QUEUE MERGE)');
+  console.log('External search API: NONE');
   console.log('Gemini: DISCONNECTED');
 }
 

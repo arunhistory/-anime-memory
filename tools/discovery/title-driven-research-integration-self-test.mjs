@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { runDiscovery } from './engine.mjs';
+import { runDeepResearch } from './deep-research-engine.mjs';
 import { IndexedFetcher } from './indexed-fetcher.mjs';
-import { promoteResearchFrontierForCrawl } from './research-frontier.mjs';
 import { prepareResearchFrontierFromOwnIndex } from './research-search.mjs';
 
 function confirmed(value) {
@@ -90,11 +90,11 @@ assert.equal(discovery.state.webSearchIndex.length, 2, 'discovery crawl must pop
 assert.deepEqual(
   evidenceSignatures(discovery.state.candidates[0].evidence),
   evidenceBeforeDiscovery,
-  'ordinary crawl must not turn search-index metadata into Evidence for the confirmed work'
+  'ordinary discovery crawl must not use generic indexed pages as deep-research Evidence'
 );
 assert.ok(
   discovery.state.candidates[0].evidence.every((item) => !String(item.sourceUrl || '').startsWith('https://source-')),
-  'generic pages must not contribute work Evidence until the research frontier explicitly re-fetches them'
+  'generic pages must not contribute work Evidence until dedicated deep research re-fetches them'
 );
 assert.ok(discovery.state.webSearchIndex.every((entry) => entry.candidateKeys.includes('星の旅')), 'confirmed-title matcher must make generic work-name pages searchable');
 
@@ -104,25 +104,24 @@ const searchStats = prepareResearchFrontierFromOwnIndex(discovery.state, {
   resultsPerQuery: 20
 });
 assert.equal(searchStats.candidatesConsidered, 1);
-assert.equal(discovery.state.researchFrontier.length, 2, 'own search must return the two independent source URLs to research frontier');
-
-const promotion = promoteResearchFrontierForCrawl(discovery.state);
-assert.equal(promotion.revisitCount, 2, 'research must reopen already-discovered URLs for body verification');
-assert.equal(discovery.state.researchFrontier.length, 0);
-assert.equal(discovery.state.frontier.filter((entry) => entry.researchSearch === true).length, 2);
+assert.equal(discovery.state.researchFrontier.length, 2, 'own search must return the two independent source URLs to the dedicated research frontier');
+const discoveryFrontierBeforeResearch = JSON.stringify(discovery.state.frontier);
 
 const researchFetcher = new IndexedFetcher(rawFetcher, discovery.state, { now: () => '2026-09-12T00:02:00.000Z' });
-const researched = await runDiscovery({
+const researched = await runDeepResearch({
   state: discovery.state,
   fetcher: researchFetcher,
   maxPages: 10,
-  maxDepth: 2,
   perHostLimit: 10,
   now: '2026-09-12T00:02:00.000Z'
 });
 const researchedCandidate = researched.state.candidates.find((item) => item.title === title);
 assert.ok(researchedCandidate);
-assert.ok(researched.stats.verificationPages >= 2, 'research candidate hints must drive page-body verification');
+assert.equal(researched.stats.attempted, 2, 'deep research must receive its own page budget');
+assert.equal(researched.stats.fetched, 2, 'deep research must fetch research URLs directly');
+assert.equal(researched.stats.matchedPages, 2, 'both research pages must be matched to the confirmed work');
+assert.equal(researched.state.researchFrontier.length, 0, 'processed research URLs must leave the research frontier');
+assert.equal(JSON.stringify(researched.state.frontier), discoveryFrontierBeforeResearch, 'deep research must not merge its queue into the discovery frontier');
 assert.equal(researchedCandidate.facts.director?.status, 'confirmed');
 assert.equal(researchedCandidate.facts.director?.value, '山田太郎');
 assert.equal(researchedCandidate.facts.music?.status, 'confirmed');
@@ -132,9 +131,36 @@ assert.equal(researchedCandidate.facts.animation_studio?.value, 'Studio Star');
 assert.ok(researchedCandidate.sources.includes('https://source-a.example.net/staff'));
 assert.ok(researchedCandidate.sources.includes('https://source-b.example.org/production'));
 
+const boundedState = structuredClone(researched.state);
+boundedState.researchFrontier = [0, 1, 2].map((index) => ({
+  url: `https://missing-${index}.example.net/research`,
+  priority: 300 - index,
+  depth: 0,
+  discoveredFrom: '',
+  candidateHints: [title]
+}));
+const skippedFetcher = {
+  isHostAllowed() { return true; },
+  async fetchPage() { return { ok: false, skipped: true, reason: 'http-404' }; }
+};
+const bounded = await runDeepResearch({
+  state: boundedState,
+  fetcher: skippedFetcher,
+  maxPages: 1,
+  perHostLimit: 10,
+  now: '2026-09-12T00:03:00.000Z'
+});
+assert.equal(bounded.stats.attempted, 1, 'deep-research budget must be independent and exact');
+assert.equal(bounded.stats.permanentSkipped, 1);
+assert.equal(bounded.stats.skipReasons['http-404'], 1, 'skip reasons must remain visible instead of collapsing into other-skipped');
+assert.equal(bounded.state.researchFrontier.length, 2, 'only the attempted permanent skip may leave the research queue');
+
 console.log('Title-driven research integration self-test: PASS');
 console.log('crawler -> own Web index: PASS');
 console.log('confirmed title -> own-index URL search: PASS');
 console.log('search result metadata -> Evidence: BLOCKED');
-console.log('research frontier -> page re-fetch: PASS');
+console.log('discovery frontier / research frontier execution: SEPARATE');
+console.log('deep-research independent page budget: PASS');
+console.log('research frontier consumption: PASS');
+console.log('skip reason visibility: PASS');
 console.log('two independent source families -> confirmed facts: PASS');

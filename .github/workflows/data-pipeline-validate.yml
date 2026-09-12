@@ -133,6 +133,8 @@ jobs:
           node --check tools/discovery/known-work-wasm-self-test.mjs
           node --check tools/discovery/known-work-skip-self-test.mjs
           node --check tools/discovery/engine.mjs
+          node --check tools/discovery/deep-research-engine.mjs
+          node --check tools/discovery/title-driven-research-integration-self-test.mjs
           node --check tools/discovery/run.mjs
           node --check tools/discovery/self-test.mjs
           node --check tools/discovery/verification-link-self-test.mjs
