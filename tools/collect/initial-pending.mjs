@@ -1,13 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { parseCsv, readUtf8Strict, recordsToCsv, rowsToRecords } from '../csv/csv.mjs';
 
 export const INITIAL_CSV_RECORD_LIMIT = 500;
 
 function cleanRecord(input, columns) {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('initial-pending-record-invalid');
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('confirmed-record-invalid');
   const record = Object.fromEntries(columns.map((column) => [column, String(input[column] || '')]));
   record.id = '';
-  if (!record.title_ja || !record.media_type) throw new Error('initial-pending-required-field-missing');
+  if (!record.title_ja || !record.media_type) throw new Error('confirmed-required-field-missing');
   return record;
 }
 
@@ -31,32 +32,19 @@ export function takeInitialPackage(records, { requireSynopsis = false } = {}) {
 
 export function loadInitialPending(filePath, columns) {
   if (!fs.existsSync(filePath)) return emptyInitialPending();
-  const input = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  if (!input || input.version !== 1 || !Array.isArray(input.records)) throw new Error('initial-pending-state-invalid');
-  return {
-    version: 1,
-    records: input.records.map((record) => cleanRecord(record, columns)),
-    updatedAt: typeof input.updatedAt === 'string' ? input.updatedAt : ''
-  };
+  const records = rowsToRecords(parseCsv(readUtf8Strict(filePath)), columns).map((record) => cleanRecord(record, columns));
+  return { version: 1, records, updatedAt: '' };
 }
 
-export function saveInitialPending(filePath, records, columns, now = new Date()) {
-  if (!Array.isArray(records)) throw new Error('initial-pending-state-invalid');
+export function saveInitialPending(filePath, records, columns) {
+  if (!Array.isArray(records)) throw new Error('confirmed-state-invalid');
   const cleanRecords = records.map((record) => cleanRecord(record, columns));
-  if (fs.existsSync(filePath)) {
-    const current = loadInitialPending(filePath, columns);
-    if (JSON.stringify(current.records) === JSON.stringify(cleanRecords)) return false;
-  } else if (cleanRecords.length === 0) {
-    return false;
-  }
-  const output = {
-    version: 1,
-    records: cleanRecords,
-    updatedAt: now.toISOString()
-  };
+  const nextText = recordsToCsv(cleanRecords, columns);
+  if (fs.existsSync(filePath) && readUtf8Strict(filePath) === nextText) return false;
+
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const tempPath = `${filePath}.tmp-${process.pid}`;
-  fs.writeFileSync(tempPath, `${JSON.stringify(output, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  fs.writeFileSync(tempPath, nextText, { encoding: 'utf8', mode: 0o600 });
   fs.renameSync(tempPath, filePath);
   return true;
 }
